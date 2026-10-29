@@ -51,6 +51,16 @@ acceptance here before building.
   `/home/tia/_DEV/AI/manifold/.dev/ISSUES.md` gains MAN-1 (hub converger cannot
   finalize). Documentation only — no manifold code, config, database or service was
   touched.
+- **2026-10-29 — unit C authorized: Pi integration.** Owner authorized directly; lead
+  records and verifies. Scope: `src/types/pi.ts`, `src/pi/`, `tests/pi/`,
+  `docs/pi-integration-eeacf406/`. Acceptance: one Pi tool `praxis` starts, submits and
+  reads through the accepted Slice 0 engine; a capability the current step does not grant
+  is denied before dispatch with a typed code; the parent receives the six-key result plus
+  a step descriptor and never the event log or transcript; `src/runner`, `src/store`,
+  `src/types/schema.ts`, `src/types/errors.ts`, `src/cli.ts` and `.pi/praxis/config.json`
+  are unchanged. Not authorized: Pi-wide tool denial, OS sandbox, isolation or trusted
+  identity claims — gates #1, #2 and #3 stay open and the recorded claim is routed-call
+  denial only.
 
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a

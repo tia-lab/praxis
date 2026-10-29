@@ -17,7 +17,7 @@ nothing; the caller receives a bounded result with no transcript. Nothing runs i
 | R2 | Creating an instance pins the config digest and the actor; a repeated request id with a different payload is rejected. | silently creating a second instance or replaying a changed payload as success | two create calls, compare |
 | R3 | Events are append-only; the instance row is derived current state. | any edit or deletion of history | schema and code review |
 | R4 | Phase A writes artifact v1 as canonical JSON with a sha256 digest. | non-canonical bytes, unstable digest across key order | two key orders → identical digest |
-| R5 | The gate is a deterministic predicate (`schema-valid` + nonce present), recorded as a verdict event. | accepting an artifact that fails the predicate | negative artifact run |
+| R5 | The gate is a deterministic predicate, recorded as a verdict event: the declared schema **name** matches and the nonce (and `derivedFrom` for the second step) is present. It does not validate the artifact body in this slice. | accepting an artifact that fails the predicate | negative artifact run |
 | R6 | Process death after A; resume loads instance and accepted artifact from the store only. | resume guessing a step, losing the artifact or duplicating a write | `kill -9` between phases, then resume |
 | R7 | Phase B receives only `{artifactRef, digest, path, schema}` and may call `artifact.read`. | B reaching any other capability or any repository file | denial check + B's call trace |
 | R8 | B's artifact must carry `derivedFrom` = A's digest and the instance nonce. | accepting a B artifact that did not consume A | negative run |
@@ -59,10 +59,14 @@ version.
 ## Process interface
 
 ```
-node --experimental-strip-types src/cli.ts run <flow> --request <id> [--now <iso>]
-node --experimental-strip-types src/cli.ts resume <instance> [--now <iso>]
+node --experimental-strip-types src/cli.ts run <flow> --request <id> [--artifact <path>] [--now <iso>]
+node --experimental-strip-types src/cli.ts resume <instance> [--artifact <path>] [--now <iso>]
 node --experimental-strip-types src/cli.ts status <instance>
+node --experimental-strip-types src/cli.ts artifact read <instance> <step>
 ```
+
+Without `--artifact` the command only creates the instance and prints the nonce to stderr
+(review F10: the proof runs create → A → B as three processes).
 
 Two invocations are two processes with no shared memory: that is what makes the handoff claim
 mean something.

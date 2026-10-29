@@ -71,17 +71,20 @@ mutable row, guarded by `revision`.
 
 | # | Command | Expects |
 | --- | --- | --- |
-| P1 | `node --test src/store/canonical.test.ts` | one digest for two key orders |
-| P2 | `node --test src/store/store.test.ts` | four tables; event table rejects UPDATE |
-| P3 | `node --test src/runner/handoff.test.ts` | distinct PIDs; B trace only artifact.read/write |
-| P4 | `node --test src/runner/negative.test.ts` | `ARTIFACT_UNAVAILABLE` and `ARTIFACT_DIGEST_MISMATCH`, zero writes |
-| P5 | `node --test src/runner/result.test.ts` | exactly six fields, no events |
+| P1 | `node --test tests/store/canonical.test.ts` | one digest for two key orders |
+| P2 | `node --test tests/store/store.test.ts` | four tables; event table rejects UPDATE |
+| P3 | `node --test tests/runner/handoff.test.ts` | distinct PIDs; B trace only artifact.read/write |
+| P4 | `node --test tests/runner/negative.test.ts` | `ARTIFACT_UNAVAILABLE` and `ARTIFACT_DIGEST_MISMATCH`, zero writes |
+| P5 | `node --test tests/runner/result.test.ts` | exactly six fields, no events |
 | P6 | `grep -rn "from '" src \| grep -v "node:" \| grep -v "zod"` | empty |
 | P7 | `npx tsc --noEmit` | clean |
 | P8 | kill between phases, then `resume` | same step, same digest, no duplicate artifact row |
 
 Every check is executed and its real output pasted into the report. A check that did
 not run is reported as not run.
+
+Amended 2026-10-29 — command paths updated from `src/**` to `tests/**` after the owner-directed
+test relocation; the assertions are unchanged (review F2).
 
 ## Recovery
 

@@ -1,24 +1,32 @@
 # Where we are
 
 **Unit:** Slice 0.
-**Gate:** G5 — review pending on the moved tree.
-**Waiting on you:** your run, after review.
+**Gate:** **G6 — your run.** Review passed.
+**Waiting on you:** run the slice, then accept or reject.
 
-## Done
-- Implementation green and committed.
-- **Tests relocated**: `tests/store/*`, `tests/runner/*`, `tests/testkit.ts`. No test or helper under `src/`.
-- Suite 29/29 from the new paths, `tsc` exit 0.
+## Result
+- Independent review: **PASS**, 26 files digested, R1–R13 marked, P1–P8 executed from `tests/`.
+- Findings F1–F11, all advisory. Nothing contradicts an executed check.
+- Verified by the reviewer: 29/29 suite, tsc 0, two separate PIDs, SIGKILL resume, all four
+  negative paths, canonical hole red-tested and refused.
 
-## How the move happened
-MAN-2 (blocking launch) left the engineer's session dead and every relaunch is the crash
-path, so the lead performed the move directly. Attribution says `lead`, not `engineer-2`.
-The reviewer verifies the result.
+## Amendments applied from the review
+- F2: plan check paths corrected to `tests/`.
+- F4: R5 narrowed — the gate matches the declared schema *name*, it does not validate the body.
+- F10: spec process interface now states the create-only mode and `--artifact`.
+- F11: stale tasks stay `ready` because Manifold has no task-cancel operation; they are
+  superseded and must not be dispatched.
 
-## Next
-1. Independent review of the moved tree → `docs/slice-0-1947a537/review.md`.
-2. You run the slice in a second terminal.
-3. Accept or reject.
+## Carried, not accepted silently
+Duplicate-key text (R4), arbitrary step code (R7), package manifest residue (R12), and the
+store→runner canonical layering (F7). Untested: power loss, concurrent resume, the plan's
+kill window.
 
-## Open
-- MAN-2 filed (blocking launch strands intents). MAN-1 fixed.
-- Blueprint: `eng` should accept `review` tasks; `lead` needs project-scope routing.
+## Your run
+```
+node --experimental-strip-types src/cli.ts run architect --request r1
+node --experimental-strip-types src/cli.ts run architect --request r1 --artifact a.json
+node --experimental-strip-types src/cli.ts status <instance>
+node --experimental-strip-types src/cli.ts artifact read <instance> draft
+node --experimental-strip-types src/cli.ts resume <instance> --artifact b.json
+```

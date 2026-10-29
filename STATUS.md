@@ -1,25 +1,26 @@
 # Where we are
 
 **Unit:** Slice 0 — minimal runtime. Two phases, two processes.
-**Gate:** G4 — implementation running.
-**Waiting on you:** nothing right now. The team is building.
+**Gate:** G5 — independent review running.
+**Waiting on you:** nothing. Then you run the slice and accept or reject.
 
 ## Done
-- Programme accepted. Blueprint has `research`, `review`, `eng`.
-- Spec approved (R1–R13, Zod, typed errors).
-- Plan approved. Flow config written.
+- Blueprint: `research`, `review`, `eng` (converger `lead`).
+- Spec approved, plan approved, flow config written.
+- eng team wrote it: engineer-1 (types, store), engineer-2 (runner, CLI).
+- Lead re-ran every check: P1 6/6, P2 11/11, P3 pass, P4 3/3, P5 2/2, P8 pass, tsc 0.
+- F1 defect found by reviewer-1, fixed by engineer-2, verified by lead.
 
 ## Running now
-- Team `slice-0` (838e71e2), room `00c5cae8`, panes p6/p7/p8.
-- engineer-1: `src/types`, `src/store` (assignment 1fc48400).
-- engineer-2: `src/runner`, `src/cli.ts` (assignment 8508fe6f).
-- reviewer-1: idle until code lands.
+- Review team `slice-0-review` (5adcc698), room `93e8b948`.
+- reviewer-1 writing `docs/slice-0-1947a537/review.md`.
 
 ## Next
-1. Both engineers report. I verify the claims and the checks.
-2. reviewer-1 gets the review assignment and writes `review.md`.
-3. You run the slice. You accept or reject.
+1. Reviewer verdict lands.
+2. I fix anything blocking.
+3. You run: `node --experimental-strip-types src/cli.ts run architect --request r1 --artifact <a.json>`.
+4. You accept or reject.
 
 ## Open
-- Host seam (Pi) untested. Not part of Slice 0.
-- Claim cap is 2 per assignment: that is why tests are co-located.
+- Host seam (Pi) untested. Not in Slice 0.
+- Blueprint flaws queued: `eng` should accept `review` tasks; `lead` needs `scope: "project"` routing.

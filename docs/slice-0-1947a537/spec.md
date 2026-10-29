@@ -24,7 +24,8 @@ nothing; the caller receives a bounded result with no transcript. Nothing runs i
 | R9 | With artifact access removed, B fails closed and writes nothing. | the boundary leaking through another channel | control instance |
 | R10 | A corrupted digest fails closed before any dispatch. | acting on bytes that do not match the recorded digest | control instance |
 | R11 | The result carries `instanceId, flow, status, artifacts[], summary, nextAction` and nothing else. | transcript, event log or tool arguments in the result | result assertion |
-| R12 | No third-party dependency: `node:sqlite`, `node:crypto`, `node:test` only. | the slice borrowing the inherited manifest | import scan |
+| R12 | **Zod** validates every schema and is the only third-party dependency; Node built-ins cover store, digest and tests. | a second dependency creeping in, or schemas hand-rolled beside Zod | import scan |
+| R13 | One error module: every failure is a typed code plus message and optional detail. No string throws, no bare `catch`. | an undefined failure shape the caller cannot branch on | negative run per code |
 
 ## Model — the minimum
 
@@ -79,13 +80,13 @@ contains only the whitelisted fields.
 ## Exclusions
 
 No Pi integration · no adapters or Fabric · no external effects · no model or LLM in the loop ·
-no owner-acceptance gate · no flow expansion · no nesting · no multi-actor · no Zod · no
-Markdown rendering · no migration or retention policy.
+no owner-acceptance gate · no flow expansion · no nesting · no multi-actor · no Markdown
+rendering · no migration or retention policy.
 
 ## Open questions
 
-1. **Dependency posture** — zero-dep is proposed; the contracts unit may introduce Zod later
-   and must not be smuggled in here.
+1. **Dependency posture** — settled: **Zod** for every schema, and the only dependency. It is
+   already installed at 4.6.7; the identity unit pins it under praxis's own manifest.
 2. **Ignore rule** — `.pi/praxis/` must narrow to `.pi/praxis/state/` so the flow config can be
    tracked while the store stays out of Git.
 3. **TypeScript execution** — `--experimental-strip-types` on Node 24.9 is untested; if it

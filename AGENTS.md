@@ -47,6 +47,10 @@ acceptance here before building.
   the `praxis-workflow` shared-core line, and this entry. Acceptance: the skill
   records alignment as a written artifact with frozen/open separation and a
   stated stop condition. No code or schema.
+- **2026-10-29 — manifold defect report.** Owner-directed write outside this repo:
+  `/home/tia/_DEV/AI/manifold/.dev/ISSUES.md` gains MAN-1 (hub converger cannot
+  finalize). Documentation only — no manifold code, config, database or service was
+  touched.
 
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a

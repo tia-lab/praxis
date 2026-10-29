@@ -9,6 +9,16 @@ coverage/
 .dev
 .env
 
+# runtime state — never tracked
+.pi/manifold/state/
+.pi/manifold/sessions/
+.pi/manifold/cache/
+.pi/manifold/experiments/
+.pi/manifold/journal.json
+.pi/manifold/operator.lock
+.pi/manifold/operator.lock.stale.*
+.pi/praxis/
+
 # live test runtime
 tests/live/**/root/
 tests/live/**/verified.json

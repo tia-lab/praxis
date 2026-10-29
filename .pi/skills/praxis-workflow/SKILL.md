@@ -20,8 +20,9 @@ no package. Its protocol gates are inapplicable; its principles bind as conduct,
 `praxis-minimality` links the canon that states them.
 
 For any organization action, layer `manifold` + `manifold-organizer` on top.
-**Manifold is inactive in this repo** until the owner activates a project
-manifest, so today there are no teams, assignments or independent reviewers.
+Manifold activation is an owner action, not a property of this repo: while inactive
+there are no teams, assignments or independent reviewers, and while active a verdict
+is still `independence: self` unless a separate session produced it.
 
 ## Gates
 

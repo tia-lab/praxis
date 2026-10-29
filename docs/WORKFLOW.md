@@ -138,8 +138,10 @@ Default is one author. Compose more only against a named gap.
   `hash8`. Return carries artifact, evidence, verdict. Never a transcript.
 - Every seat must be justified by evidence in the compose reason; no seats for
   hypothetical futures (`MIN-006`).
-- Manifold is **inactive**. Team work and independent review require the owner to
-  activate it with a project manifest; this file grants nothing.
+- Manifold activation is an owner action and project state; this file grants nothing.
+  While it is inactive there are no teams, assignments or independent reviewers. When
+  it is active a verdict is still `independence: self` unless a separate session
+  actually produced it.
 
 ## 6. Invariants
 

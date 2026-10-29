@@ -111,6 +111,13 @@ acceptance here before building.
   branch (`LegacyFlowConfigSchema`/`normalizeLegacy`) is **not** authorized: it contradicts spec R2/R7
   and is an owner-level decision. This ruling is the lead's, is owner-overridable, and is reversible
   in one line if the owner prefers rewriting `config.json` instead.
+- **2026-10-29 — lead scope record: `src/runner/step.ts`.** Added to unit D by the lead because the
+  plan's item 4 requires it and `AGENTS.md` §3 caps files at 600 lines: `src/runner/engine.ts` is
+  606 today and the plan moves `runStep`, `refused`, `parseStored`, `probeArtifact`,
+  `buildHandoff`, `RunStepArgs`, `StepArtifact` and `Handoff` into the new file as a move, not a
+  rewrite. Recorded rather than assumed so the engineer is not asked to work around a cap that is
+  the lead's to lift. Owner-overridable; if the owner prefers engine.ts above 600, this line is the
+  reversal and the file is not created.
 
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a

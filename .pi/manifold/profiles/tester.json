@@ -342,7 +342,8 @@
           "templates": [
             "research",
             "review",
-            "eng"
+            "eng",
+            "test"
           ],
           "topologies": [
             "hub"

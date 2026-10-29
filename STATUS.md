@@ -1,27 +1,25 @@
 # Where we are
 
-**Unit:** Slice 0 — the minimal working runtime. Two phases, two processes.
-**Gate:** G2 spec drafted. Not approved. No plan. No code.
-**Waiting on you:** one reload + rebind. Then the engineering team starts.
+**Unit:** Slice 0 — minimal runtime. Two phases, two processes.
+**Gate:** G4 — implementation running.
+**Waiting on you:** nothing right now. The team is building.
 
 ## Done
-- Research programme accepted (dependency map only).
-- Manifold blueprint: converger `lead`; `research`, `review` and `eng` templates.
-- Slice 0 contract, research, spec written (R1–R13, Zod, typed errors).
+- Programme accepted. Blueprint has `research`, `review`, `eng`.
+- Spec approved (R1–R13, Zod, typed errors).
+- Plan approved. Flow config written.
+
+## Running now
+- Team `slice-0` (838e71e2), room `00c5cae8`, panes p6/p7/p8.
+- engineer-1: `src/types`, `src/store` (assignment 1fc48400).
+- engineer-2: `src/runner`, `src/cli.ts` (assignment 8508fe6f).
+- reviewer-1: idle until code lands.
 
 ## Next
-1. `/reload` — ends my binding, so a rebind is allowed.
-2. `/manifold rebind {"reason":"add eng template"}` — adopts the new blueprint.
-3. `/manifold activate {...}` — rebinds me as lead.
-4. I compose the eng team: lead + 2 engineers + 1 reviewer + room.
-5. Engineers write the code inside their claimed paths. I assign and verify.
-6. Reviewer writes `review.md`. Then you run it.
+1. Both engineers report. I verify the claims and the checks.
+2. reviewer-1 gets the review assignment and writes `review.md`.
+3. You run the slice. You accept or reject.
 
-## Team
-- `eng` = lead + engineer-1, engineer-2 + reviewer-1, room required, converger lead.
-- `review` = lead + reviewer, for independent review.
-- Claims: engineer-1 `src/store`, engineer-2 `src/runner`+`src/cli`, reviewer `docs/slice-0-1947a537/review.md`.
-
-## Blocked / open
-- Blueprint change needs the reload + rebind above.
+## Open
 - Host seam (Pi) untested. Not part of Slice 0.
+- Claim cap is 2 per assignment: that is why tests are co-located.

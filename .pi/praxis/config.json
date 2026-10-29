@@ -1,0 +1,20 @@
+{
+  "schema": "praxis.config/v1",
+  "flow": "architect",
+  "steps": [
+    {
+      "id": "draft",
+      "capabilities": ["artifact.write", "emit"],
+      "produces": { "schema": "praxis.artifact.architecture/v1" },
+      "gate": "schema-valid-and-nonce"
+    },
+    {
+      "id": "derive",
+      "capabilities": ["artifact.read", "artifact.write", "emit"],
+      "consumes": "draft",
+      "produces": { "schema": "praxis.artifact.derive/v1" },
+      "gate": "schema-valid-and-nonce"
+    }
+  ],
+  "result": "praxis.result/v1"
+}

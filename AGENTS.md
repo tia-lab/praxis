@@ -95,6 +95,13 @@ acceptance here before building.
   join or branch edge evaluate correctly; an instance pins the task definitions it ran under; every
   existing test stays green. Not authorized: changing the gates in `docs/WORKFLOW.md`, deleting the
   accepted research flow, or any identity, isolation or exactly-once claim.
+- **2026-10-29 — owner: stop full reviews, go to plan and code.** Owner directive: the full-document
+  review loop is stopped; `spec.md` is **frozen as provisional** (unpassed, 33 amendments, its open
+  contradictions to be found by the plan and the code). Reviews from this point are **incremental**:
+  a reviewer receives the changed lines, the previous verdict and the subject digest, and judges only
+  the delta and what cites it — never the whole document again. Implementation proceeds in ordered
+  slices beside the plan rather than after a dual PASS, which is an explicit owner override of D3.
+  Still binding: D1, D2, and the unit D scope/exclusions. This directive grants no new paths.
 
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a

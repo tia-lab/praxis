@@ -39,7 +39,7 @@
           { "role": "main-researcher", "count": 1, "profile": "research" },
           { "role": "researcher", "count": 3, "profile": "research" }
         ],
-        "topology": { "mode": "hub", "convergerRole": "main-researcher" },
+        "topology": { "mode": "hub", "convergerRole": "lead" },
         "bounds": { "minMembers": 5, "maxMembers": 5, "maxConcurrentAssignments": 3 },
         "acceptedTaskKinds": ["research"],
         "retirePolicy": { "mode": "owner" }

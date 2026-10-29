@@ -75,3 +75,28 @@ attempt 5  subject 8254dc01  FAIL both seats    3 findings (2 shared): version r
            published versions, so the two-version oracle is unimplementable
 Each round's lead actions, cures and the reasons a cure was adopted are in the assignment record
 and in the amended lines of spec.md.
+## G3 plan — attempt 1 — FAIL — 2026-10-29
+Subject: docs/task-data-flow-model-7b1ebe17/plan.md @ sha256:737eb8ba96e7d9bba1924b8d61f6670ac25211f7a9c38e8750e8ffc005f5cd74 (512 lines)
+Recorded by lead from the manifold assignment verdicts, verbatim in substance. Neither reviewer could
+write this section: both were assigned under "Do not edit any file", so the verdict channel was the
+assignment report, not this file. The lead records; the reviewers' wording and findings are not altered.
+
+reviewer-1 (assignment 1d7c78de): FAIL — 1 blocking, 8 advisory.
+B1 blocking: step 3 claims to rewrite .pi/praxis/config.json, which is outside unit D's recorded scope
+and is the committed Slice 0 research flow.
+A1: steps 0 and 8 are the only steps whose Done-when does not name their check (C0 at :304, C13);
+steps 1-7 all close properly, quoted line by line.
+
+reviewer-2 (assignment a331b6a5): FAIL — 5 blocking.
+R1: the Requirement column carries non-requirement tokens (W4, U5 are spec-review finding labels; two
+rows carry an em dash and the literal "tests"), against the plan's own line 10.
+R2: .pi/praxis/config.json rewritten and .pi/praxis/** claimed outside unit D scope, while only step.ts
+is flagged as needing an extension; also proposes moving .pi/praxis/state/ aside.
+R4: the D3 override is restated as "prepared but not merged ahead of a PASS", narrower than AGENTS.md:102-103.
+R5: "supersedes the byte-identical promise" is asserted rather than routed to the owner.
+R6: step 8 names no requirement ids.
+Advisory: six citation drifts, and store.test.ts 338-vs-341 line count.
+
+Lead actions: one combined amendment assignment (eb1b96ba) with the lead ruling that Slice 0 stays
+byte-identical, the live store is not touched, and the migration emits task documents and new flow
+files only.

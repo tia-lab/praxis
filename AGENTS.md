@@ -79,6 +79,17 @@ acceptance here before building.
   "state machine table, four properties each with a test, review bound to subject digest,
   flows reuse tasks across feature/bugfix/refactor". Procedure: `docs/WORKFLOW.md` gates
   in markdown until Praxis can hold the design loop itself.
+- **2026-10-29 — task/flow model implementation (unit D).** Owner GO: **yes**, and it does not
+  proceed unless G2 spec and G3 plan pass first. Three frozen owner decisions: (D1) tasks are
+  **separate units** — atoms — and flows compose them — molecules; a task is never defined inside
+  the flow that uses it. (D2) a review binds to the **digest of the artifact it judged**, not to a
+  digest of reviewed files on disk. (D3) implementation starts only after the plan passes. Scope:
+  `src/types/schema.ts`, `src/types/org.ts`, `src/runner/engine.ts`, `src/store/`, `tests/`,
+  `.pi/praxis/tasks/`, `.pi/praxis/flows/`. Acceptance: a flow references task units by id; a
+  review whose subject digest is not the current accepted version is refused; `onRefuse` plus one
+  join or branch edge evaluate correctly; an instance pins the task definitions it ran under; every
+  existing test stays green. Not authorized: changing the gates in `docs/WORKFLOW.md`, deleting the
+  accepted research flow, or any identity, isolation or exactly-once claim.
 
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a

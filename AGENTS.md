@@ -102,6 +102,15 @@ acceptance here before building.
   the delta and what cites it — never the whole document again. Implementation proceeds in ordered
   slices beside the plan rather than after a dual PASS, which is an explicit owner override of D3.
   Still binding: D1, D2, and the unit D scope/exclusions. This directive grants no new paths.
+- **2026-10-29 — lead ruling: the default flow path moves (option a).** The spec replaces
+  `FlowConfigSchema` with a nodes/edges document while `.pi/praxis/config.json` remains a `steps[]`
+  file, so leaving the default path at `config.json` would make the accepted Slice 0 flow unrunnable
+  whenever `PRAXIS_CONFIG` is unset. Ruling: step 3 emits a new nodes/edges flow document and the
+  default path points at it; `config.json`, `flows/research.json` and `flows/delivery.json` keep their
+  exact bytes, and C12 asserts that no-change. `PRAXIS_CONFIG` still overrides. A legacy `steps`
+  branch (`LegacyFlowConfigSchema`/`normalizeLegacy`) is **not** authorized: it contradicts spec R2/R7
+  and is an owner-level decision. This ruling is the lead's, is owner-overridable, and is reversible
+  in one line if the owner prefers rewriting `config.json` instead.
 
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a

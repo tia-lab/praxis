@@ -107,8 +107,15 @@ export function engineOptions(
   if (typeof ctx.cwd !== "string" || ctx.cwd === "") {
     throw fail("CONFIG_INVALID", "the host context carries no working directory");
   }
+  // A project may declare more than one flow (the accepted research flow and the
+  // delivery flow that mirrors docs/WORKFLOW.md). The selector is the environment,
+  // never a tool argument: an agent may not choose its own gates (R1, R10).
+  const selected = process.env.PRAXIS_CONFIG;
   return {
-    configPath: resolve(ctx.cwd, ".pi/praxis/config.json"),
+    configPath:
+      typeof selected === "string" && selected !== ""
+        ? resolve(ctx.cwd, selected)
+        : resolve(ctx.cwd, ".pi/praxis/config.json"),
     storeDir: resolve(ctx.cwd, ".pi/praxis/state"),
   };
 }

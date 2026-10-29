@@ -9,6 +9,9 @@
   "profiles": {
     "research": {
       "mode": "clone"
+    },
+    "tester": {
+      "mode": "clone"
     }
   }
 }

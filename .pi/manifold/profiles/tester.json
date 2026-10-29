@@ -295,7 +295,7 @@
         },
         "bounds": {
           "minMembers": 4,
-          "maxMembers": 7,
+          "maxMembers": 6,
           "maxConcurrentAssignments": 3
         },
         "acceptedTaskKinds": [

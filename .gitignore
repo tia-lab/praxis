@@ -1,0 +1,19 @@
+.pi/fabric
+.pi/npm/
+node_modules/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+coverage/
+*.tsbuildinfo
+.dev
+.env
+
+# live test runtime
+tests/live/**/root/
+tests/live/**/verified.json
+tests/live/**/observations.jsonl
+
+tests/live/**/root
+tests/live/**/root-unreachable
+tests/live/**/unreachable

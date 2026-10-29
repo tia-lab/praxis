@@ -6,6 +6,7 @@
       "sendTo": [
         { "role": "main-researcher", "scope": "same-team" },
         { "role": "researcher", "scope": "same-team" },
+        { "role": "engineer", "scope": "same-team" },
         { "role": "reviewer", "scope": "same-team" }
       ]
     },
@@ -18,11 +19,14 @@
     "researcher": {
       "sendTo": [{ "role": "main-researcher", "scope": "same-team" }]
     },
+    "engineer": {
+      "sendTo": [{ "role": "lead", "scope": "same-team" }]
+    },
     "reviewer": {
       "sendTo": [{ "role": "lead", "scope": "same-team" }]
     }
   },
-  "teamIds": ["research", "review"],
+  "teamIds": ["research", "review", "eng"],
   "agents": [
     { "id": "lead", "role": "lead", "team": "research" },
     { "id": "main-researcher", "role": "main-researcher", "team": "research" },
@@ -30,7 +34,9 @@
     { "id": "researcher-2", "role": "researcher", "team": "research" },
     { "id": "researcher-3", "role": "researcher", "team": "research" },
     { "id": "reviewer-1", "role": "reviewer", "team": "review" },
-    { "id": "reviewer-2", "role": "reviewer", "team": "review" }
+    { "id": "reviewer-2", "role": "reviewer", "team": "review" },
+    { "id": "engineer-1", "role": "engineer", "team": "eng" },
+    { "id": "engineer-2", "role": "engineer", "team": "eng" }
   ],
   "connection": {
     "serversEnv": "MANIFOLD_NATS_SERVERS",
@@ -60,6 +66,18 @@
         "bounds": { "minMembers": 2, "maxMembers": 4, "maxConcurrentAssignments": 2 },
         "acceptedTaskKinds": ["review"],
         "retirePolicy": { "mode": "owner" }
+      },
+      "eng": {
+        "room": "required",
+        "memberSlots": [
+          { "role": "lead", "count": 1 },
+          { "role": "engineer", "count": 2, "maxCount": 3, "profile": "research" },
+          { "role": "reviewer", "count": 1, "profile": "research" }
+        ],
+        "topology": { "mode": "hub", "convergerRole": "lead" },
+        "bounds": { "minMembers": 4, "maxMembers": 5, "maxConcurrentAssignments": 3 },
+        "acceptedTaskKinds": ["implement"],
+        "retirePolicy": { "mode": "owner" }
       }
     },
     "taskKinds": {
@@ -70,6 +88,10 @@
       "review": {
         "template": "review",
         "plannerHint": "Read the declared subject and its requirements, not a summary of them. Report only supported findings: location, consequence, smallest cure, and the evidence that establishes it. Rank by consequence. A verdict without a digest of every reviewed subject is void; you write the verdict file, the author never does."
+      },
+      "implement": {
+        "template": "eng",
+        "plannerHint": "Implement only the declared scope inside your claimed paths. Read the approved plan first and follow its steps and checks. Every declaration you add must appear in the plan; a declaration that does not is a blocker for lead, not an edit. Report exact commands, outputs and limitations, and say plainly what you did not verify."
       }
     },
     "caps": {
@@ -84,12 +106,13 @@
       "lead": {
         "mayAssign": true,
         "mayDispatch": true,
-        "compose": { "templates": ["research", "review"], "topologies": ["hub"] },
-        "scale": { "templates": ["research", "review"], "scope": "own" },
+        "compose": { "templates": ["research", "review", "eng"], "topologies": ["hub"] },
+        "scale": { "templates": ["research", "review", "eng"], "scope": "own" },
         "retireOwn": "own"
       },
       "main-researcher": {},
       "researcher": {},
+      "engineer": {},
       "reviewer": {}
     },
     "launchProfiles": {

@@ -318,3 +318,23 @@ Verdict limits, stated plainly:
 - The Manifold assignment `0f7c55d6` referenced by the control note is `failed` (claim
   released, `nextAction: none`); this verdict was produced under the lead's room request and
   claim D, not reported against an active assignment.
+
+## G6 acceptance — ACCEPTED (owner) — 2026-10-29
+
+owner statement (verbatim): `accept`
+
+Evidence at acceptance — one live run in a clean terminal pane, three processes:
+
+| Phase | PID | Observed |
+| --- | --- | --- |
+| create | 831948 | instance `if4740f4…`, nonce `4ac2a93d…`, status running at `draft` |
+| phase A | 832175 | `created:false` (loaded, not duplicated); draft accepted `sha256:9c071864…`; advanced to `derive` |
+| phase B | 832706 | derive accepted `sha256:b7c9b36e…`; status `completed`; `nextAction:none` |
+
+Also observed: the artifact read from a separate process returned canonically sorted keys;
+the result carried exactly six fields and two artifact references.
+
+Carried, not accepted as proven: power loss, concurrent resume and the plan's kill window
+remain untested (G5 limits). Findings F3–F11 remain open for later units; none is claimed
+as satisfied by this acceptance.
+

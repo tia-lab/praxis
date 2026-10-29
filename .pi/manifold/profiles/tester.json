@@ -86,26 +86,6 @@
       "team": "test"
     },
     {
-      "id": "main-researcher",
-      "role": "main-researcher",
-      "team": "test"
-    },
-    {
-      "id": "researcher-1",
-      "role": "researcher",
-      "team": "test"
-    },
-    {
-      "id": "researcher-2",
-      "role": "researcher",
-      "team": "test"
-    },
-    {
-      "id": "researcher-3",
-      "role": "researcher",
-      "team": "test"
-    },
-    {
       "id": "reviewer-1",
       "role": "reviewer",
       "team": "test"
@@ -168,8 +148,9 @@
           "maxConcurrentAssignments": 3
         },
         "acceptedTaskKinds": [
-          "implement",
+          "research",
           "design",
+          "implement",
           "review"
         ],
         "retirePolicy": {
@@ -179,19 +160,19 @@
     },
     "taskKinds": {
       "research": {
-        "template": "research",
+        "template": "test",
         "plannerHint": "Produce a source-grounded answer whose strength does not exceed the evidence: compare credible explanations, cite path:line, separate observation from inference, and name what stays unresolved. Report findings in the room; only the main-researcher writes the report."
       },
       "design": {
-        "template": "eng",
+        "template": "test",
         "plannerHint": "Own the requirement contract and the implementation plan. Write the smallest complete model first (types, owners, valid states, failure behaviour), then the declarations and checks. Every requirement needs an oracle; every declaration needs a requirement. Do not write code. Report the spec and plan to lead with the alternatives you rejected and the constraint that rejected each."
       },
       "implement": {
-        "template": "eng",
+        "template": "test",
         "plannerHint": "Implement only the declared scope inside your claimed paths against the approved plan. A declaration that is not in the plan is a blocker for lead, not an edit. Report exact commands, outputs and limitations."
       },
       "review": {
-        "template": "eng",
+        "template": "test",
         "plannerHint": "Read the declared subject and its requirements, not a summary of them. Report only supported findings: location, consequence, smallest cure, and the evidence that establishes it. Rank by consequence. A verdict without a digest of every reviewed subject is void; you write the verdict file, the author never does."
       }
     },

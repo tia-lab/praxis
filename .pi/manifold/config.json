@@ -3,7 +3,7 @@
   "projectId": "praxis",
   "active": "research",
   "limits": {
-    "maxActiveAttempts": 6,
+    "maxActiveAttempts": 8,
     "reservedAttempts": 1
   },
   "profiles": {

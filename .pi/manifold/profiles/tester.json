@@ -129,11 +129,6 @@
       "team": "eng"
     },
     {
-      "id": "lead-test",
-      "role": "lead",
-      "team": "test"
-    },
-    {
       "id": "architect-2",
       "role": "architect",
       "team": "test"

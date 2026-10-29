@@ -58,8 +58,19 @@ export const RequirementSchema = z.strictObject({
   minItems: z.number().int().min(0).max(1000).optional(),
   required: z.array(z.string().min(1).max(64)).max(32).optional(),
   each: z.array(z.string().min(1).max(64)).max(32).optional(),
+  /** Exact values a section's fields must carry, e.g. verdict: "PASS". */
+  equals: z
+    .record(z.string().min(1).max(64), z.union([z.string(), z.number(), z.boolean()]))
+    .optional(),
 });
 export type Requirement = z.infer<typeof RequirementSchema>;
+
+/**
+ * A stage may demand several sections at once (one document, many clauses):
+ * `research.md` alone has eight. A bare clause stays valid.
+ */
+export const RequirementsSchema = z.union([RequirementSchema, z.array(RequirementSchema).min(1).max(16)]);
+export type Requirements = z.infer<typeof RequirementsSchema>;
 
 export const StepConfigSchema = z.strictObject({
   id: StepIdSchema,
@@ -69,8 +80,8 @@ export const StepConfigSchema = z.strictObject({
   gate: GateSchema,
   /** What the agent must achieve in this stage. Injected, never a whitelist. */
   goal: z.string().min(1).max(1000).optional(),
-  /** What the document must contain before this stage may pass. */
-  requires: RequirementSchema.optional(),
+  /** What the document must contain before this stage may pass: one clause or many. */
+  requires: RequirementsSchema.optional(),
 });
 export type StepConfig = z.infer<typeof StepConfigSchema>;
 

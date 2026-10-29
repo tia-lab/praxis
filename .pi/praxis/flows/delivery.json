@@ -4,7 +4,7 @@
   "steps": [
     {
       "id": "research",
-      "goal": "establish what is true about the question, from sources and from the code",
+      "goal": "establish what is true, from sources and code, before anything is designed",
       "capabilities": [
         "artifact.write",
         "emit"
@@ -13,19 +13,65 @@
         "schema": "praxis.artifact.delivery/v1"
       },
       "gate": "section-requirements",
-      "requires": {
-        "section": "sources",
-        "minItems": 3,
-        "each": [
-          "url",
-          "retrievedAt",
-          "claim"
-        ]
-      }
+      "requires": [
+        {
+          "section": "contract",
+          "required": [
+            "task",
+            "scope",
+            "acceptance"
+          ]
+        },
+        {
+          "section": "question",
+          "required": [
+            "question",
+            "boundary"
+          ]
+        },
+        {
+          "section": "sources",
+          "minItems": 3,
+          "each": [
+            "source",
+            "location",
+            "establishes",
+            "freshness"
+          ]
+        },
+        {
+          "section": "explanations",
+          "minItems": 2,
+          "each": [
+            "explanation",
+            "evidence",
+            "distinguishing",
+            "status"
+          ]
+        },
+        {
+          "section": "findings",
+          "minItems": 1
+        },
+        {
+          "section": "affected",
+          "minItems": 1,
+          "each": [
+            "path",
+            "declaration",
+            "callers",
+            "effect"
+          ]
+        },
+        {
+          "section": "uncertainty",
+          "minItems": 1
+        }
+      ]
     },
     {
       "id": "spec",
-      "goal": "state the outcome, its acceptance, its invariants and what it refuses to do",
+      "goal": "state requirements with failure behaviour and an oracle, and the model behind them",
       "capabilities": [
         "artifact.read",
         "artifact.write",
@@ -36,20 +82,51 @@
         "schema": "praxis.artifact.delivery/v1"
       },
       "gate": "section-requirements",
-      "requires": {
-        "section": "spec",
-        "required": [
-          "outcome",
-          "acceptance",
-          "invariants",
-          "nonGoals",
-          "failureModes"
-        ]
-      }
+      "requires": [
+        {
+          "section": "outcome",
+          "required": [
+            "outcome"
+          ]
+        },
+        {
+          "section": "requirements",
+          "minItems": 1,
+          "each": [
+            "id",
+            "requirement",
+            "failure",
+            "oracle"
+          ]
+        },
+        {
+          "section": "model",
+          "minItems": 1,
+          "each": [
+            "element",
+            "owner",
+            "states",
+            "invariants",
+            "requirement"
+          ]
+        },
+        {
+          "section": "exclusions",
+          "minItems": 1
+        },
+        {
+          "section": "alternatives",
+          "minItems": 1,
+          "each": [
+            "alternative",
+            "rejected"
+          ]
+        }
+      ]
     },
     {
       "id": "plan",
-      "goal": "name the steps, the files, the checks and the rollback before touching code",
+      "goal": "name every declaration touched, every check that proves it, and the recovery path",
       "capabilities": [
         "artifact.read",
         "artifact.write",
@@ -60,20 +137,60 @@
         "schema": "praxis.artifact.delivery/v1"
       },
       "gate": "section-requirements",
-      "requires": {
-        "section": "plan",
-        "required": [
-          "steps",
-          "files",
-          "checks",
-          "rollback",
-          "risks"
-        ]
-      }
+      "requires": [
+        {
+          "section": "requirementBasis",
+          "minItems": 1
+        },
+        {
+          "section": "declarations",
+          "minItems": 1,
+          "each": [
+            "path",
+            "declaration",
+            "before",
+            "effect",
+            "requirement",
+            "callers"
+          ]
+        },
+        {
+          "section": "budget",
+          "minItems": 1,
+          "each": [
+            "path",
+            "current",
+            "after"
+          ]
+        },
+        {
+          "section": "steps",
+          "minItems": 1
+        },
+        {
+          "section": "checks",
+          "minItems": 1,
+          "each": [
+            "command",
+            "scope",
+            "expects"
+          ]
+        },
+        {
+          "section": "recovery",
+          "required": [
+            "recovery"
+          ]
+        },
+        {
+          "section": "outOfScope",
+          "minItems": 1
+        }
+      ]
     },
     {
       "id": "implement",
-      "goal": "make the change and record exactly what ran and what it proved",
+      "goal": "make the change the plan declares, and record what actually ran",
       "capabilities": [
         "artifact.read",
         "artifact.write",
@@ -84,18 +201,36 @@
         "schema": "praxis.artifact.delivery/v1"
       },
       "gate": "section-requirements",
-      "requires": {
-        "section": "implement",
-        "required": [
-          "changes",
-          "checks",
-          "evidence"
-        ]
-      }
+      "requires": [
+        {
+          "section": "changes",
+          "minItems": 1,
+          "each": [
+            "path",
+            "line",
+            "what"
+          ]
+        },
+        {
+          "section": "checks",
+          "minItems": 1,
+          "each": [
+            "command",
+            "expects",
+            "observed"
+          ]
+        },
+        {
+          "section": "evidence",
+          "required": [
+            "evidence"
+          ]
+        }
+      ]
     },
     {
       "id": "review",
-      "goal": "judge the work against the acceptance the spec declared, per criterion",
+      "goal": "judge every requirement id, challenge minimality, and record the verdict",
       "capabilities": [
         "artifact.read",
         "artifact.write",
@@ -106,14 +241,20 @@
         "schema": "praxis.artifact.delivery/v1"
       },
       "gate": "section-requirements",
-      "requires": {
-        "section": "review",
-        "required": [
-          "verdict",
-          "criteria",
-          "gaps"
-        ]
-      }
+      "requires": [
+        {
+          "section": "review",
+          "required": [
+            "verdict",
+            "criteria",
+            "gaps",
+            "minimality"
+          ],
+          "equals": {
+            "verdict": "PASS"
+          }
+        }
+      ]
     }
   ],
   "result": "praxis.result/v1",

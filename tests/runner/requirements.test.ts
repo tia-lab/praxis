@@ -36,3 +36,19 @@ test("an object section needs its required fields", () => {
 test("a non-object document is refused", () => {
   assert.deepEqual(missingFor("whatever", evidence), ["document is not an object"]);
 });
+
+test("a stage may demand many sections at once and names each gap", () => {
+  const clauses = [
+    { section: "sources", minItems: 1, each: ["source", "location"] },
+    { section: "affected", required: ["path", "declaration"] },
+  ];
+  assert.deepEqual(missingFor({}, clauses), ["sources", "affected"]);
+  const doc = { sources: [{ source: "a", location: "engine.ts:319" }], affected: { path: "engine.ts" } };
+  assert.deepEqual(missingFor(doc, clauses), ["affected.declaration"]);
+});
+
+test("equals refuses a verdict that is not PASS", () => {
+  const verdict = { section: "review", required: ["verdict"], equals: { verdict: "PASS" } };
+  assert.deepEqual(missingFor({ review: { verdict: "FAIL" } }, verdict), ['review.verdict: expected "PASS"']);
+  assert.deepEqual(missingFor({ review: { verdict: "PASS" } }, verdict), []);
+});

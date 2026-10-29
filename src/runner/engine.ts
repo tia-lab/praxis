@@ -21,7 +21,7 @@ import { missingFor } from "./requirements.ts";
 import {
   parseFlowConfig,
   type Artifact,
-  type Requirement,
+  type Requirements,
   type ArtifactRef,
   type FlowConfig,
   type Instance,
@@ -358,6 +358,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
         type: EVENT.gateVerdict,
         payload: {
           step: step.id,
+          version: artifact.version,
           decision: verdict.decision,
           checks: verdict.checks,
           ...(verdict.missing === undefined ? {} : { missing: verdict.missing }),
@@ -366,11 +367,13 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
         at,
       });
       if (verdict.decision !== "accept") {
-        setStatus(store, instance.id, { status: "failed", currentStep: step.id }, instance.revision);
+        // A refusal is evidence, not instance death: the step stays current and retryable.
         throw fail("ARTIFACT_INVALID", "artifact for step " + JSON.stringify(step.id) + " failed the gate", {
           instance: instance.id,
           step: step.id,
+          version: artifact.version,
           checks: verdict.checks,
+          ...(verdict.missing === undefined ? {} : { missing: verdict.missing }),
         });
       }
 
@@ -435,27 +438,27 @@ interface StepArtifact {
 function runStep(args: RunStepArgs): StepArtifact {
   const { store, storeDir, instance, step, grant, handoff, payload, at } = args;
   const existing = probeArtifact(store, instance.id, step.id);
-  const version = existing === undefined ? 1 : existing.artifact.version;
   const value: unknown = payload === undefined ? {} : payload;
   const bytes = canonicalBytes(value);
   const artifactDigest = digest(bytes);
+  let version = 1;
 
+  if (existing !== undefined && existing.artifact.digest === artifactDigest) {
+    const same = existing.artifact;
+    return { version: same.version, path: same.path, digest: same.digest, value: parseStored(store, instance.id, step.id, same.version) };
+  }
   if (existing !== undefined) {
-    if (existing.artifact.digest !== artifactDigest) {
+    if (!refused(store, instance.id, step.id, existing.artifact.digest)) {
       throw fail("ARTIFACT_VERSION_CONFLICT", "step " + JSON.stringify(step.id) + " has a recorded attempt with different content", {
         instance: instance.id,
         step: step.id,
-        version,
+        version: existing.artifact.version,
         recorded: existing.artifact.digest,
         offered: artifactDigest,
       });
     }
-    return {
-      version,
-      path: existing.artifact.path,
-      digest: existing.artifact.digest,
-      value: parseStored(store, instance.id, step.id, version),
-    };
+    // The refused version stays pending with its bytes; the retry takes the next one.
+    version = existing.artifact.version + 1;
   }
 
   const path = join(storeDir, "artifacts", instance.id, step.id, "v" + version + ".json");
@@ -492,6 +495,14 @@ function runStep(args: RunStepArgs): StepArtifact {
   });
 
   return { version, path, digest: artifactDigest, value };
+}
+
+/** Was this content refused by the gate for this step? A refusal is durable, so retryable. */
+function refused(store: Store, instance: string, step: string, artifactDigest: string): boolean {
+  return listEvents(store, instance).some((event) => {
+    const payload = event.type === EVENT.gateVerdict ? payloadOf(event.payload) : {};
+    return payload.step === step && payload.decision === "reject" && payload.artifactDigest === artifactDigest;
+  });
 }
 
 function parseStored(store: Store, instance: string, step: string, version: number): unknown {
@@ -562,7 +573,7 @@ export interface Verdict {
 /** The deterministic gate: schema-valid and nonce present, plus derivation (R5, R8). */
 export function gate(
   value: unknown,
-  expected: { schema: string; nonce: string; derivedFrom?: string; requires?: Requirement },
+  expected: { schema: string; nonce: string; derivedFrom?: string; requires?: Requirements },
 ): Verdict {
   const parsed = GateSubject.safeParse(value);
   const subject = parsed.success ? parsed.data : undefined;

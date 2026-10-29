@@ -204,25 +204,39 @@ test("completed submit returns the completed result", () => {
   assert.equal(count(cwd, "event", instance), events);
 });
 
-test("submit on failed instance is INSTANCE_STATE_INVALID", () => {
+test("a refused step stays running and the corrected retry is accepted as v2", () => {
   const cwd = project();
   const started = bag(start(cwd));
   const instance = started.result.instanceId as string;
   const rejected = call(cwd, { op: "submit", instance, artifact: artifacts.missingNonceA() });
   assert.equal(bag(rejected).code, "ARTIFACT_INVALID");
+  const [refused] = rows<{ status: string; current_step: string; revision: number }>(
+    cwd,
+    "select status, current_step, revision from instance where id = ?",
+    instance,
+  );
+  assert.equal(refused.status, "running");
+  assert.equal(refused.current_step, "draft");
   const retry = call(cwd, { op: "submit", instance, artifact: artifacts.validA(started.nonce) });
-  assert.equal(retry.isError, true);
-  assert.equal(bag(retry).code, "INSTANCE_STATE_INVALID");
+  assert.equal(retry.isError, undefined);
+  assert.equal(bag(retry).result.status, "running");
+  assert.equal(bag(retry).step.id, "derive");
+  const versions = rows<{ version: number; state: string }>(
+    cwd,
+    "select version, state from artifact where instance = ? and step = 'draft' order by version",
+    instance,
+  ).map((row) => [row.version, row.state]);
+  assert.deepEqual(versions, [[1, "pending"], [2, "accepted"]]);
 });
 
-test("failed instance reopens as a successful six-key result", () => {
+test("a refused instance reopens as a running six-key result", () => {
   const cwd = project();
   const started = bag(start(cwd));
   const instance = started.result.instanceId as string;
   call(cwd, { op: "submit", instance, artifact: artifacts.missingNonceA() });
   const reopened = start(cwd);
   assert.equal(reopened.isError, undefined);
-  assert.equal(bag(reopened).result.status, "failed");
+  assert.equal(bag(reopened).result.status, "running");
   assert.deepEqual(Object.keys(bag(reopened).result).sort(), SIX_KEYS);
   assert.equal(bag(reopened).nonce, started.nonce);
   assert.equal(rows(cwd, "select id from instance").length, 1);
@@ -301,8 +315,10 @@ test("gate rejection exposes details.detail.checks", () => {
   assert.equal(details.detail.checks.schemaMatches, true);
   assert.equal(details.detail.checks.noncePresent, true);
   assert.equal(details.detail.checks.derivedFromMatches, false);
-  const [row] = rows<{ status: string }>(cwd, "select status from instance where id = ?", instance);
-  assert.equal(row.status, "failed");
+  assert.equal(details.detail.version, 1);
+  const [row] = rows<{ status: string; current_step: string }>(cwd, "select status, current_step from instance where id = ?", instance);
+  assert.equal(row.status, "running");
+  assert.equal(row.current_step, "derive");
 });
 
 test("pending version conflict", () => {

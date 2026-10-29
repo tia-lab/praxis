@@ -1,35 +1,43 @@
 {
   "schema": "praxis.config/v1",
-  "flow": "architect",
+  "flow": "research",
   "steps": [
     {
-      "id": "draft",
-      "capabilities": [
-        "artifact.write",
-        "emit"
-      ],
-      "produces": {
-        "schema": "praxis.artifact.architecture/v1"
-      },
-      "gate": "schema-valid-and-nonce"
+      "id": "web",
+      "goal": "collect primary sources that answer the question",
+      "capabilities": ["artifact.write", "emit"],
+      "produces": { "schema": "praxis.artifact.research/v1" },
+      "gate": "section-requirements",
+      "requires": { "section": "sources", "minItems": 3, "each": ["url", "retrievedAt", "claim"] }
     },
     {
-      "id": "derive",
-      "capabilities": [
-        "artifact.read",
-        "artifact.write",
-        "emit"
-      ],
-      "consumes": "draft",
-      "produces": {
-        "schema": "praxis.artifact.derive/v1"
-      },
-      "gate": "schema-valid-and-nonce"
+      "id": "evidence",
+      "goal": "turn the sources into quoted evidence",
+      "capabilities": ["artifact.read", "artifact.write", "emit"],
+      "consumes": "web",
+      "produces": { "schema": "praxis.artifact.research/v1" },
+      "gate": "section-requirements",
+      "requires": { "section": "evidence", "minItems": 3, "each": ["sourceRef", "quote", "inference"] }
+    },
+    {
+      "id": "code",
+      "goal": "inspect the code the question touches",
+      "capabilities": ["artifact.read", "artifact.write", "emit"],
+      "consumes": "evidence",
+      "produces": { "schema": "praxis.artifact.research/v1" },
+      "gate": "section-requirements",
+      "requires": { "section": "code", "minItems": 1, "each": ["path", "line", "what"] }
+    },
+    {
+      "id": "prepare",
+      "goal": "write the research finding",
+      "capabilities": ["artifact.read", "artifact.write", "emit"],
+      "consumes": "code",
+      "produces": { "schema": "praxis.artifact.research/v1" },
+      "gate": "section-requirements",
+      "requires": { "section": "finding", "required": ["answer", "confidence", "limits"] }
     }
   ],
   "result": "praxis.result/v1",
-  "issue": {
-    "active": true,
-    "path": "/media/Development/AI/praxis/.dev/issues"
-  }
+  "issue": { "active": true, "path": "/media/Development/AI/praxis/.dev/issues" }
 }

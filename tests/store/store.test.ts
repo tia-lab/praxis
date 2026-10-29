@@ -291,9 +291,10 @@ test("the committed flow config parses and a malformed one is refused", () => {
   const text = readFileSync(new URL("../../.pi/praxis/config.json", import.meta.url), "utf8");
   const raw = JSON.parse(text) as Record<string, unknown>;
   const config = parseFlowConfig(raw);
-  assert.equal(config.flow, "architect");
-  assert.deepEqual(config.steps.map((step) => step.id), ["draft", "derive"]);
-  assert.equal(config.steps[1].consumes, "draft");
+  assert.equal(config.flow, "research");
+  assert.deepEqual(config.steps.map((step) => step.id), ["web", "evidence", "code", "prepare"]);
+  assert.equal(config.steps[1].consumes, "web");
+  assert.deepEqual(config.steps[0].requires?.section, "sources");
 
   expectCode("CONFIG_INVALID", () => parseFlowConfig({ ...raw, schema: "praxis.config/v2" }));
   expectCode("CONFIG_INVALID", () => parseFlowConfig({ ...raw, extra: true }));

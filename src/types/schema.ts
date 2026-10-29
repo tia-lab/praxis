@@ -23,7 +23,7 @@ export const CapabilitySchema = z.enum(["artifact.read", "artifact.write", "emit
 export type Capability = z.infer<typeof CapabilitySchema>;
 
 /** The only gate this slice implements: deterministic, no model in the loop. */
-export const GateSchema = z.enum(["schema-valid-and-nonce"]);
+export const GateSchema = z.enum(["schema-valid-and-nonce", "section-requirements"]);
 export type Gate = z.infer<typeof GateSchema>;
 
 /** Declared artifact/result schema name, e.g. `praxis.artifact.architecture/v1`. */
@@ -52,12 +52,25 @@ export const EventTypeSchema = z.string().regex(/^[a-z][a-z0-9]*(\.[a-z][a-z0-9-
  * One step of the flow. `consumes` names the step whose accepted artifact this
  * step receives; the first step consumes nothing.
  */
+/** What a stage's document section must contain to pass (spec: stage requirement). */
+export const RequirementSchema = z.strictObject({
+  section: z.string().min(1).max(64),
+  minItems: z.number().int().min(0).max(1000).optional(),
+  required: z.array(z.string().min(1).max(64)).max(32).optional(),
+  each: z.array(z.string().min(1).max(64)).max(32).optional(),
+});
+export type Requirement = z.infer<typeof RequirementSchema>;
+
 export const StepConfigSchema = z.strictObject({
   id: StepIdSchema,
   capabilities: z.array(CapabilitySchema).max(8),
   produces: z.strictObject({ schema: SchemaNameSchema }),
   consumes: StepIdSchema.optional(),
   gate: GateSchema,
+  /** What the agent must achieve in this stage. Injected, never a whitelist. */
+  goal: z.string().min(1).max(1000).optional(),
+  /** What the document must contain before this stage may pass. */
+  requires: RequirementSchema.optional(),
 });
 export type StepConfig = z.infer<typeof StepConfigSchema>;
 
@@ -70,7 +83,7 @@ export const FlowConfigSchema = z
   .strictObject({
     schema: z.literal("praxis.config/v1"),
     flow: FlowNameSchema,
-    steps: z.array(StepConfigSchema).length(2),
+    steps: z.array(StepConfigSchema).min(1).max(16),
     result: SchemaNameSchema,
     issue: IssueConfigSchema.optional(),
   })
@@ -82,15 +95,22 @@ export const FlowConfigSchema = z
       }
       seen.add(step.id);
     });
-    const [first, second] = config.steps;
-    if (first.consumes !== undefined) {
-      ctx.addIssue({ code: "custom", message: "the first step cannot consume an artifact", path: ["steps", 0, "consumes"] });
-    }
-    if (second.consumes === undefined) {
-      ctx.addIssue({ code: "custom", message: "the second step must consume an artifact", path: ["steps", 1, "consumes"] });
-    } else if (second.consumes !== first.id) {
-      ctx.addIssue({ code: "custom", message: `unknown artifact source: ${second.consumes}`, path: ["steps", 1, "consumes"] });
-    }
+    config.steps.forEach((step, index) => {
+      if (step.gate === "section-requirements" && step.requires === undefined) {
+        ctx.addIssue({ code: "custom", message: "gate section-requirements needs a requires block", path: ["steps", index, "requires"] });
+      }
+      if (index === 0) {
+        if (step.consumes !== undefined) {
+          ctx.addIssue({ code: "custom", message: "the first stage cannot consume an artifact", path: ["steps", 0, "consumes"] });
+        }
+        return;
+      }
+      if (step.consumes === undefined) {
+        ctx.addIssue({ code: "custom", message: "every stage after the first must consume an earlier artifact", path: ["steps", index, "consumes"] });
+      } else if (!config.steps.slice(0, index).some((earlier) => earlier.id === step.consumes)) {
+        ctx.addIssue({ code: "custom", message: `unknown artifact source: ${step.consumes}`, path: ["steps", index, "consumes"] });
+      }
+    });
   });
 export type FlowConfig = z.infer<typeof FlowConfigSchema>;
 

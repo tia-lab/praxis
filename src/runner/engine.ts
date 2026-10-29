@@ -17,9 +17,11 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { fail, isAppError } from "../types/errors.ts";
+import { missingFor } from "./requirements.ts";
 import {
   parseFlowConfig,
   type Artifact,
+  type Requirement,
   type ArtifactRef,
   type FlowConfig,
   type Instance,
@@ -350,6 +352,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
         schema: step.produces.schema,
         nonce: instance.nonce,
         derivedFrom: handoff === undefined ? undefined : handoff.digest,
+        requires: step.requires,
       });
       appendEvent(store, instance.id, {
         type: EVENT.gateVerdict,
@@ -357,6 +360,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
           step: step.id,
           decision: verdict.decision,
           checks: verdict.checks,
+          ...(verdict.missing === undefined ? {} : { missing: verdict.missing }),
           artifactDigest: artifact.digest,
         },
         at,
@@ -551,12 +555,14 @@ function buildHandoff(store: Store, instance: Instance, step: StepConfig, grant:
 export interface Verdict {
   decision: "accept" | "reject";
   checks: Record<string, boolean>;
+  /** What the document was missing, when a section requirement failed. */
+  missing?: string[];
 }
 
 /** The deterministic gate: schema-valid and nonce present, plus derivation (R5, R8). */
 export function gate(
   value: unknown,
-  expected: { schema: string; nonce: string; derivedFrom?: string },
+  expected: { schema: string; nonce: string; derivedFrom?: string; requires?: Requirement },
 ): Verdict {
   const parsed = GateSubject.safeParse(value);
   const subject = parsed.success ? parsed.data : undefined;
@@ -568,6 +574,13 @@ export function gate(
   if (expected.derivedFrom !== undefined) {
     checks.derivedFromMatches = subject !== undefined && subject.derivedFrom === expected.derivedFrom;
   }
+  let missing: string[] | undefined;
+  if (expected.requires !== undefined) {
+    missing = missingFor(value, expected.requires);
+    checks.sectionRequirement = missing.length === 0;
+  }
   const accepted = Object.values(checks).every(Boolean);
-  return { decision: accepted ? "accept" : "reject", checks };
+  return missing !== undefined && missing.length > 0
+    ? { decision: accepted ? "accept" : "reject", checks, missing }
+    : { decision: accepted ? "accept" : "reject", checks };
 }

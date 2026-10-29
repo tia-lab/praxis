@@ -1,6 +1,6 @@
 # Research — task-as-data flow model
 
-Task: task-data-flow-model · Hash: 96c9af7d · Gate: G1 · Status: draft · Date: 2026-10-29
+Task: task-data-flow-model · Hash: 7b1ebe17 · Gate: G1 · Status: draft · Date: 2026-10-29
 
 ## 0. Contract
 
@@ -50,7 +50,7 @@ This document reads code; it proposes no edit to `src/`.
 | Refusal dispatch | `src/runner/engine.ts:369-375` | `if (step.onRefuse !== undefined) { setStatus(… { status: "running", currentStep: step.onRefuse } …` — the back-edge is taken only on a gate reject | read 2026-10-29 |
 | Gate checks | `src/runner/engine.ts:589-596` | `schemaMatches`, `noncePresent`, `derivedFromMatches` — content is compared by name and digest, never by schema | read 2026-10-29 |
 | Task identity helper | `src/runner/task.ts:25-31` | `hash8(...)` and `taskFolder(...)` compute the folder name; the file has **one** importer, `tests/runner/task.test.ts:3` | read 2026-10-29 |
-| Store schema | `src/store/db.ts:20-57` | four tables — `meta`, `instance`, `event`, `artifact` — and an append-only `event` trigger; no task, flow or edge table | read 2026-10-29 |
+| Store schema | `src/store/db.ts:19-61` | four tables — `meta`, `instance`, `event`, `artifact` — and an append-only `event` trigger; no task, flow or edge table | read 2026-10-29 |
 | Flow selection | `src/pi/tool.ts:110-118` | `The selector is the environment, never a tool argument … : resolve(ctx.cwd, ".pi/praxis/config.json")` — one config path per run | read 2026-10-29 |
 | Delivery flow | `.pi/praxis/flows/delivery.json:258` | `"onRefuse": "plan"` — the repository's only non-linear edge, review → plan | read 2026-10-29 |
 | Review subject | `docs/WORKFLOW.md:89` | `subject: docs/<slug>-<hash8>/spec.md sha256:<64 hex>` — a review names the reviewed file's digest, in prose | read 2026-10-29 |
@@ -66,10 +66,10 @@ This document reads code; it proposes no edit to `src/`.
 
 ## 4. Findings
 
-- F1 [source-inspected] The flow is data; the **task is not** a unit at all. `FlowConfigSchema` is the only JSON work unit (`schema.ts:99-103`), and the store has no task table (`db.ts:20-57`). — evidence: both citations — limitation: does not prove a task unit is needed, only that none exists.
+- F1 [source-inspected] The flow is data; the **task is not** a unit at all. `FlowConfigSchema` is the only JSON work unit (`schema.ts:99-103`), and the store has no task table (`db.ts:19-61`). — evidence: both citations — limitation: does not prove a task unit is needed, only that none exists.
 - F2 [source-inspected] Order is positional, not an edge set. The successor is `steps[index + 1]` (`engine.ts:406`); `consumes` only names a single earlier step (`schema.ts:79`, `engine.ts:161-174`). — limitation: a strictly increasing step list is a graph, but only a path.
 - F3 [source-inspected] Exactly one non-linear edge exists, and only as a refusal back-edge: `onRefuse` must name an earlier stage (`schema.ts:121`) and is consulted only when the gate rejects (`engine.ts:369-375`). — limitation: read, not exhausted against future gate kinds.
-- F4 [source-inspected] The gate is deterministic and content-blind about the subject: it checks object-ness, schema **name** equality, nonce, predecessor digest and section presence (`engine.ts:589-596`); the payload is never parsed by a schema registered under `SchemaName`. — limitation: `GateSubject` is `z.looseObject`, so extra keys pass, which is why a subject digest could be carried but would not be checked.
+- F4 [source-inspected] The gate is deterministic and content-blind about the subject: it checks object-ness, schema **name** equality, nonce, predecessor digest (`engine.ts:589-596`) and section presence (`engine.ts:597-601`); the payload is never parsed by a schema registered under `SchemaName`. — limitation: `GateSubject` is `z.looseObject`, so extra keys pass, which is why a subject digest could be carried but would not be checked.
 - F5 [source-inspected] Review-to-subject binding is prose, not runtime. `docs/WORKFLOW.md:89` requires `subject: <path> sha256:<64 hex>` and `WORKFLOW.md:96` voids a verdict without it, but no `src/` module reads that line. — limitation: grep-level evidence; a tool could still write it.
 - F6 [source-inspected] Flows do not compose: one flat list of 1..16 steps (`schema.ts:103`), no flow reference, and artifact "types" are names compared as strings (`engine.ts:591`). — limitation: composition could exist outside the config; none was found in `src/pi/`.
 - F7 [executed] `node --test 'tests/runner/*.test.ts'` → 31 tests, 31 pass, including `a refused review sends the work back to the stage it names` and `a stage without onRefuse keeps itself current`. The back-edge and the path-less refusal are behaviour. — limitation: proves only the exercised flows.
@@ -82,10 +82,10 @@ This document reads code; it proposes no edit to `src/`.
 | Path | Declaration | Callers | Effect |
 | --- | --- | --- | --- |
 | `src/types/schema.ts` | `StepConfigSchema`, `FlowConfigSchema` (`:75`, `:99`) | `engine.ts` `openFlow`/`parseFlowConfig`; `tests/runner/*` | Any task-unit or edge vocabulary changes the config format here first; strict objects make it a breaking change |
-| `src/runner/engine.ts` | `advance`, `validateFlow`, `gate` (`:311`, `:153`, `:583`) | `src/pi/tool.ts:232,248,261,290`, `src/cli.ts`, `tests/runner/*` | Holds the linear successor and the single predecessor handoff; a graph would be rewritten here |
+| `src/runner/engine.ts` | `advance` (`:311`), `openFlow` (`:131`), `validateFlow` (`:153`), `gate` (`:583`) | `advance` → `src/pi/tool.ts:249`, `src/cli.ts:102,129`, `tests/runner/*`; `openFlow` → `src/pi/tool.ts:290`, `engine.ts:218,312`; `validateFlow` → `openFlow` (`engine.ts:148`); `gate` → `advance` (`engine.ts:351`) | Holds the linear successor and the single predecessor handoff; a graph would be rewritten here |
 | `src/runner/task.ts` | `canonicalBlock`, `hash8`, `taskFolder` (`:15`, `:25`, `:30`) | `tests/runner/task.test.ts:3` only | Unused identity helper: the natural seam for a task unit, or to be replaced |
-| `src/store/db.ts` | `SCHEMA_STATEMENTS` (`:19-57`) | `store/instance.ts`, `store/artifacts.ts`, `store/events.ts` | Four tables, no task/edge; a task-as-data store decision starts here |
-| `src/pi/tool.ts` | `engineOptions` (`:104-120`) | `tool.ts` ops at `:232`, `:248`, `:261`, `:290` | Fixes one flow per run; flow selection or composition must pass through it |
+| `src/store/db.ts` | `SCHEMA_STATEMENTS` (`:19-61`), private const | `openStore`, its single use at `db.ts:135`; `store/instance.ts`, `store/artifacts.ts`, `store/events.ts` call `openStore`, never this const | Four tables, no task/edge; a task-as-data store decision starts here |
+| `src/pi/tool.ts` | `engineOptions` (`:104-120`) | `engineOptions` call sites `:232`, `:248`, `:261`, `:290`; `advance` call site `:249` | Fixes one flow per run; flow selection or composition must pass through it |
 | `.pi/praxis/flows/delivery.json` | five `steps`, `onRefuse: "plan"` (`:258`) | `tool.ts` via `PRAXIS_CONFIG` | Re-states `docs/WORKFLOW.md` gates by duplication; a reused task unit would replace the copy |
 | `docs/WORKFLOW.md:89` | review `subject:` line | human authors; `review.md` files | The only place a review is bound to a subject digest; unenforced by code |
 
@@ -107,6 +107,12 @@ Decisions this research forces on the spec:
 4. **Reuse mechanism.** Flow composition (a flow referencing tasks), or a task library copied into flows (E3, leading). The two differ in what the store owns.
 5. **State machine source.** The table must enumerate the states the code actually has: instance `running|blocked|completed|failed` (`schema.ts:143`) and artifact `pending|accepted` (`schema.ts:169`), plus the refuse/rework transition F10 describes but does not name.
 
-Stays unknown: whether the four acceptance properties (state machine, per-property test, subject-bound review, cross-shape reuse) are one unit or four; whether `blocked` is reachable; and the true canonical block behind `96c9af7d` (Q1). No spec decision below can be settled until Q1 is answered, because the folder name is the contract's identity.
+Stays unknown: whether the four acceptance properties (state machine, per-property test, subject-bound review, cross-shape reuse) are one unit or four; and whether `blocked` is reachable.
 
 amended 2026-10-29 — folder renamed 96c9af7d -> 7b1ebe17, §0 and Q1 record the resolution — the folder must follow the contract text, not a mis-typed scope line
+amended 2026-10-29 — line 3 now reads Hash: 7b1ebe17; the superseded value survives only as provenance in §0 and Q1 — G1-R1: header disagreed with the folder and with §0
+amended 2026-10-29 — §7 no longer lists Q1 as unknown and drops "No spec decision below can be settled until Q1 is answered" — G1-R2: Q1 is resolved
+amended 2026-10-29 — F4 cites the section check at engine.ts:597-601 in addition to 589-596 — G1-R4: the old range stopped before section presence
+amended 2026-10-29 — SCHEMA_STATEMENTS is cited as db.ts:19-61 in §2 and F1 — G1-R5: the declaration runs from line 19 to line 61
+amended 2026-10-29 — the db.ts row names openStore/db.ts:135 as the only user of the private const — G1-B1: store modules call openStore, not SCHEMA_STATEMENTS
+amended 2026-10-29 — the engine.ts row separates advance's callers (tool.ts:249, cli.ts:102,129) from openFlow/validateFlow/gate's internal callers — G1-B2: validateFlow and gate have no tool.ts or cli.ts caller

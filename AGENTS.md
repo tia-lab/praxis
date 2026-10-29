@@ -61,6 +61,16 @@ acceptance here before building.
   are unchanged. Not authorized: Pi-wide tool denial, OS sandbox, isolation or trusted
   identity claims — gates #1, #2 and #3 stay open and the recorded claim is routed-call
   denial only.
+- **2026-10-29 — flow selection (real unit, G1 dispatched).** Owner GO in words: the
+  rebuilt team must run a real unit through the delivery workflow. Scope:
+  `src/runner/engine.ts`, `src/pi/tool.ts`, `src/cli.ts`, `tests/runner/`,
+  `docs/flow-selection-73c73898/`; contract hash8 `73c73898` (feature `flow-selection`, task
+  `f902d382`, assignment `1cc69177` to architect-1). Acceptance: `praxis run flows/delivery`
+  starts the shipped delivery flow from a fresh store; a selector that disagrees with the
+  document's flow key is `FLOW_INVALID` before any write; the shipped flows and
+  `.pi/praxis/config.json` stay byte-identical; `tsc` clean; suite green. Not authorized: flow
+  document schema changes, store schema changes, nested-execution budgets, or any isolation,
+  identity or exactly-once claim.
 - **2026-10-29 — path identity for tasks and flows.** Owner GO in words, after a
   plan-plus-review round on the same change was rejected as ceremony. Scope:
   `src/types/schema.ts`, `src/runner/engine.ts`, `src/store/definitions.ts`,

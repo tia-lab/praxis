@@ -17,7 +17,7 @@ import { actorFor, engineOptions, executePraxisTool } from "../../src/pi/tool.ts
 import type { PiToolResult } from "../../src/pi/host.ts";
 import { PraxisToolArgsSchema } from "../../src/types/pi.ts";
 import { canonicalBytes } from "../../src/runner/canonical.ts";
-import { artifacts, fakeContext, pendingArtifact, tempStore } from "./fixtures.ts";
+import { artifacts, config, fakeContext, pendingArtifact, tempStore } from "./fixtures.ts";
 
 const SIX_KEYS = ["artifacts", "flow", "instanceId", "nextAction", "status", "summary"];
 const UNKNOWN_INSTANCE = "i0123456789abcdef0123456789abcdef";
@@ -171,7 +171,7 @@ test("request conflict for a different session", () => {
 test("changed config payload is REQUEST_CONFLICT", () => {
   const store = tempStore();
   bag(start(store.cwd));
-  writeFileSync(store.configPath, JSON.stringify({ ...artifactsConfigReplacement(), result: "praxis.result.v2/v1" }));
+  writeFileSync(store.configPath, JSON.stringify({ ...config, result: "praxis.result.v2/v1" }));
   const again = start(store.cwd);
   assert.equal(bag(again).code, "REQUEST_CONFLICT");
   assert.equal(rows(store.cwd, "select id from instance").length, 1);

@@ -509,5 +509,121 @@ the coupling.
 - Digests are of the working tree at 2026-10-29T12:33:09Z; `plan.md`, `spec.md` and
   `review.md` are uncommitted relative to HEAD.
 
+## G5 implementation — attempt 1 — FAIL — 2026-10-29T12:46:30Z
+
+subject: HEAD d7ad45d (`feat: expose the runtime as one Pi tool with step-scoped denial`),
+plus one uncommitted test-only delta present before this review (G5-F1).
+reviewer: reviewer-1  independence: independent
+
+Digests of every reviewed file (working tree unless marked HEAD):
+
+```sh
+1ffe942c0e9ba800ac5eff16db6a4ab9da70c9a9b1927f2e2998d62de890da10  docs/pi-integration-eeacf406/spec.md
+a4b89928fad4ec6fda2edb7067050ace87a64d887f920895c7a9d5e28afc33fb  docs/pi-integration-eeacf406/plan.md
+7050904bae9ce0f32a9a932107d3044e6b198f5cc91499a014c1c93014015ca9  src/types/pi.ts
+2c0d049c31607531aa725d4a95f4a4cd2e0d0deb78bc5b6e533835f64a48e5ce  src/pi/host.ts
+ce3c48f2621e8903425bcdf64c7a36c23f9a5076c087fb278d6a1d3b580529cd  src/pi/tool.ts
+c384f887b95cf36f2a173ac823359cfe250dde69504fa58f07a29bc89eb61c55  src/pi/extension.ts
+be4ef4c742abd66cfe90554d03ccf12b3fcdcfb4d376d0685825c493b30ae682  tests/pi/fixtures.ts
+d383efd146ce58d142d626001260eadb7af1a4d6b40613e989b001f374fbfb64  tests/pi/extension.test.ts
+4c33f8e5d9c187c8dcd50ce8f511996fb235e952fcfc60de376b6897abf38995  tests/pi/e2e-prompt.md
+bbb8546e119f0fc59d364aba3d969dcb4e832c8214e26c2641938d2545aa178f  tests/pi/tool.test.ts (working tree)
+e0347e870ba897a4bccfae13f7a09e204412e5223d46920d6f115afa7b0ef6a1  tests/pi/tool.test.ts (HEAD d7ad45d)
+```
+
+findings:
+
+- **G5-F1 [blocking]** `tests/pi/tool.test.ts:174` at **HEAD d7ad45d** calls
+  `artifactsConfigReplacement()`, which no module defines (the fixture exports exactly
+  `artifacts,config,fakeContext,pendingArtifact,tempStore`). The working tree carries an
+  uncommitted two-line fix that uses `config` instead. Executed: exporting HEAD with
+  `git archive HEAD` and running `tsc --noEmit` gives
+  `tests/pi/tool.test.ts(174,55): error TS2304: Cannot find name 'artifactsConfigReplacement'.`
+  on the working tree `npx tsc --noEmit` exits 0 and P2 is 34/34. Consequence: the certified
+  artifact (the commit) does not compile; every executed result below belongs to the working
+  tree, not to d7ad45d, and G6 must not accept that commit. Cure: commit the two-line delta,
+  re-run P1/P2/P3 for the new commit, and re-review with the new `tests/pi/tool.test.ts`
+  digest — no other code change is needed.
+- **G5-F2 [advisory]** `src/pi/tool.ts:186-189` — `submitOperation` derives the descriptor
+  from a second `openFlow()` after `advance` returned. If the config changes between the two
+  reads, the step is already committed and the tool then throws `CONFIG_INVALID`, reporting a
+  successful write as a failure. `advance` checks the pinned digest before writing
+  (`engine.ts:322-328`), so this needs a concurrent config writer inside one call. Cure:
+  record as a known limit; returning the flow from `advance` would be an engine change and
+  R9 forbids it.
+- **G5-F3 [advisory]** `src/types/pi.ts:113-121` — the comment says the
+  `satisfies readonly Code[]` annotation makes a missing code a compile error; it only
+  rejects extra names. The current mirror is complete (17/17 against `errors.ts`), but a
+  future code could be absent from the runtime enum, and `failure()`'s catch fallback would
+  then return `{code, message}` without schema validation. Cure: add an exhaustiveness record
+  (`const _: Record<Code, true> = ...`) or correct the comment, and do not let the catch
+  bypass the envelope shape.
+- **G5-F4 [advisory]** observation for the lead, outside unit C's read-only scope: a
+  single-step flow makes `FlowConfigSchema`'s refinement throw a raw `TypeError`
+  (`src/types/schema.ts:83`, `second` undefined) instead of a typed refusal. The Pi tool
+  maps that to `INTERNAL` correctly (R8), so unit C's contract holds; the engine defect is
+  Slice 0's and should be carried, not fixed here.
+- **G5-F5 [advisory]** test hygiene: `project()`/`tempStore()` results are never disposed in
+  `tests/pi/tool.test.ts`, so each run leaves temp directories under `/tmp`. No requirement
+  impact; dispose in a `t.after` if it matters.
+
+### Requirement status (working tree)
+
+| Req | Status | Evidence |
+| --- | --- | --- |
+| R1 | satisfied | P3: one `registerTool`, name `praxis`, `parameters === PRAXIS_TOOL_PARAMETERS`, `execute.length === 5`, no `on`/command/provider call; no `pi.on` in `src/pi`. Exposure is the host default `direct`; the local mirror has no `exposure` field, so that is not asserted (host-check limit). |
+| R2 | satisfied | Handler probe: unknown key, unknown op, missing submit `instance`, missing read `step`, and an `actor` argument all return `CONFIG_INVALID`; the host document has `required:["op"]` and `additionalProperties:false`. |
+| R3 | satisfied | `start returns six keys and nonce`, `repeat start…`, `request conflict for a different session`, `changed config payload…`; probe confirms content = JSON(details). |
+| R4 | satisfied | `submit A advances to derive`, `submit B completes`, `gate rejection exposes details.detail.checks`; `advance` is the only write path in `tool.ts`. |
+| R5 | satisfied | `read in draft is CAPABILITY_DENIED`, `read A in derive returns A`, `corrupt A is ARTIFACT_DIGEST_MISMATCH`, `denied read leaves counts unchanged`; probe: after a config change, `read` → `CONFIG_INVALID`; summary keys are `digest,schema,state,step,version` (no path). |
+| R6 | satisfied | Three descriptor tests; probe: a two-step flow whose first step grants only `emit` yields `{"id":"spec","capabilities":["emit"],"ops":[]}`. |
+| R7 | satisfied | Probe: six keys exactly, `content` parses to `details`, `result` text contains no store path, `read` returns the summary and body only; no `executeTool` in `src/pi`. |
+| R8 | satisfied | All nine expected codes have a negative (`schema…`, `request conflict…`, `submit/read without instance…`, `submit on failed…`, `gate rejection…`, `corrupt A…`, `read in draft…`, `unexpected error becomes INTERNAL`, `pending version conflict`); failures are `isError` with content = JSON(details); a failed instance state returns a successful six-key result. |
+| R9 | satisfied | `git diff --name-only HEAD --` the read-only list (runner, store, schema.ts, errors.ts, cli.ts, config, package.json, tsconfig, .pi/settings) is empty; `git status --porcelain -- src tests` shows only the uncommitted test delta. |
+| R10 | satisfied | `actor label is stable per session`, `missing session id is a typed failure` (zero state: no sqlite file), `actor` rejected from args; probe confirms the label shape. |
+| R11 | satisfied | Tool description states the routed-call limit; no `tool_call`/hook registration; the bash observation is P11 in the owner run (not run here). |
+| R12 | satisfied | `repeat start…`, `submit reuses a pending version`, `pending version conflict`, `completed submit…`, `submit on failed…` with row/version assertions. |
+| R13 | satisfied | Gate rejection → `ARTIFACT_INVALID` with `details.detail.checks`; same-session `start` → success with `status:"failed"`; different session → `REQUEST_CONFLICT`; failed `submit` → `INSTANCE_STATE_INVALID`. |
+
+### Checks executed here
+
+| Check | Result |
+| --- | --- |
+| P1 on the working tree | `npx tsc --noEmit` exit 0 |
+| P1 on HEAD d7ad45d | `git archive HEAD` + `tsc --noEmit` → TS2304 (G5-F1) |
+| P2 | 34 tests, 34 pass, 0 fail; 34 `✔` lines |
+| P3 | 4 tests, 4 pass; 4 `✔` lines |
+| P4 | 29 tests, 29 pass, 0 fail |
+| P5 (R9 part) | read-only diff empty; only `tests/pi/tool.test.ts` modified |
+| P6a/P6b/P6c | all empty |
+| P12/P13/P15 | one `✔ <name>` line each |
+| Named tests | plan table and file: 34 = 34, names identical and in the same order; each test asserts (read in full) |
+| Fixture export check | `artifacts,config,fakeContext,pendingArtifact,tempStore` exactly |
+| Probes | unknown key/op/actor and missing per-op fields → `CONFIG_INVALID`; six keys; descriptor draft/derive/emit-only; read no path; read pinned-config change → `CONFIG_INVALID`; submit pinned-config change → `CONFIG_INVALID` with artifact count 1→1; content = JSON(details) |
+
+LOC deviation: `src/types/pi.ts` is **134** lines. The G3-approved plan (`plan.md:351`) sets
+the cap at **140**, so the implementation is within the approved budget; the "120 cap" in the
+assignment is the attempt-1 figure and is stale. Every other file is under its cap
+(`tool.ts` 251/300, `host.ts` 62/100, `extension.ts` 13/30, `tool.test.ts` 382/450,
+`fixtures.ts` 133/150, `extension.test.ts` 92/100, prompt 44/80), and no file reaches 600.
+
+G5 attempt 1 is **FAIL** on G5-F1 only. R1-R13 are satisfied on the working tree; after the
+two-line test fix is committed, a short re-review of the new digests (and P1/P2/P3) should
+close it.
+
+### Limits of this attempt
+
+- **P7-P11 were not run: they are the owner's Pi host run.** I make no claim about the live
+  host transcript, the CLI status of a host-created instance, the bash observation or any
+  real-model behaviour. The extension test's `accepts()` mimics three JSON-Schema keywords
+  and is not the host's TypeBox validator; the host-level schema acceptance is the owner run.
+- I reviewed the working tree and the HEAD archive; HEAD's test file differs (G5-F1). I did
+  not modify any source, test or doc file.
+- I did not run the store-under-power-loss, concurrency or multi-session cases beyond the
+  named tests and probes above.
+- Digests are of the working tree at 2026-10-29T12:46:30Z; `tests/pi/tool.test.ts` is
+  uncommitted relative to HEAD.
+
+
 
 

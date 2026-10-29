@@ -170,8 +170,14 @@ src/
   <owner>/<concern>.ts  behaviour; imports the contract from types/
   <owner>/index.ts      folder surface: re-exports only, zero logic
   index.ts              package surface
-tests/<area>.test.ts    node:test; one semantic file per module area
+tests/                  node:test; mirrors src/ one level deep
+tests/<owner>/<area>.test.ts
+  testkit.ts            shared fixtures live here, never in src/
 ```
+
+Tests never live inside `src/`. No `*.test.ts`, no fixtures and no test helpers under
+`src/`. A write-claim limit is **not** a reason to co-locate a test: split the
+assignment instead, or open the claim on `tests/` for the owner of the code under test.
 
 1. ≤600 physical lines per file — stricter than the 700 in Occam/TIA and binding
    here. Split on an owner boundary; never to reach a number; never compress code

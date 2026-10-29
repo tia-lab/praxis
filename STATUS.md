@@ -1,26 +1,26 @@
 # Where we are
 
-**Unit:** Slice 0 — minimal runtime. Two phases, two processes.
-**Gate:** G5 — independent review running.
-**Waiting on you:** nothing. Then you run the slice and accept or reject.
+**Unit:** Slice 0 — minimal runtime.
+**Gate:** G5 review running, with one correction queued.
+**Waiting on you:** nothing yet.
+
+## Correction in flight (owner-directed)
+Tests must live in `tests/`, mirroring `src/`. They were co-located under `src/` because the
+plan hit the 2-claim cap. That was the wrong call: split the assignment or claim `tests/`,
+never co-locate. Rule is now explicit in `WORKFLOW.md` §7.
 
 ## Done
-- Blueprint: `research`, `review`, `eng` (converger `lead`).
-- Spec approved, plan approved, flow config written.
-- eng team wrote it: engineer-1 (types, store), engineer-2 (runner, CLI).
-- Lead re-ran every check: P1 6/6, P2 11/11, P3 pass, P4 3/3, P5 2/2, P8 pass, tsc 0.
-- F1 defect found by reviewer-1, fixed by engineer-2, verified by lead.
-
-## Running now
-- Review team `slice-0-review` (5adcc698), room `93e8b948`.
-- reviewer-1 writing `docs/slice-0-1947a537/review.md`.
+- Implementation green: P1 6/6, P2 11/11, P3 pass, P4 3/3, P5 2/2, P8 pass, tsc 0.
+- reviewer-1 independently closed F1 and caught the key-count guard.
 
 ## Next
-1. Reviewer verdict lands.
-2. I fix anything blocking.
-3. You run: `node --experimental-strip-types src/cli.ts run architect --request r1 --artifact <a.json>`.
-4. You accept or reject.
+1. reviewer-1 finishes `review.md`.
+2. Retire the review team. Compose `eng` again.
+3. Two engineers move tests: `tests/store/*`, `tests/runner/*`, shared `tests/testkit.ts`.
+   No `*.test.ts` remains under `src/`.
+4. reviewer-1 re-verifies the moved tree and amends `review.md`.
+5. You run it. You accept or reject.
 
 ## Open
-- Host seam (Pi) untested. Not in Slice 0.
-- Blueprint flaws queued: `eng` should accept `review` tasks; `lead` needs `scope: "project"` routing.
+- Single team slot: `maxTeams: 1`, so the move waits for the review team to retire.
+- Layering finding: `src/store` imports `src/runner/canonical.ts`. Decided at P1.

@@ -61,6 +61,17 @@ acceptance here before building.
   are unchanged. Not authorized: Pi-wide tool denial, OS sandbox, isolation or trusted
   identity claims — gates #1, #2 and #3 stay open and the recorded claim is routed-call
   denial only.
+- **2026-10-29 — path identity for tasks and flows.** Owner GO in words, after a
+  plan-plus-review round on the same change was rejected as ceremony. Scope:
+  `src/types/schema.ts`, `src/runner/engine.ts`, `src/store/definitions.ts`,
+  `.pi/praxis/flows/workflow.json`, `.pi/praxis/tasks/*`, the affected tests, and the R1–R4
+  amendment in `docs/task-data-flow-model-7b1ebe17/`. Acceptance: `tasks/<path>` and
+  `flows/<path>` share one segment rule; a document's `id` is its last path segment; a
+  publication is keyed by (path, version); flat and nested references both resolve; `tsc`
+  clean and 139/139 tests; `.pi/praxis/config.json` and the accepted `research` and
+  `delivery` flows byte-identical. Not authorized: selector resolution under
+  `.pi/praxis/flows/`, flow selection from the Pi tool (its path stays hardcoded), and any
+  isolation, identity or exactly-once claim — gates #1/#2/#3 stay open.
 - **2026-10-29 — delivery flow (praxis runs praxis).** Owner GO in words: the team uses
   Praxis directly with issue reporting open, accepting a slower start. Scope:
   `.pi/praxis/flows/delivery.json` (new), `.pi/praxis/flows/research.json` (snapshot of the

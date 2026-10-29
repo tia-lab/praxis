@@ -100,3 +100,13 @@ Advisory: six citation drifts, and store.test.ts 338-vs-341 line count.
 Lead actions: one combined amendment assignment (eb1b96ba) with the lead ruling that Slice 0 stays
 byte-identical, the live store is not touched, and the migration emits task documents and new flow
 files only.
+### reviewer-1 advisories A2-A8 (added 2026-10-29 after reviewer-1 flagged the omission)
+The block above records B1 and A1 and states "8 advisory", which under-counted what a later reader can
+see. The full advisory list, titles only, from the assignment report:
+A2 (F5) "the shipped delivery flow exercises R6" - C12 checks the declaration, not the behaviour.
+A3 (F5) C8 does not prove src/types/org.ts untouched.
+A4 (F3) four src/pi/tool.ts declaration citations are two lines low.
+A5 (F4) one budget row and one test line are stale.
+A6 (section 0) the same 16:53 edit is described twice with different provenance.
+A7 (F6) widens the artifact.accepted payload without naming the open artifact-contract gate.
+A8 (F2/F6) step 5 names src/runner/step.ts as its path while A12 forbids creating it.

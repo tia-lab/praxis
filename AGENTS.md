@@ -72,6 +72,13 @@ acceptance here before building.
   refuses a document missing its required section. Not authorized: engine, store or tool
   code changes; flow selection from the Pi tool (its path is hardcoded) is a separate
   unit; `"active"` in `.pi/manifold/config.json` stays `research`.
+- **2026-10-29 — task-data-flow-model (G0)** · `docs/task-data-flow-model-7b1ebe17/` ·
+  hash8 `7b1ebe17` · design unit for tasks-as-data, flows composing them, control flow
+  as edges. Goal "tasks as JSON units, flows compose them, logic as edges"; scope
+  "docs/<slug>-<hash8>/, later src/types/schema.ts, src/runner/engine.ts"; acceptance
+  "state machine table, four properties each with a test, review bound to subject digest,
+  flows reuse tasks across feature/bugfix/refactor". Procedure: `docs/WORKFLOW.md` gates
+  in markdown until Praxis can hold the design loop itself.
 
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a

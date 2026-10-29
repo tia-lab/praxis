@@ -85,6 +85,20 @@
         "acceptedTaskKinds": ["implement", "design", "review"],
         "retirePolicy": { "mode": "owner" }
       }
+      ,
+      "test": {
+        "room": "required",
+        "memberSlots": [
+          { "role": "lead", "count": 1 },
+          { "role": "architect", "count": 1, "profile": "tester" },
+          { "role": "engineer", "count": 1, "maxCount": 2, "profile": "tester" },
+          { "role": "reviewer", "count": 1, "profile": "tester" }
+        ],
+        "topology": { "mode": "hub", "convergerRole": "lead" },
+        "bounds": { "minMembers": 4, "maxMembers": 6, "maxConcurrentAssignments": 3 },
+        "acceptedTaskKinds": ["implement", "design", "review"],
+        "retirePolicy": { "mode": "owner" }
+      }
     },
     "taskKinds": {
       "research": {
@@ -127,6 +141,15 @@
       "reviewer": {}
     },
     "launchProfiles": {
+      "tester": {
+        "kind": "pi",
+        "executable": "/home/tia/.bun/bin/pi",
+        "model": "deepseek/deepseek-flash",
+        "cwd": ".",
+        "arguments": ["-e", "./src/pi/extension.ts", "--thinking", "high"],
+        "newTab": false,
+        "timeoutMs": 120000
+      },
       "research": {
         "kind": "pi",
         "executable": "/home/tia/.bun/bin/pi",

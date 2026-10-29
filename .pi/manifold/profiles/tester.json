@@ -286,7 +286,7 @@
             "role": "reviewer",
             "count": 1,
             "profile": "tester",
-            "maxCount": 3
+            "maxCount": 2
           }
         ],
         "topology": {

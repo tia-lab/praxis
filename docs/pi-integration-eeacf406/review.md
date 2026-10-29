@@ -248,3 +248,266 @@ removed after the run, so no probe artifact remains. No reviewed file was edited
 - Independence: I am `reviewer-1`, a different session from the author (`architect-1`),
   and I did not write research.md, spec.md or plan.md. This verdict is therefore
   `independent` in the `docs/WORKFLOW.md` §3 sense; it is not owner acceptance.
+
+## G2 spec — attempt 2 — PASS — 2026-10-29T12:17:58Z
+
+subject: `docs/pi-integration-eeacf406/spec.md` sha256:1ffe942c0e9ba800ac5eff16db6a4ab9da70c9a9b1927f2e2998d62de890da10
+reviewer: reviewer-1  independence: independent
+
+Rework basis: `git diff` against the attempt-1 subject (+42/−15 lines). `research.md`
+(9247583…) and `plan.md` (3529431c…) are unchanged, so this section reviews the spec text
+and its consistency with the rest of the spec and with the accepted engine, not a stale plan.
+
+findings:
+
+- G2-F7 [advisory] `spec.md:29` R8 — the "expected operation-failure code" list omits
+  `ARTIFACT_VERSION_CONFLICT`, which R12 (`spec.md:33`) states as surface behaviour and the
+  engine raises at `engine.ts:441`. It is reachable through the tool: a killed attempt leaves
+  a pending version for the step (`runStep` reuses `probeArtifact`, `engine.ts:431-447`), a
+  later `submit` with different content on the same instance conflicts, and `submit` is not
+  actor-bound (G2-F9). Consequence: a promised failure mode has no negative in R8's oracle
+  and R12's "changed payload" oracle does not say how the pending version is created. Cure:
+  add `ARTIFACT_VERSION_CONFLICT` to R8's list and state in R12 that the pending version is
+  seeded by an aborted attempt or a store-level fixture. Evidence: source-inspected.
+- G2-F8 [advisory] `spec.md:34` R13 — "with the gate checks in `details`" is one level
+  short: R8 fixes failure details as `{code, message, detail?}`, and the engine's
+  `AppError.detail` for a gate rejection is `{instance, step, checks}` (`engine.ts:363-371`),
+  so the checks sit at `details.detail.checks`. Consequence: an oracle written to
+  `details.checks` fails; a reader may assume a flat shape. Cure: say "in
+  `details.detail.checks`" and assert that path. Evidence: source-inspected.
+- G2-F9 [advisory] `spec.md:29,34` R8/R13 vs `spec.md:39` R10 — the rework qualifies
+  `start`'s reopen/conflict by session/actor, but `submit` and `read` take only an instance
+  id and the engine compares no actor there (`engine.ts:290-302,309-321`). That is right for
+  a correlation label ("no authorization decision may rely on it"), but the asymmetry is
+  unstated: the same label gates `start` and not the writes. Consequence: an implementer may
+  add an actor check to `submit` (a new authority decision) or assume cross-session submit is
+  impossible. Cure: one clause — "the actor condition is `start`'s reopen/conflict key only;
+  `submit` and `read` are bound by the instance id and the step grant". Evidence:
+  source-inspected.
+
+verdict basis: every changed line checked against its neighbours and the engine.
+
+(1) R8/R13/state table/envelopes are consistent on the failure split. R8 defines an
+**operation failure** as the `isError:true` envelope with `content` = JSON text of
+`{code,message,detail?}`, adds the Zod-parse → `CONFIG_INVALID` mapping, and explicitly
+excludes failed-instance state; R13 makes the gate rejection an operation failure
+(`ARTIFACT_INVALID`) and a later same-session `start` a **successful** six-key result with
+`status:"failed"`; the state table's `failed` row (`spec.md:55`) and the Envelopes section
+(`spec.md:90-101`, "the two are never mixed") repeat it; R4/R12's failed columns name only
+operation-failure codes. No place still returns a failed state as an error envelope. The
+R8/R13 contradiction the lead ruled on is closed; attempt 1 did not record it.
+(2) R13 is qualified by session/actor and all three state-table rows repeat the
+qualification, including `completed`. The `REQUEST_CONFLICT` oracle is real: `start`
+compares `configDigest` and `actor` and throws before `createInstance` (`engine.ts:224-243`),
+so a different fake session id gives `REQUEST_CONFLICT` with the one existing row and no
+second row; the same-session repeat returns the stored instance and its nonce, and
+`inspect` builds the six-key result with `status:"failed"` (`engine.ts:282-289`,
+`result.ts:46-52`).
+(3) The claim rule is recorded verbatim in a dedicated section (`spec.md:145-151`): per file,
+at most two per assignment, never per folder; `review.md` reviewer-only, `plan.md`
+unclaimed, and the G3 folder-claim cure deferred to the next plan assignment. I confirm the
+text and my own per-file claim (this assignment holds `review.md`); I cannot audit another
+assignment's claim rows from `scope:"self"`.
+(4) Prior G2 findings are resolved in this text: G2-F1 (content/details shape) — R7/R8 and
+Envelopes now fix one text part plus `details`; G2-F2 (unqualified reopen) — R13 and the
+state table; G2-F3 (host schema requires only `op`) — Denial points 1; G2-F4 (three-tool
+alternative) — Alternatives D; G2-F5 ("artifact bytes") — R7 now says "artifact body";
+G2-F6 (`FLOW_INVALID`) — R8 carries it, and I verified the claim: `FLOW_INVALID` is declared
+at `src/types/errors.ts:17` and raised nowhere in `src/`; the loader raises `CONFIG_INVALID`
+(`engine.ts:141,148,158-175`).
+G2 attempt 2 is **PASS** with three advisories (G2-F7..F9). No blocking finding remains in
+the spec.
+
+## G3 plan — unchanged — FAIL (no review this round)
+
+`plan.md` is byte-identical to the attempt-1 subject (sha256:3529431c…). G3 stays **FAIL**
+on the attempt-1 findings G3-F1..G3-F5 — including the folder claim E, the implementation-
+before-review step order, the fixture dependency in steps 1-5, the untested host seam and
+the vacuous P7/P9/P10/P12 checks. No G3 verdict is appended and no plan text was reviewed
+this round; G2 PASS does not unblock implementation.
+
+## What else changed since attempt 1
+
+`AGENTS.md:54-63` now records the unit C authorization (owner authorized directly; scope
+`src/types/pi.ts`, `src/pi/`, `tests/pi/`, `docs/pi-integration-eeacf406/`; acceptance and
+open gates #1-#3 named). The attempt-1 P1 authority finding is closed by that owner action;
+this note is not a re-review of it.
+
+## Limits of this attempt
+
+- I reviewed the spec diff and the files it cites; I executed no oracle (no implementation
+  exists), and I did not run the engine against the described cases.
+- I did not audit architect-1's Manifold claim rows (self scope only) and did not read the
+  rework assignment beyond the spec.
+- G3 and the plan remain failed and unreviewed; nothing here authorizes implementation.
+- Digests are of the working tree at 2026-10-29T12:17:58Z; `spec.md` is uncommitted relative
+  to HEAD, the other files match it.
+
+## G3 plan — attempt 2 — FAIL — 2026-10-29T12:28:47Z
+
+subject: `docs/pi-integration-eeacf406/plan.md` sha256:d1902d78da93035c30b7023fd0af0ccc3f6ae12665b0b434cfc6daebe2732881
+reviewer: reviewer-1  independence: independent
+
+Basis: `git diff` against the attempt-1 subject (3529431c…, +244/−73 lines); `spec.md`
+1ffe942c… (G2 attempt 2 PASS) and `research.md` 9247583… unchanged; contract still eeacf406.
+
+### Blocker check (attempt-1 findings G3-F1..F5)
+
+| Blocker | Verdict | Evidence |
+| --- | --- | --- |
+| G3-F1 step order | **resolved** | `plan.md:4-6,86-93,95`: step 0 is the G3 review gate, "No step below starts before PASS", and the implementation section is headed "(only after G3 PASS)". |
+| G3-F2 falsifiable done-when | **resolved** | `plan.md:95-137`: every step has a concrete command, named-test set or parser condition; step 0 requires a verdict with the file's sha256. |
+| G3-F3 claims | **resolved** | `plan.md:13-36`: one file per claim (A1-D2, E1=plan.md, F1=review.md), at most two per engineer, no folder; "the earlier folder claim is retired" at 17-19 and 275-277. |
+| G3-F4 host seam | **resolved** | `plan.md:43-50,300-306`: `PiToolResult` has required `details` and `PiTextPart[]` content, `PiToolDefinition.execute(toolCallId, params, signal, onUpdate, ctx)`, and host.ts is a type-only mirror; P6a/P6b/P6c plus P14 check it. I verified the host package is not resolvable from the project (`MODULE_NOT_FOUND`), so the mirror is the only option under R9's no-dependency rule. |
+| G3-F5 observable checks | **resolved** | P7/P9 parse the JSONL for ≥3 starts, final `status:"completed"`, one denial with `details.detail.step`, no `nestedCalls`; P10 has a command; P11 records observed/unproven; P12/P13/P15 name tests; step 6 says a failed host run is recorded, not explained away (`plan.md:126-133`). |
+
+### Findings
+
+- **G3-F10 [blocking]** `plan.md:139-153` — the named tests are declared the P2 evidence and
+  "a missing name is a missing requirement", but the list leaves these requirements without a
+  named test: R13's centrepiece (a later same-session `start` returns a **successful** six-key
+  result with `status:"failed"`), R12's idempotency cases (repeat `start` returns the same
+  instance/nonce; `submit` reuses a pending version; completed `submit` returns its result;
+  failed `submit` is `INSTANCE_STATE_INVALID`), R8's remaining negatives
+  (`INSTANCE_NOT_FOUND`, `INTERNAL`), R10's missing-session typed failure, and R2's
+  submit/read missing-field cases (only start is tested). Consequence: G5 would find
+  R8/R10/R12/R13 partially unproven, and the lead's R8-vs-R13 ruling would ship without a test
+  while the plan's own rule says that is a missing requirement. Cure: add named tests
+  `failed instance reopens as a successful six-key result`,
+  `submit on failed instance is INSTANCE_STATE_INVALID`,
+  `repeat start returns the same instance and nonce`, `submit reuses a pending version`,
+  `completed submit returns the completed result`,
+  `submit without instance is INSTANCE_NOT_FOUND`, `unexpected error becomes INTERNAL`,
+  `missing session id is a typed failure`, `schema rejects missing submit instance`, map
+  them in steps 3/4 and P2, and keep the count of named tests equal to the covered behaviours.
+  Evidence: read (full plan); executed `grep` shows no occurrence of `INSTANCE_NOT_FOUND`,
+  `INSTANCE_STATE_INVALID`, `INTERNAL` or a repeat/completed-submit test name.
+- **G3-F11 [advisory]** `plan.md:167-175` — P7/P9 require **exactly one**
+  `CAPABILITY_DENIED` and fail on any other praxis `isError`. A model that retries the denied
+  read or makes one stray call fails a legitimate run; research F16 already says tool-call
+  behaviour is not deterministic. Consequence: a false negative that tempts re-prompting
+  instead of recording. Cure: accept ≥1 denial, assert every denial is
+  `CAPABILITY_DENIED`/`details.detail.step === "draft"`, record extra attempts as an
+  observation, and keep "unexpected non-denial failure fails".
+- **G3-F12 [advisory]** `plan.md:163` — P5 compares the working tree against an implicit
+  committed baseline and its no-change list omits `package.json`, `tsconfig.json`,
+  `.pi/settings.json` and `STATUS.md`. The G3 evidence (`spec.md`, `plan.md`,
+  `review.md`) is currently uncommitted, and G5 writes `review.md`. Consequence: P5 fails on
+  legitimate doc changes, or misses a manifest change that R9 forbids. Cure: state that the
+  lead commits the G3 evidence before G4; scope P5 to
+  `git status --porcelain -- src tests` plus
+  `git diff --name-only HEAD -- src/runner src/store src/types/schema.ts src/types/errors.ts src/cli.ts .pi/praxis/config.json package.json tsconfig.json .pi/settings.json STATUS.md`.
+- **G3-F13 [advisory]** `plan.md:101-124,172-175` — the name-pattern commands cannot
+  distinguish a missing test from a passing one: executed
+  `node --test --test-name-pattern "no such test name" tests/store/canonical.test.ts` exits 0
+  and reports "1 pass" (the file line), while a matching run reports the `✔ <name>` line.
+  Consequence: a renamed or absent named test satisfies both the command and P12/P13/P15's
+  "1 pass" while proving nothing. Cure: require the recorded output to show a
+  `✔ <name>` line per name, or assert the count (e.g. `--test-reporter=tap | grep -c '^ok'`).
+
+### Verdict basis
+
+The five attempt-1 blockers are resolved. R9 holds: the read-only list (`plan.md:32-36`)
+covers `src/runner`, `src/store`, `src/types/schema.ts`, `src/types/errors.ts`, `src/cli.ts`
+and the flow config, no declaration touches them, and all new files are inside the authorized
+scope (`AGENTS.md:54-63`); G3-F12 is the one gap in P5's expression of it. The G2 attempt-2
+advisories are carried: G2-F7 → P15 seeds a pending artifact and asserts
+`ARTIFACT_VERSION_CONFLICT` with no write, with the code to be added to R8 at the next spec
+touch; G2-F8 → named test `gate rejection exposes details.detail.checks`; G2-F9 → named test
+`submit and read are not actor bound`. G3-F6 is closed by `engineOptions(ctx)` + P13; G3-F8
+is noted as the lead's `STATUS.md` edit. Baseline executed here: P1 `npx tsc --noEmit` exits
+0 and P4 reports 29/29 pass. The plan is consistent with the G2 attempt-2 spec it cites.
+
+G3 attempt 2 is **FAIL** on G3-F10 (coverage), not on the five blockers. One short plan
+amendment — named tests plus their step/P2 mapping — closes it; no structural change is needed.
+
+### Limits of this attempt
+
+- No implementation exists; commands that need `src/pi` or `tests/pi` are planned evidence,
+  not run. I ran P1 and P4, the host-resolution probe (`MODULE_NOT_FOUND`), the store
+  API/column read (`recordArtifact` exported; artifact columns `instance, step, state`), and
+  the name-pattern probe.
+- I did not audit the architect's Manifold claim rows (self scope only) and did not review
+  implementation or the spec.
+- Digests are of the working tree at 2026-10-29T12:28:47Z; `plan.md`, `spec.md` and `review.md` are
+  uncommitted relative to HEAD.
+
+## G3 plan — attempt 3 — PASS — 2026-10-29T12:33:09Z
+
+subject: `docs/pi-integration-eeacf406/plan.md` sha256:a4b89928fad4ec6fda2edb7067050ace87a64d887f920895c7a9d5e28afc33fb
+reviewer: reviewer-1  independence: independent
+
+Basis: full plan re-read against attempt-2 findings G3-F10..F13; attempt-1 blockers and the
+R9 list re-checked; `spec.md` 1ffe942c… and `research.md` 9247583… unchanged; contract
+eeacf406.
+
+findings:
+
+- **G3-F10 [resolved]** `plan.md:132-173` — the 34-row table now carries all nine requested
+  names: `schema rejects missing submit instance` (#2), `missing session id is a typed
+  failure` (#7), `repeat start returns the same instance and nonce` (#12),
+  `completed submit returns the completed result` (#17),
+  `submit on failed instance is INSTANCE_STATE_INVALID` (#18),
+  `failed instance reopens as a successful six-key result` (#19),
+  `submit without instance is INSTANCE_NOT_FOUND` (#23),
+  `submit reuses a pending version` (#29), `unexpected error becomes INTERNAL` (#31), plus
+  `read without instance is INSTANCE_NOT_FOUND` (#30) and the read-field rows (#3, #4).
+  Step mapping is complete and consistent: 10 rows for step 2 (#1-10), 13 for step 3
+  (#11-23), 11 for step 4 (#24-34) = 34 (`plan.md:302-306`); P2 runs all 34
+  (`plan.md:180`), and #28/#32/#33 are tagged P15/P12/P13 (`plan.md:192-195`). I audited
+  R1-R13 against the table: every requirement has a named row or an explicit check (R1/R11 via
+  the extension tests and P11; R9 via P5), and all nine R8 codes are covered — CONFIG_INVALID
+  #1-5, REQUEST_CONFLICT #13/#14, INSTANCE_NOT_FOUND #23/#30, INSTANCE_STATE_INVALID #18,
+  ARTIFACT_INVALID #27, ARTIFACT_DIGEST_MISMATCH #26, CAPABILITY_DENIED #24/#32, INTERNAL #31,
+  ARTIFACT_VERSION_CONFLICT #28/#29. Evidence: read.
+- **G3-F11 [resolved]** `plan.md:187,189,306-309` — P7 requires ≥1 denial, every denial to be
+  `CAPABILITY_DENIED` with `details.detail.step === "draft"`, and reports extra attempts as
+  `deniedAttempts`; a non-denial praxis failure still fails. Recovery (`plan.md:281-289`)
+  states model retries are allowed and recorded. The check no longer depends on the model
+  attempting the read exactly once. Evidence: read.
+- **G3-F12 [resolved]** `plan.md:183,310-313` — P5 is scoped to `git status --porcelain -- src
+  tests` plus `git diff --name-only HEAD --` an explicit no-change list that includes
+  `package.json`, `tsconfig.json`, `.pi/settings.json` and `STATUS.md`; the lead commits
+  the G3 evidence before G4 and "doc changes do not enter P5". The baseline is now stated
+  instead of implied. Evidence: read.
+- **G3-F13 [resolved]** `plan.md:119-125,180-195,314-317` — every named check requires a
+  recorded `✔ <name>` line (P2 = 34, P3 = 4, P12/P13/P15 exactly one for their name), and a
+  name-pattern command that matches nothing is declared a failed check, not a pass. I executed
+  the mechanism: `node --test tests/store/canonical.test.ts` (6 tests) prints exactly 6 `✔`
+  lines and no file line, while a no-match pattern prints only the file line — so
+  `grep -F "✔ <name>"` fails as the plan requires. Evidence: executed.
+
+The five attempt-1 blockers are untouched and still hold: step 0 gate (`plan.md:4-6,86-93`),
+falsifiable done-whens, per-file claims (`plan.md:13-36`), host seam (`plan.md:23,48` plus
+P6a/P6b/P6c and P14), and observable host checks. The R9 read-only list (`plan.md:33-36`) and
+the out-of-scope list (`plan.md:337-345`) are unchanged, and no declaration adds a change
+outside them.
+
+verdict basis: row-by-row pattern audit — step 2's pattern selects #1-10, step 3's selects
+#11-23 (it also selects #7, which is green by then), step 4's selects #24-34. Executed here:
+P1 `npx tsc --noEmit` exits 0; P4 reports 29/29; the host package is unresolvable
+(`MODULE_NOT_FOUND`) so the type-only mirror remains the only option under R9; the `✔`-count
+probe above. The plan is consistent with the G2 attempt-2 spec and carries G2-F7 (P15),
+G2-F8 (`details.detail.checks` test) and G2-F9 (actor-asymmetry test), plus G3-F6
+(`engineOptions(ctx)` + P13) and G3-F8 (STATUS.md noted, not edited).
+
+G3 attempt 3 is **PASS**.
+
+Observation, not a finding: step 2's pattern contains the bare word `actor`, which would also
+select row 34 if the whole file existed at step 2; the plan says the test owner writes the
+step 2 rows first, so it is harmless as written. Tightening it to `actor label` would remove
+the coupling.
+
+### Limits of this attempt
+
+- No implementation exists; P2/P3 and P7-P15 are planned evidence, not run. I ran P1, P4, the
+  host-resolution probe and the `✔`-count probe.
+- I could not run the step patterns against a test file (none exists); the pattern audit is by
+  test name.
+- I did not audit the architect's Manifold claim rows (self scope only) and did not review
+  implementation or the spec.
+- Digests are of the working tree at 2026-10-29T12:33:09Z; `plan.md`, `spec.md` and
+  `review.md` are uncommitted relative to HEAD.
+
+
+

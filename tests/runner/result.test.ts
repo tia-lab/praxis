@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isAppError } from "../types/errors.ts";
-import { parseWith, ResultSchema, type Instance } from "../types/schema.ts";
-import { buildResult, RESULT_FIELDS } from "./result.ts";
-import { artifactFile, cli, createInstance, dispose, MAIN_STEPS, NOW, workspace, writeFlow } from "./testkit.ts";
+import { isAppError } from "../../src/types/errors.ts";
+import { parseWith, ResultSchema, type Instance } from "../../src/types/schema.ts";
+import { buildResult, RESULT_FIELDS } from "../../src/runner/result.ts";
+import { artifactFile, cli, createInstance, dispose, MAIN_STEPS, NOW, workspace, writeFlow } from "../testkit.ts";
 
 interface Ref {
   step: string;

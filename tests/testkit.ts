@@ -14,7 +14,7 @@ import { DatabaseSync } from "node:sqlite";
 /** A fixed instant, so an assertion never depends on the wall clock. */
 export const NOW = "2026-10-29T12:00:00.000Z";
 
-export const CLI_PATH = new URL("../cli.ts", import.meta.url).pathname;
+export const CLI_PATH = new URL("../src/cli.ts", import.meta.url).pathname;
 
 export interface Workspace {
   root: string;

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { writeFileSync } from "node:fs";
-import { isAppError } from "../types/errors.ts";
-import { call, grantFor, traceOf } from "./capabilities.ts";
+import { isAppError } from "../../src/types/errors.ts";
+import { call, grantFor, traceOf } from "../../src/runner/capabilities.ts";
 import {
   artifactsOf,
   artifactFile,
@@ -14,7 +14,7 @@ import {
   MAIN_STEPS,
   workspace,
   writeFlow,
-} from "./testkit.ts";
+} from "../testkit.ts";
 
 interface Ref {
   step: string;

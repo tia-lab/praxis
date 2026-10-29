@@ -13,8 +13,8 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isAppError } from "../types/errors.ts";
-import { canonicalBytes, canonicalText, digestOf } from "./canonical.ts";
+import { isAppError } from "../../src/types/errors.ts";
+import { canonicalBytes, canonicalText, digestOf } from "../../src/runner/canonical.ts";
 
 const refusesCanonical = (error: unknown): boolean => isAppError(error) && error.code === "CANONICAL_INVALID";
 

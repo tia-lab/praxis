@@ -12,7 +12,7 @@ import {
   MAIN_STEPS,
   workspace,
   writeFlow,
-} from "./testkit.ts";
+} from "../testkit.ts";
 
 interface Ref {
   step: string;

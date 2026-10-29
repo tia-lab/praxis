@@ -5,8 +5,8 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canonicalBytes, canonicalText, digest } from "../runner/canonical.ts";
-import { isAppError } from "../types/errors.ts";
+import { canonicalBytes, canonicalText, digest } from "../../src/runner/canonical.ts";
+import { isAppError } from "../../src/types/errors.ts";
 
 const orderA = { b: 2, a: 1, nested: { d: [3, 1], c: null } };
 const orderB = { nested: { c: null, d: [3, 1] }, a: 1, b: 2 };

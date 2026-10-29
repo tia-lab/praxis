@@ -1,0 +1,124 @@
+{
+  "schema": "praxis.config/v1",
+  "flow": "delivery",
+  "steps": [
+    {
+      "id": "research",
+      "goal": "establish what is true about the question, from sources and from the code",
+      "capabilities": [
+        "artifact.write",
+        "emit"
+      ],
+      "produces": {
+        "schema": "praxis.artifact.delivery/v1"
+      },
+      "gate": "section-requirements",
+      "requires": {
+        "section": "sources",
+        "minItems": 3,
+        "each": [
+          "url",
+          "retrievedAt",
+          "claim"
+        ]
+      }
+    },
+    {
+      "id": "spec",
+      "goal": "state the outcome, its acceptance, its invariants and what it refuses to do",
+      "capabilities": [
+        "artifact.read",
+        "artifact.write",
+        "emit"
+      ],
+      "consumes": "research",
+      "produces": {
+        "schema": "praxis.artifact.delivery/v1"
+      },
+      "gate": "section-requirements",
+      "requires": {
+        "section": "spec",
+        "required": [
+          "outcome",
+          "acceptance",
+          "invariants",
+          "nonGoals",
+          "failureModes"
+        ]
+      }
+    },
+    {
+      "id": "plan",
+      "goal": "name the steps, the files, the checks and the rollback before touching code",
+      "capabilities": [
+        "artifact.read",
+        "artifact.write",
+        "emit"
+      ],
+      "consumes": "spec",
+      "produces": {
+        "schema": "praxis.artifact.delivery/v1"
+      },
+      "gate": "section-requirements",
+      "requires": {
+        "section": "plan",
+        "required": [
+          "steps",
+          "files",
+          "checks",
+          "rollback",
+          "risks"
+        ]
+      }
+    },
+    {
+      "id": "implement",
+      "goal": "make the change and record exactly what ran and what it proved",
+      "capabilities": [
+        "artifact.read",
+        "artifact.write",
+        "emit"
+      ],
+      "consumes": "plan",
+      "produces": {
+        "schema": "praxis.artifact.delivery/v1"
+      },
+      "gate": "section-requirements",
+      "requires": {
+        "section": "implement",
+        "required": [
+          "changes",
+          "checks",
+          "evidence"
+        ]
+      }
+    },
+    {
+      "id": "review",
+      "goal": "judge the work against the acceptance the spec declared, per criterion",
+      "capabilities": [
+        "artifact.read",
+        "artifact.write",
+        "emit"
+      ],
+      "consumes": "implement",
+      "produces": {
+        "schema": "praxis.artifact.delivery/v1"
+      },
+      "gate": "section-requirements",
+      "requires": {
+        "section": "review",
+        "required": [
+          "verdict",
+          "criteria",
+          "gaps"
+        ]
+      }
+    }
+  ],
+  "result": "praxis.result/v1",
+  "issue": {
+    "active": true,
+    "path": "/media/Development/AI/praxis/.dev/issues"
+  }
+}

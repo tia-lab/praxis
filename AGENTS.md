@@ -61,6 +61,17 @@ acceptance here before building.
   are unchanged. Not authorized: Pi-wide tool denial, OS sandbox, isolation or trusted
   identity claims — gates #1, #2 and #3 stay open and the recorded claim is routed-call
   denial only.
+- **2026-10-29 — delivery flow (praxis runs praxis).** Owner GO in words: the team uses
+  Praxis directly with issue reporting open, accepting a slower start. Scope:
+  `.pi/praxis/flows/delivery.json` (new), `.pi/praxis/flows/research.json` (snapshot of the
+  accepted flow), `.pi/manifold/profiles/tester.json` and the `test` pointer in
+  `.pi/manifold/config.json` (team side), plus this entry. Acceptance: the five stages
+  `research → spec → plan → implement → review` parse as `praxis.config/v1` and mirror the
+  gates in `docs/WORKFLOW.md`; the committed `.pi/praxis/config.json` and the accepted
+  Slice 0 flow (`web → evidence → code → prepare`) stay byte-identical; a stage gate
+  refuses a document missing its required section. Not authorized: engine, store or tool
+  code changes; flow selection from the Pi tool (its path is hardcoded) is a separate
+  unit; `"active"` in `.pi/manifold/config.json` stays `research`.
 
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a

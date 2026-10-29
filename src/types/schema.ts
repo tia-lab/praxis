@@ -82,6 +82,12 @@ export const StepConfigSchema = z.strictObject({
   goal: z.string().min(1).max(1000).optional(),
   /** What the document must contain before this stage may pass: one clause or many. */
   requires: RequirementsSchema.optional(),
+  /**
+   * Where a refusal sends the work. Declared as an earlier stage id, so a review can
+   * return a plan to be amended instead of ending the run. Absent means the refusal
+   * keeps this stage current and the same stage is retried.
+   */
+  onRefuse: StepIdSchema.optional(),
 });
 export type StepConfig = z.infer<typeof StepConfigSchema>;
 
@@ -107,6 +113,14 @@ export const FlowConfigSchema = z
       seen.add(step.id);
     });
     config.steps.forEach((step, index) => {
+      if (step.onRefuse !== undefined) {
+        const target = config.steps.findIndex((candidate) => candidate.id === step.onRefuse);
+        if (target < 0) {
+          ctx.addIssue({ code: "custom", message: "onRefuse names a step that is not in the flow: " + step.onRefuse, path: ["steps", index, "onRefuse"] });
+        } else if (target >= index) {
+          ctx.addIssue({ code: "custom", message: "onRefuse must name an earlier stage, not " + step.onRefuse, path: ["steps", index, "onRefuse"] });
+        }
+      }
       if (step.gate === "section-requirements" && step.requires === undefined) {
         ctx.addIssue({ code: "custom", message: "gate section-requirements needs a requires block", path: ["steps", index, "requires"] });
       }

@@ -367,13 +367,19 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
         at,
       });
       if (verdict.decision !== "accept") {
-        // A refusal is evidence, not instance death: the step stays current and retryable.
+        // A refusal is evidence, not instance death. With an onRefuse edge the flow sends
+        // the work back to the stage that must be amended; without one the refusal keeps
+        // this stage current and the same stage is retried.
+        if (step.onRefuse !== undefined) {
+          setStatus(store, instance.id, { status: "running", currentStep: step.onRefuse }, instance.revision);
+        }
         throw fail("ARTIFACT_INVALID", "artifact for step " + JSON.stringify(step.id) + " failed the gate", {
           instance: instance.id,
           step: step.id,
           version: artifact.version,
           checks: verdict.checks,
           ...(verdict.missing === undefined ? {} : { missing: verdict.missing }),
+          ...(step.onRefuse === undefined ? {} : { reworkTo: step.onRefuse }),
         });
       }
 
@@ -448,7 +454,10 @@ function runStep(args: RunStepArgs): StepArtifact {
     return { version: same.version, path: same.path, digest: same.digest, value: parseStored(store, instance.id, step.id, same.version) };
   }
   if (existing !== undefined) {
-    if (!refused(store, instance.id, step.id, existing.artifact.digest)) {
+    // A pending version nobody refused is a killed attempt: its bytes are not evidence
+    // of a decision, so different content may not take its place. An accepted version is
+    // a decision, and re-entering the stage (rework) legitimately writes the next one.
+    if (existing.artifact.state === "pending" && !refused(store, instance.id, step.id, existing.artifact.digest)) {
       throw fail("ARTIFACT_VERSION_CONFLICT", "step " + JSON.stringify(step.id) + " has a recorded attempt with different content", {
         instance: instance.id,
         step: step.id,

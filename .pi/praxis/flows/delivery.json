@@ -254,7 +254,8 @@
             "verdict": "PASS"
           }
         }
-      ]
+      ],
+      "onRefuse": "plan"
     }
   ],
   "result": "praxis.result/v1",

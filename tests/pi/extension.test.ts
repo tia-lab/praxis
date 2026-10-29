@@ -80,8 +80,11 @@ test("no tool_call registration", () => {
 test("parameters accept start", () => {
   assert.deepEqual(document.required, ["op"]);
   assert.equal(document.additionalProperties, false);
-  assert.deepEqual(document.properties.op.enum, ["start", "submit", "read"]);
-  assert.deepEqual(Object.keys(document.properties).sort(), ["artifact", "flow", "instance", "op", "requestId", "step"]);
+  assert.deepEqual(document.properties.op.enum, ["start", "submit", "read", "issue.template", "issue.open"]);
+  assert.deepEqual(Object.keys(document.properties).sort(), [
+    "affected", "artifact", "category", "categoryFields", "evidence", "flow",
+    "instance", "op", "requestId", "severity", "step", "summary", "title",
+  ]);
   assert.equal(accepts(document, { op: "start", flow: "architect", requestId: "pi-e2e-1" }), true);
   assert.equal(accepts(document, { op: "start", flow: "architect" }), true);
 });

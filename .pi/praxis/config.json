@@ -4,17 +4,32 @@
   "steps": [
     {
       "id": "draft",
-      "capabilities": ["artifact.write", "emit"],
-      "produces": { "schema": "praxis.artifact.architecture/v1" },
+      "capabilities": [
+        "artifact.write",
+        "emit"
+      ],
+      "produces": {
+        "schema": "praxis.artifact.architecture/v1"
+      },
       "gate": "schema-valid-and-nonce"
     },
     {
       "id": "derive",
-      "capabilities": ["artifact.read", "artifact.write", "emit"],
+      "capabilities": [
+        "artifact.read",
+        "artifact.write",
+        "emit"
+      ],
       "consumes": "draft",
-      "produces": { "schema": "praxis.artifact.derive/v1" },
+      "produces": {
+        "schema": "praxis.artifact.derive/v1"
+      },
       "gate": "schema-valid-and-nonce"
     }
   ],
-  "result": "praxis.result/v1"
+  "result": "praxis.result/v1",
+  "issue": {
+    "active": true,
+    "path": "/media/Development/AI/praxis/.dev/issues"
+  }
 }

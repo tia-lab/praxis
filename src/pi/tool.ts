@@ -1,10 +1,12 @@
 /**
  * The `praxis` tool: one bounded surface over the accepted Slice 0 engine (R1-R13).
  *
- * Three operations, one argument schema: `start` opens or re-opens the instance a
- * request id names and returns the six-key result with the derived step descriptor
- * and the pinned nonce; `submit` calls `advance` exactly once; `read` returns one
- * recorded artifact, and only after the current step's grant allows `artifact.read`.
+ * Three flow operations plus two issue operations over one argument surface: `start`
+ * opens or re-opens the instance a request id names and returns the six-key result with
+ * the derived step descriptor and the pinned nonce; `submit` calls `advance` exactly
+ * once; `read` returns one recorded artifact, and only after the current step's grant
+ * allows `artifact.read`; `issue.template` and `issue.open` read the flow's optional
+ * `issue` block and delegate to the writer in `src/runner/issues.ts`.
  *
  * The descriptor is derived from the pinned flow and the instance on every call and
  * is never stored (R6). Every operation failure leaves through one typed `isError`
@@ -20,12 +22,14 @@ import { z } from "zod";
 import { asAppError, fail } from "../types/errors.ts";
 import { ActorSchema, parseWith } from "../types/schema.ts";
 import type { Artifact, Instance, StepConfig } from "../types/schema.ts";
-import { ArtifactSummarySchema, FailureDetailsSchema, PraxisToolArgsSchema, ReadEnvelopeSchema, StartEnvelopeSchema, StepDescriptorSchema, StepEnvelopeSchema } from "../types/pi.ts";
+import { ArtifactSummarySchema, FailureDetailsSchema, PraxisToolArgsSchema, PraxisToolOpSchema, ReadEnvelopeSchema, StartEnvelopeSchema, StepDescriptorSchema, StepEnvelopeSchema } from "../types/pi.ts";
 import type { ArtifactSummary, FailureDetails, PraxisToolArgs, StepDescriptor } from "../types/pi.ts";
 import { CAPABILITY_NAMES, grantFor, requireGrant } from "../runner/capabilities.ts";
 import { digest } from "../runner/canonical.ts";
 import { advance, inspect, openFlow, readStepArtifact, start } from "../runner/engine.ts";
 import type { EngineOptions, OpenedFlow } from "../runner/engine.ts";
+import { ISSUE_CATEGORIES, issueTemplate } from "../types/issue.ts";
+import { ISSUE_DISABLED, openIssue } from "../runner/issues.ts";
 import type { PiSessionContext, PiToolDefinition, PiToolResult } from "./host.ts";
 
 export const PRAXIS_TOOL_NAME = "praxis";
@@ -35,13 +39,63 @@ export const PRAXIS_TOOL_DESCRIPTION = [
   "op=start opens or re-opens a flow instance and returns the six-key result, the current step descriptor and the nonce.",
   "op=submit advances exactly one step with the artifact JSON for that step.",
   "op=read returns one recorded artifact when the current step grants artifact.read.",
+  "op=issue.template returns the field spec a report for one category must answer; op=issue.open files that report through the project's configured issue block.",
   "Only calls routed through this tool are gated by the step grant: other tools are not blocked and no isolation is claimed.",
 ].join(" ");
 
-/** The host parameters, generated from the one Zod schema (no second authority). */
-export const PRAXIS_TOOL_PARAMETERS = z.toJSONSchema(PraxisToolArgsSchema, {
+/** The two issue ops; the writer in `src/runner/issues.ts` owns their semantics. */
+const IssueOpSchema = z.enum(["issue.template", "issue.open"]);
+
+/** Every op the tool accepts, widened from the shared three rather than restated. */
+const PraxisOpSchema = z.enum([...PraxisToolOpSchema.options, ...IssueOpSchema.options]);
+
+/**
+ * What the host declares: the shared argument shape plus the issue ops. The three
+ * original ops are still parsed by `PraxisToolArgsSchema` itself, so their per-op
+ * requirements keep their single owner.
+ */
+const PraxisHostArgsSchema = z.strictObject({
+  ...PraxisToolArgsSchema.shape,
+  op: PraxisOpSchema,
+  category: z.enum(ISSUE_CATEGORIES).optional(),
+  title: z.string().min(1).max(120).optional(),
+  summary: z.string().min(1).max(2000).optional(),
+  severity: z.enum(["blocker", "major", "minor"]).optional(),
+  affected: z.string().min(1).max(512).optional(),
+  evidence: z.string().min(1).max(32768).optional(),
+  categoryFields: z.record(z.string(), z.string().min(1).max(4096)).optional(),
+});
+
+/** The host parameters, generated from Zod (no hand-written schema). */
+export const PRAXIS_TOOL_PARAMETERS = z.toJSONSchema(PraxisHostArgsSchema, {
   target: "draft-2020-12",
 });
+
+/** `issue.open` arguments: the common fields, plus the category's own under `categoryFields`. */
+const IssueOpArgsSchema = z
+  .strictObject({
+    op: IssueOpSchema,
+    category: z.enum(ISSUE_CATEGORIES),
+    title: z.string().min(1).max(120).optional(),
+    summary: z.string().min(1).max(2000).optional(),
+    severity: z.enum(["blocker", "major", "minor"]).optional(),
+    affected: z.string().min(1).max(512).optional(),
+    evidence: z.string().min(1).max(32768).optional(),
+    categoryFields: z.record(z.string(), z.string().min(1).max(4096)).optional(),
+  })
+  .superRefine((args, ctx) => {
+    if (args.op !== "issue.open") return;
+    for (const field of ["title", "summary", "severity", "affected", "evidence"] as const) {
+      if (args[field] === undefined) ctx.addIssue({ code: "custom", path: [field], message: `issue.open requires ${field}` });
+    }
+  });
+type IssueOpArgs = z.infer<typeof IssueOpArgsSchema>;
+
+/** Wire envelopes for the two issue ops; the writer owns the shapes they carry. */
+const IssueTemplateEnvelopeSchema = z.strictObject({
+  template: z.strictObject({ category: z.string().min(1), fields: z.array(z.strictObject({ name: z.string().min(1), required: z.boolean() })) }),
+});
+const IssueReportEnvelopeSchema = z.strictObject({ issue: z.strictObject({ file: z.string().min(1), id: z.string().min(1) }) });
 
 /**
  * Resolve the engine paths under the host session's cwd, never `process.cwd()`:
@@ -218,9 +272,48 @@ function readOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResul
   return ok(ReadEnvelopeSchema, { artifact: artifactSummary(read.artifact), value: read.value });
 }
 
+/**
+ * The two issue ops: read the pinned flow's `issue` block, then either return the
+ * category's field spec or hand the report to `openIssue`, which validates every
+ * template field and writes atomically. A project without an active block fails
+ * `ISSUE_DISABLED`; an unknown or disabled category is `CONFIG_INVALID`. The
+ * reporter is this session's correlation label, never a tool argument (R10).
+ */
+function issueOperation(args: IssueOpArgs, ctx: PiSessionContext): PiToolResult {
+  const flow = openFlow(engineOptions(ctx));
+  const config = flow.config.issue;
+  const enabled: readonly string[] = config?.active === true ? (config.categories ?? ISSUE_CATEGORIES) : [];
+  if (!enabled.includes(args.category)) {
+    throw config?.active === true
+      ? fail("CONFIG_INVALID", "issue category is not enabled: " + JSON.stringify(args.category), { enabled: [...enabled] })
+      : fail(ISSUE_DISABLED, "issue reporting is not enabled for this project", { active: config?.active ?? false });
+  }
+  if (args.op === "issue.template") {
+    return ok(IssueTemplateEnvelopeSchema, { template: issueTemplate(args.category) });
+  }
+  const report = openIssue(
+    config,
+    {
+      category: args.category,
+      title: args.title,
+      summary: args.summary,
+      severity: args.severity,
+      affected: args.affected,
+      evidence: args.evidence,
+      ...(args.categoryFields ?? {}),
+    },
+    { agent: actorFor(ctx) },
+  );
+  return ok(IssueReportEnvelopeSchema, { issue: report });
+}
+
 /** Parse the arguments, dispatch one operation, and never throw (R2, R8). */
 export function executePraxisTool(args: unknown, ctx: PiSessionContext): PiToolResult {
   try {
+    const op = (args as { op?: unknown } | null | undefined)?.op;
+    if (op === "issue.template" || op === "issue.open") {
+      return issueOperation(parseWith(IssueOpArgsSchema, args, "CONFIG_INVALID", "praxis arguments"), ctx);
+    }
     const parsed = parseWith(PraxisToolArgsSchema, args, "CONFIG_INVALID", "praxis arguments");
     if (parsed.op === "start") return startOperation(parsed, ctx);
     if (parsed.op === "submit") return submitOperation(parsed, ctx);

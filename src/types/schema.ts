@@ -7,6 +7,7 @@
  */
 import { z } from "zod";
 import { fail, type Code } from "./errors.ts";
+import { IssueConfigSchema } from "./issue.ts";
 
 const KEBAB = /^[a-z][a-z0-9-]{0,63}$/;
 
@@ -60,13 +61,18 @@ export const StepConfigSchema = z.strictObject({
 });
 export type StepConfig = z.infer<typeof StepConfigSchema>;
 
-/** The flow is data (spec R1): exactly two steps, each producing one artifact. */
+/**
+ * The flow is data (spec R1): exactly two steps, each producing one artifact.
+ * `issue` is the optional issue-reporting declaration the tool's two `issue.*` ops
+ * read; its shape is owned by `src/types/issue.ts`, never restated here.
+ */
 export const FlowConfigSchema = z
   .strictObject({
     schema: z.literal("praxis.config/v1"),
     flow: FlowNameSchema,
     steps: z.array(StepConfigSchema).length(2),
     result: SchemaNameSchema,
+    issue: IssueConfigSchema.optional(),
   })
   .superRefine((config, ctx) => {
     const seen = new Set<string>();

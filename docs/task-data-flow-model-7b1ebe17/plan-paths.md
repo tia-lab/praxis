@@ -2,6 +2,12 @@
 
 Task: task-data-flow-model · Hash: 7b1ebe17 · Amendment: task identity is a path · Date: 2026-10-29
 
+**Status 2026-10-29: implemented as `a75b969f`, accepted and committed in `6318963` — as a
+reference, not as authority.** Where this plan's item 5 and item 7 say the definition row id is
+`<path>@<version>`, the accepted implementation keys the row by the path (deviation D-b: a scan
+instead of a keyed read was refused) and `publication` stays `(task, version)`. Item 3's
+`PRAXIS_CONFIG` change was not authorized and `engine.ts:181` still passes it raw (D-c).
+
 Basis: frozen `plan.md` (`sha256:5f23e927…1d2a1f`) items 3–6. Lead decision, not reopened: a node reference carries **no
 version**, the task document keeps its `version`, and start pins `(path, version, digest)`. This plan amends spec R1–R4, the Model
 Task document row and the amendment log; R5–R9 stand. Row counts in the items below are targets for the engineer's own test files,

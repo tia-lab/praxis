@@ -301,7 +301,8 @@
           "research",
           "design",
           "implement",
-          "review"
+          "review",
+          "fix"
         ],
         "retirePolicy": {
           "mode": "owner"
@@ -324,6 +325,10 @@
       "review": {
         "template": "eng",
         "plannerHint": "Read the declared subject and its requirements, not a summary of them. Report only supported findings: location, consequence, smallest cure, and the evidence that establishes it. Rank by consequence. A verdict without a digest of every reviewed subject is void; you write the verdict file, the author never does."
+      },
+      "fix": {
+        "template": "test",
+        "plannerHint": "Repair a defect in this repository with the smallest compliant change. Read the code before editing, state the failure mode, prove the fix with a check that fails without it, and cite path:line. Do not widen scope beyond the defect."
       }
     },
     "caps": {

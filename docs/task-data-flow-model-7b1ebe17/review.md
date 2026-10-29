@@ -110,3 +110,23 @@ A5 (F4) one budget row and one test line are stale.
 A6 (section 0) the same 16:53 edit is described twice with different provenance.
 A7 (F6) widens the artifact.accepted payload without naming the open artifact-contract gate.
 A8 (F2/F6) step 5 names src/runner/step.ts as its path while A12 forbids creating it.
+
+## G5 implementation — attempt 1 — FAIL — 2026-10-29
+Subject: the executed plan in the working tree (17 files, +853/-548; tsc exit 0; 133/133).
+Recorded by lead from the reviewer assignment bf7b2cfb; the reviewer could not write this section because
+its exclusions forbid editing files. Findings are the reviewer's, unaltered.
+
+Blocking, code: 1) engine.ts:486-488 an accepted artifact skips the gate, so replaying an accepted v1
+review after v2 advances instead of SUBJECT_STALE, and the test only replays a refused review.
+2) schema.ts:190-199 fan-out counts edges not distinct sources and a join may repeat a source;
+engine.ts:545 silently takes the first outgoing edge. 3) schema.ts:172-178 no at-most-one refuse per
+node, so a second target parses and is ignored. 4) step.ts:256-257 a present non-digest subject is
+coded SUBJECT_MISSING, which R6 reserves for an absent subject.
+Blocking, tests too weak: 5-8 subject.test.ts rows 33, 34, 35 and 42 assert codes without the R6
+consequence, and row 42 never drives the shipped workflow.json. 9-10 edges.test.ts row 9 tests a
+duplicate id instead of a non-kebab id, and no negative graph row asserts instance count or zero writes.
+Blocking, plan checks that cannot fail: 11) plan.md:358 C11 is wc -l. 12) plan.md:355 C8 is
+git diff --name-only, blind to untracked files. 13) this section was missing, hence its absence was a
+gate failure; the lead records it here.
+
+Lead action: items 1-10 dispatched to engineer-1, items 11-12 to architect-1, item 13 recorded here.

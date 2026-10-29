@@ -72,37 +72,85 @@
     }
   },
   "teamIds": [
+    "research",
+    "review",
+    "eng",
     "test"
   ],
   "agents": [
     {
       "id": "lead",
       "role": "lead",
-      "team": "test"
+      "team": "research"
     },
     {
       "id": "architect-1",
       "role": "architect",
-      "team": "test"
+      "team": "eng"
+    },
+    {
+      "id": "main-researcher",
+      "role": "main-researcher",
+      "team": "research"
+    },
+    {
+      "id": "researcher-1",
+      "role": "researcher",
+      "team": "research"
+    },
+    {
+      "id": "researcher-2",
+      "role": "researcher",
+      "team": "research"
+    },
+    {
+      "id": "researcher-3",
+      "role": "researcher",
+      "team": "research"
     },
     {
       "id": "reviewer-1",
       "role": "reviewer",
-      "team": "test"
+      "team": "review"
     },
     {
       "id": "reviewer-2",
       "role": "reviewer",
-      "team": "test"
+      "team": "review"
     },
     {
       "id": "engineer-1",
       "role": "engineer",
-      "team": "test"
+      "team": "eng"
     },
     {
       "id": "engineer-2",
       "role": "engineer",
+      "team": "eng"
+    },
+    {
+      "id": "lead-test",
+      "role": "lead",
+      "team": "test"
+    },
+    {
+      "id": "architect-2",
+      "role": "architect",
+      "team": "test"
+    },
+    {
+      "id": "engineer-3",
+      "role": "engineer",
+      "team": "test"
+    },
+    {
+      "id": "engineer-4",
+      "role": "engineer",
+      "team": "test"
+    },
+    {
+      "id": "reviewer-3",
+      "role": "reviewer",
       "team": "test"
     }
   ],
@@ -114,6 +162,113 @@
   },
   "teams": {
     "templates": {
+      "research": {
+        "room": "required",
+        "memberSlots": [
+          {
+            "role": "lead",
+            "count": 1
+          },
+          {
+            "role": "main-researcher",
+            "count": 1,
+            "profile": "research"
+          },
+          {
+            "role": "researcher",
+            "count": 2,
+            "maxCount": 4,
+            "profile": "research"
+          }
+        ],
+        "topology": {
+          "mode": "hub",
+          "convergerRole": "lead"
+        },
+        "bounds": {
+          "minMembers": 4,
+          "maxMembers": 6,
+          "maxConcurrentAssignments": 3
+        },
+        "acceptedTaskKinds": [
+          "research"
+        ],
+        "retirePolicy": {
+          "mode": "owner"
+        }
+      },
+      "review": {
+        "room": "required",
+        "memberSlots": [
+          {
+            "role": "lead",
+            "count": 1
+          },
+          {
+            "role": "reviewer",
+            "count": 1,
+            "maxCount": 3,
+            "profile": "research"
+          }
+        ],
+        "topology": {
+          "mode": "hub",
+          "convergerRole": "lead"
+        },
+        "bounds": {
+          "minMembers": 2,
+          "maxMembers": 4,
+          "maxConcurrentAssignments": 2
+        },
+        "acceptedTaskKinds": [
+          "review"
+        ],
+        "retirePolicy": {
+          "mode": "owner"
+        }
+      },
+      "eng": {
+        "room": "required",
+        "memberSlots": [
+          {
+            "role": "lead",
+            "count": 1
+          },
+          {
+            "role": "architect",
+            "count": 1,
+            "profile": "research"
+          },
+          {
+            "role": "engineer",
+            "count": 1,
+            "maxCount": 3,
+            "profile": "research"
+          },
+          {
+            "role": "reviewer",
+            "count": 1,
+            "profile": "research"
+          }
+        ],
+        "topology": {
+          "mode": "hub",
+          "convergerRole": "lead"
+        },
+        "bounds": {
+          "minMembers": 4,
+          "maxMembers": 6,
+          "maxConcurrentAssignments": 3
+        },
+        "acceptedTaskKinds": [
+          "implement",
+          "design",
+          "review"
+        ],
+        "retirePolicy": {
+          "mode": "owner"
+        }
+      },
       "test": {
         "room": "required",
         "memberSlots": [
@@ -160,21 +315,59 @@
     },
     "taskKinds": {
       "research": {
-        "template": "test",
+        "template": "research",
         "plannerHint": "Produce a source-grounded answer whose strength does not exceed the evidence: compare credible explanations, cite path:line, separate observation from inference, and name what stays unresolved. Report findings in the room; only the main-researcher writes the report."
       },
       "design": {
-        "template": "test",
+        "template": "eng",
         "plannerHint": "Own the requirement contract and the implementation plan. Write the smallest complete model first (types, owners, valid states, failure behaviour), then the declarations and checks. Every requirement needs an oracle; every declaration needs a requirement. Do not write code. Report the spec and plan to lead with the alternatives you rejected and the constraint that rejected each."
       },
       "implement": {
-        "template": "test",
+        "template": "eng",
         "plannerHint": "Implement only the declared scope inside your claimed paths against the approved plan. A declaration that is not in the plan is a blocker for lead, not an edit. Report exact commands, outputs and limitations."
       },
       "review": {
-        "template": "test",
+        "template": "eng",
         "plannerHint": "Read the declared subject and its requirements, not a summary of them. Report only supported findings: location, consequence, smallest cure, and the evidence that establishes it. Rank by consequence. A verdict without a digest of every reviewed subject is void; you write the verdict file, the author never does."
       }
+    },
+    "caps": {
+      "maxTeams": 1,
+      "maxMembersPerTeam": 6,
+      "maxActiveAssignments": 4,
+      "maxTeamsPerOwner": 1,
+      "maxClaimsPerAssignment": 2,
+      "meshMaxRounds": 1
+    },
+    "permissions": {
+      "lead": {
+        "mayAssign": true,
+        "mayDispatch": true,
+        "compose": {
+          "templates": [
+            "research",
+            "review",
+            "eng"
+          ],
+          "topologies": [
+            "hub"
+          ]
+        },
+        "scale": {
+          "templates": [
+            "research",
+            "review",
+            "eng"
+          ],
+          "scope": "own"
+        },
+        "retireOwn": "own"
+      },
+      "architect": {},
+      "main-researcher": {},
+      "researcher": {},
+      "engineer": {},
+      "reviewer": {}
     },
     "launchProfiles": {
       "tester": {
@@ -185,6 +378,18 @@
         "arguments": [
           "-e",
           "./src/pi/extension.ts",
+          "--thinking",
+          "high"
+        ],
+        "newTab": false,
+        "timeoutMs": 120000
+      },
+      "research": {
+        "kind": "pi",
+        "executable": "/home/tia/.bun/bin/pi",
+        "model": "deepseek/deepseek-flash",
+        "cwd": ".",
+        "arguments": [
           "--thinking",
           "high"
         ],

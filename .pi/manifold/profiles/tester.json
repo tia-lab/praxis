@@ -286,7 +286,7 @@
             "role": "reviewer",
             "count": 1,
             "profile": "tester",
-            "maxCount": 2
+            "maxCount": 3
           }
         ],
         "topology": {
@@ -295,7 +295,7 @@
         },
         "bounds": {
           "minMembers": 4,
-          "maxMembers": 6,
+          "maxMembers": 7,
           "maxConcurrentAssignments": 3
         },
         "acceptedTaskKinds": [

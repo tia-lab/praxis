@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "projectId": "praxis",
+  "active": "research",
+  "limits": {
+    "maxActiveAttempts": 6,
+    "reservedAttempts": 1
+  },
+  "profiles": {
+    "research": {
+      "mode": "clone"
+    }
+  }
+}

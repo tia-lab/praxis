@@ -1,0 +1,85 @@
+{
+  "format": 1,
+  "humanFacingRole": "lead",
+  "roles": {
+    "lead": {
+      "sendTo": [
+        { "role": "main-researcher", "scope": "same-team" },
+        { "role": "researcher", "scope": "same-team" }
+      ]
+    },
+    "main-researcher": {
+      "sendTo": [
+        { "role": "lead", "scope": "same-team" },
+        { "role": "researcher", "scope": "same-team" }
+      ]
+    },
+    "researcher": {
+      "sendTo": [{ "role": "main-researcher", "scope": "same-team" }]
+    }
+  },
+  "teamIds": ["research"],
+  "agents": [
+    { "id": "lead", "role": "lead", "team": "research" },
+    { "id": "main-researcher", "role": "main-researcher", "team": "research" },
+    { "id": "researcher-1", "role": "researcher", "team": "research" },
+    { "id": "researcher-2", "role": "researcher", "team": "research" },
+    { "id": "researcher-3", "role": "researcher", "team": "research" }
+  ],
+  "connection": {
+    "serversEnv": "MANIFOLD_NATS_SERVERS",
+    "auth": { "mode": "none" }
+  },
+  "teams": {
+    "templates": {
+      "research": {
+        "room": "required",
+        "memberSlots": [
+          { "role": "lead", "count": 1 },
+          { "role": "main-researcher", "count": 1, "profile": "research" },
+          { "role": "researcher", "count": 3, "profile": "research" }
+        ],
+        "topology": { "mode": "hub", "convergerRole": "main-researcher" },
+        "bounds": { "minMembers": 5, "maxMembers": 5, "maxConcurrentAssignments": 3 },
+        "acceptedTaskKinds": ["research"],
+        "retirePolicy": { "mode": "owner" }
+      }
+    },
+    "taskKinds": {
+      "research": {
+        "template": "research",
+        "plannerHint": "Produce a source-grounded answer whose strength does not exceed the evidence: compare credible explanations, cite path:line, separate observation from inference, and name what stays unresolved. Report findings in the room; only the main-researcher writes the report."
+      }
+    },
+    "caps": {
+      "maxTeams": 1,
+      "maxMembersPerTeam": 5,
+      "maxActiveAssignments": 4,
+      "maxTeamsPerOwner": 1,
+      "maxClaimsPerAssignment": 2,
+      "meshMaxRounds": 1
+    },
+    "permissions": {
+      "lead": {
+        "mayAssign": true,
+        "mayDispatch": true,
+        "compose": { "templates": ["research"], "topologies": ["hub"] },
+        "scale": { "templates": ["research"], "scope": "own" },
+        "retireOwn": "own"
+      },
+      "main-researcher": {},
+      "researcher": {}
+    },
+    "launchProfiles": {
+      "research": {
+        "kind": "pi",
+        "executable": "/home/tia/.bun/bin/pi",
+        "model": "deepseek/deepseek-flash",
+        "cwd": ".",
+        "arguments": ["--thinking", "high"],
+        "newTab": false,
+        "timeoutMs": 120000
+      }
+    }
+  }
+}

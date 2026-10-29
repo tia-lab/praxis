@@ -85,9 +85,12 @@ acceptance here before building.
   the flow that uses it. (D2) a review binds to the **digest of the artifact it judged**, not to a
   digest of reviewed files on disk. (D3) implementation starts only after the plan passes. Scope:
   `src/types/schema.ts`, `src/types/org.ts`, `src/types/errors.ts`, `src/runner/engine.ts`,
-  `src/store/`, `tests/`, `.pi/praxis/tasks/`, `.pi/praxis/flows/`. `src/types/errors.ts` was added on
-  2026-10-29 after G2 review showed the spec's failure taxonomy cannot be expressed without touching
-  the closed `Code` union there. Acceptance: a flow references task units by id; a
+  `src/store/`, `tests/`, `.pi/praxis/tasks/`, `.pi/praxis/flows/`. Three paths were added to this
+  scope on 2026-10-29 by G2 review, each because the spec cannot be implemented without it:
+  `src/types/errors.ts` (the closed `Code` union the failure taxonomy extends), `src/types/pi.ts`
+  (the `CODES` mirror of that union, which must not drift), and `src/pi/tool.ts` (the read-path
+  `configDigest` comparison that must be re-pointed at the pinned flow definition row, not merely
+  compile-fixed). Every other exclusion stands unchanged. Acceptance: a flow references task units by id; a
   review whose subject digest is not the current accepted version is refused; `onRefuse` plus one
   join or branch edge evaluate correctly; an instance pins the task definitions it ran under; every
   existing test stays green. Not authorized: changing the gates in `docs/WORKFLOW.md`, deleting the

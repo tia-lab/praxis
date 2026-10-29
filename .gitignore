@@ -17,7 +17,7 @@ coverage/
 .pi/manifold/journal.json
 .pi/manifold/operator.lock
 .pi/manifold/operator.lock.stale.*
-.pi/praxis/
+.pi/praxis/state/
 
 # live test runtime
 tests/live/**/root/

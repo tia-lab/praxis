@@ -54,3 +54,24 @@ Verification: the lead ran both commands and compared the cell word for word. No
 was cast on this single cell, because two reviewers had already certified every other item twice
 and the cap was extended by the lead, not by the reviewers. This exception is recorded rather
 than hidden: a reviewer pass on attempt 4 is owed if the cell is ever cited as authority.
+
+## G2 spec — attempts 1-5 (recorded after the fact, 2026-10-29)
+The lead kept these verdicts in the manifold assignment record and did not append them here
+when they landed. That was a gap in this file's promise to be append-only and complete; the
+summaries below are reconstructed from the assignment evidence, not rewritten.
+
+attempt 1  subject 463f692c  FAIL both seats   11 findings (4 shared): missing oracles on R2/R3/R6,
+           join-plus-review contradiction, two owners for the flow digest, wrong base table sites
+attempt 2  subject 19bcf7a3  FAIL both seats    4 findings (0 shared): R6 code path, loader
+           STORE_INVALID vs INSTANCE_STATE_INVALID, no durable publication record, eight codes
+           absent from the closed union
+attempt 3  subject 605124fc  FAIL both seats    5 findings (2 shared): incomplete config_digest
+           retirement, publication claiming to be the only durable bytes record; plus node kebab
+           rule without an oracle, wrong INSTANCE_STATE_INVALID citation, CODES mirror unnamed
+attempt 4  subject 3faace6a  SPLIT              1 blocking (task reference resolution undefined)
+           + 3 advisories; reviewer-2 passed N1-N6
+attempt 5  subject 8254dc01  FAIL both seats    3 findings (2 shared): version rule has no oracle;
+           R6 failure column contradicts its own requirement text; one file per id cannot hold two
+           published versions, so the two-version oracle is unimplementable
+Each round's lead actions, cures and the reasons a cure was adopted are in the assignment record
+and in the amended lines of spec.md.

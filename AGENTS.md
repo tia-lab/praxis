@@ -64,11 +64,15 @@ acceptance here before building.
 - **2026-10-29 — flow selection (real unit, G1 dispatched).** Owner GO in words: the
   rebuilt team must run a real unit through the delivery workflow. Scope:
   `src/runner/engine.ts`, `src/pi/tool.ts`, `src/cli.ts`, `tests/runner/`,
-  `docs/flow-selection-73c73898/`; contract hash8 `73c73898` (feature `flow-selection`, task
+  `docs/flow-selection-d6b6218d/`; contract hash8 `d6b6218d` — recomputed over the §0 block
+  as written, superseding the `73c73898` first recorded here, which hashed a placeholder scope
+  line instead of the one in the task body (feature `flow-selection`, task
   `f902d382`, assignment `1cc69177` to architect-1). Acceptance: `praxis run flows/delivery`
   starts the shipped delivery flow from a fresh store; a selector that disagrees with the
-  document's flow key is `FLOW_INVALID` before any write; the shipped flows and
-  `.pi/praxis/config.json` stay byte-identical; `tsc` clean; suite green. Not authorized: flow
+  document's flow key is `FLOW_INVALID` before any write; `workflow.json`, `research.json`
+  and `.pi/praxis/config.json` stay byte-identical, while `delivery.json` may be rewritten from
+  the legacy `praxis.config/v1` steps form to `praxis.flow/v2` because the loader has no legacy
+  branch and the two requirements were otherwise contradictory; `tsc` clean; suite green. Not authorized: flow
   document schema changes, store schema changes, nested-execution budgets, or any isolation,
   identity or exactly-once claim.
 - **2026-10-29 — path identity for tasks and flows.** Owner GO in words, after a

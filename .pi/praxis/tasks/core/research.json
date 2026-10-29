@@ -1,0 +1,17 @@
+{
+  "id": "research",
+  "version": 1,
+  "state": "published",
+  "goal": "establish what is true about a mechanism inside the core, from sources and code",
+  "capabilities": ["artifact.write", "emit"],
+  "produces": { "schema": "praxis.artifact.delivery/v1" },
+  "gate": "section-requirements",
+  "requires": [
+    { "section": "contract", "required": ["task", "scope", "acceptance"] },
+    { "section": "question", "required": ["question", "boundary"] },
+    { "section": "sources", "minItems": 3, "each": ["source", "location", "establishes", "freshness"] },
+    { "section": "findings", "minItems": 1 },
+    { "section": "affected", "minItems": 1, "each": ["path", "declaration", "callers", "effect"] },
+    { "section": "uncertainty", "minItems": 1 }
+  ]
+}

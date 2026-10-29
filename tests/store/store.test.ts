@@ -1,25 +1,27 @@
 /**
- * P2: the store is real - four tables, WAL with synchronous=FULL, an event table that
+ * P2: the store is real - six tables, WAL with synchronous=FULL, an event table that
  * refuses UPDATE and DELETE, a compare-and-set instance row, digest-verified artifacts,
- * and the committed flow config parsing against its schema.
+ * the v2 identity that refuses a v1 file, and the committed v2 flow document parsing
+ * against its schema.
  */
 import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { openStore, type Store } from "../../src/store/db.ts";
 import { createInstance, loadInstance, setStatus } from "../../src/store/instance.ts";
 import { appendEvent, listEvents } from "../../src/store/events.ts";
 import { acceptArtifact, readArtifact, recordArtifact } from "../../src/store/artifacts.ts";
 import { canonicalBytes, digest } from "../../src/runner/canonical.ts";
-import { ResultSchema, parseFlowConfig, parseWith } from "../../src/types/schema.ts";
+import { InstanceStatusSchema, ResultSchema, parseFlowConfig, parseWith } from "../../src/types/schema.ts";
 import { isAppError } from "../../src/types/errors.ts";
 
 const NOW = "2026-10-29T11:00:00.000Z";
 const LATER = "2026-10-29T11:00:01.000Z";
 const NONCE = "0123456789abcdef0123456789abcdef";
-const CONFIG_DIGEST = digest(canonicalBytes({ flow: "architect" }));
+const PIN_DIGEST = digest(canonicalBytes({ flow: "flows/architect" }));
 const STEP_SCHEMA = "praxis.artifact.architecture/v1";
 
 interface Fixture {
@@ -40,9 +42,8 @@ function fixture(t: TestContext): Fixture {
 function seed(store: Store, id = "instance-0001") {
   return createInstance(store, {
     id,
-    flow: "architect",
+    flow: "flows/architect",
     actor: "engineer-1",
-    configDigest: CONFIG_DIGEST,
     status: "running",
     currentStep: "draft",
     nonce: NONCE,
@@ -59,21 +60,21 @@ function count(store: Store, table: "instance" | "event" | "artifact"): number {
   return Number(row.n);
 }
 
-test("the store creates the four tables, WAL and synchronous=FULL", (t) => {
+test("the store creates the six tables, WAL and synchronous=FULL", (t) => {
   const { store } = fixture(t);
   const tables = store.db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
     .all() as unknown as { name: string }[];
   assert.deepEqual(
     tables.map((row) => row.name),
-    ["artifact", "event", "instance", "meta"],
+    ["artifact", "definition", "event", "instance", "meta", "publication"],
   );
   const mode = store.db.prepare("PRAGMA journal_mode").get() as unknown as { journal_mode: string };
   assert.equal(mode.journal_mode, "wal");
   const sync = store.db.prepare("PRAGMA synchronous").get() as unknown as { synchronous: number };
   assert.equal(Number(sync.synchronous), 2);
   const meta = store.db.prepare("SELECT value FROM meta WHERE key = 'schema'").get() as unknown as { value: string };
-  assert.equal(meta.value, "praxis.store/v1");
+  assert.equal(meta.value, "praxis.store/v2");
 });
 
 test("the event table rejects UPDATE and DELETE", (t) => {
@@ -86,11 +87,10 @@ test("the event table rejects UPDATE and DELETE", (t) => {
   assert.equal(listEvents(store, "instance-0001").length, 1);
 });
 
-test("createInstance pins the payload and refuses a duplicate id without writing", (t) => {
+test("createInstance records the request and refuses a duplicate id without writing", (t) => {
   const { store } = fixture(t);
   const created = seed(store);
   assert.equal(created.revision, 0);
-  assert.equal(created.configDigest, CONFIG_DIGEST);
   assert.equal(created.currentStep, "draft");
   assert.equal(created.nonce, NONCE);
   expectCode("REQUEST_CONFLICT", () => seed(store));
@@ -106,25 +106,33 @@ test("setStatus compare-and-sets the revision and refuses illegal transitions", 
   const { store } = fixture(t);
   const created = seed(store);
 
-  const blocked = setStatus(store, created.id, { status: "blocked", currentStep: "draft" }, 0);
-  assert.equal(blocked.revision, 1);
-  assert.equal(blocked.status, "blocked");
-
   expectCode("REVISION_CONFLICT", () =>
-    setStatus(store, created.id, { status: "running", currentStep: "draft" }, 0),
+    setStatus(store, created.id, { status: "completed", currentStep: "draft" }, 1),
   );
 
-  const running = setStatus(store, created.id, { status: "running", currentStep: "draft" }, 1);
-  assert.equal(running.revision, 2);
-
-  const completed = setStatus(store, created.id, { status: "completed", currentStep: "draft" }, 2);
+  const completed = setStatus(store, created.id, { status: "completed", currentStep: "draft" }, 0);
   assert.equal(completed.status, "completed");
-  assert.equal(completed.revision, 3);
+  assert.equal(completed.revision, 1);
 
   expectCode("INSTANCE_STATE_INVALID", () =>
-    setStatus(store, created.id, { status: "running", currentStep: "draft" }, 3),
+    setStatus(store, created.id, { status: "running", currentStep: "draft" }, 1),
   );
-  assert.equal(loadInstance(store, created.id).revision, 3);
+  assert.equal(loadInstance(store, created.id).revision, 1);
+});
+
+test("a transition outside the table is INSTANCE_STATE_INVALID", (t) => {
+  const { store } = fixture(t);
+  const created = seed(store);
+  const failed = setStatus(store, created.id, { status: "failed", currentStep: "draft" }, 0);
+  assert.equal(failed.status, "failed");
+
+  expectCode("INSTANCE_STATE_INVALID", () =>
+    setStatus(store, created.id, { status: "completed", currentStep: "draft" }, 1),
+  );
+  expectCode("INSTANCE_STATE_INVALID", () =>
+    setStatus(store, created.id, { status: "blocked" as never, currentStep: "draft" }, 1),
+  );
+  assert.equal(loadInstance(store, created.id).revision, 1);
 });
 
 test("appendEvent sequences, canonicalises and refuses a non-canonical payload", (t) => {
@@ -287,41 +295,78 @@ test("acceptArtifact is a verified transition and replaying it writes nothing", 
   assert.equal(readArtifact(store, "instance-0001", "draft", 1).artifact.state, "accepted");
 });
 
-test("the committed flow config parses and a malformed one is refused", () => {
-  const text = readFileSync(new URL("../../.pi/praxis/config.json", import.meta.url), "utf8");
+test("a v1 store is refused as STORE_INVALID", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "praxis-store-v1-"));
+  const path = join(dir, "praxis.sqlite");
+  const db = new DatabaseSync(path);
+  db.exec("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT");
+  db.prepare("INSERT INTO meta(key, value) VALUES('schema', 'praxis.store/v1')").run();
+  db.close();
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  expectCode("STORE_INVALID", () => openStore(path));
+});
+
+test("blocked is not a declared instance status", (t) => {
+  const { store } = fixture(t);
+  seed(store);
+  store.db
+    .prepare(
+      "INSERT INTO instance(id, flow, actor, status, current_step, revision, nonce, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .run("instance-0002", "flows/architect", "engineer-1", "blocked", "draft", 0, NONCE, NOW, NOW);
+
+  expectCode("STORE_INVALID", () => loadInstance(store, "instance-0002"));
+  expectCode("STORE_INVALID", () => parseWith(InstanceStatusSchema, "blocked", "STORE_INVALID", "instance status"));
+  assert.equal(count(store, "instance"), 2);
+});
+
+test("the committed flow document parses and a malformed one is refused", () => {
+  const text = readFileSync(new URL("../../.pi/praxis/flows/workflow.json", import.meta.url), "utf8");
   const raw = JSON.parse(text) as Record<string, unknown>;
   const config = parseFlowConfig(raw);
-  assert.equal(config.flow, "research");
-  assert.deepEqual(config.steps.map((step) => step.id), ["web", "evidence", "code", "prepare"]);
-  assert.equal(config.steps[1].consumes, "web");
-  assert.deepEqual(config.steps[0].requires?.section, "sources");
+  assert.equal(config.flow, "flows/workflow");
+  assert.deepEqual(
+    config.nodes.map((node) => node.id),
+    ["research", "spec", "plan", "implement", "review"],
+  );
+  assert.deepEqual(
+    config.nodes.map((node) => node.task),
+    ["tasks/research", "tasks/spec", "tasks/plan", "tasks/implement", "tasks/review"],
+  );
+  assert.deepEqual(
+    config.edges.map((edge) => `${edge.kind}:${edge.from}>${edge.to}`),
+    [
+      "data:research>spec",
+      "data:spec>plan",
+      "data:plan>implement",
+      "data:implement>review",
+      "refuse:review>plan",
+    ],
+  );
 
-  expectCode("CONFIG_INVALID", () => parseFlowConfig({ ...raw, schema: "praxis.config/v2" }));
+  expectCode("CONFIG_INVALID", () => parseFlowConfig({ ...raw, schema: "praxis.config/v1" }));
   expectCode("CONFIG_INVALID", () => parseFlowConfig({ ...raw, extra: true }));
 
-  const badCapability = structuredClone(raw) as { steps: { capabilities: string[] }[] };
-  badCapability.steps[0].capabilities = ["shell"];
-  expectCode("CONFIG_INVALID", () => parseFlowConfig(badCapability));
+  const thirdKey = structuredClone(raw) as { nodes: Record<string, unknown>[] };
+  thirdKey.nodes[0].consumes = "research";
+  expectCode("NODE_INVALID", () => parseFlowConfig(thirdKey));
 
-  const badGate = structuredClone(raw) as { steps: { gate: string }[] };
-  badGate.steps[0].gate = "model-review";
-  expectCode("CONFIG_INVALID", () => parseFlowConfig(badGate));
-
-  const badRef = structuredClone(raw) as { steps: { consumes?: string }[] };
-  badRef.steps[1].consumes = "nowhere";
+  const badRef = structuredClone(raw) as { nodes: { task: string }[] };
+  badRef.nodes[1].task = "spec";
   expectCode("CONFIG_INVALID", () => parseFlowConfig(badRef));
 
-  const thirdStep = structuredClone(raw) as { steps: unknown[] };
-  thirdStep.steps.push(structuredClone(thirdStep.steps[0]));
-  expectCode("CONFIG_INVALID", () => parseFlowConfig(thirdStep));
+  const badKind = structuredClone(raw) as { edges: { kind: string }[] };
+  badKind.edges[0].kind = "branch";
+  expectCode("CONFIG_INVALID", () => parseFlowConfig(badKind));
 });
 
 test("the result schema admits exactly the six whitelisted fields", () => {
   const base = {
     instanceId: "instance-0001",
-    flow: "architect",
+    flow: "flows/architect",
     status: "running",
-    artifacts: [{ step: "draft", version: 1, digest: CONFIG_DIGEST, schema: STEP_SCHEMA }],
+    artifacts: [{ step: "draft", version: 1, digest: PIN_DIGEST, schema: STEP_SCHEMA }],
     summary: "running at draft: 1 artifact(s) accepted",
     nextAction: "resume",
   };

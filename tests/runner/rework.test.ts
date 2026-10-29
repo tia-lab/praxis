@@ -1,38 +1,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { writeFileSync } from "node:fs";
-
-import { artifactsOf, artifactFile, cli, createInstance, dispose, eventsOf, instanceRow, workspace } from "../testkit.ts";
+import { artifactsOf, artifactFile, cli, createInstance, dispose, eventsOf, instanceRow, workspace, writeFlow } from "../testkit.ts";
 
 const PLAN = "praxis.artifact.plan/v1";
 const REVIEW = "praxis.artifact.review/v1";
 
 function writeLoopFlow(ws: ReturnType<typeof workspace>, flow: string): void {
-  writeFileSync(
-    ws.config,
-    JSON.stringify({
-      schema: "praxis.config/v1",
-      flow,
-      steps: [
-        {
-          id: "plan",
-          capabilities: ["artifact.write", "emit"],
-          produces: { schema: PLAN },
-          gate: "section-requirements",
-          requires: { section: "plan", required: ["steps"] },
-        },
-        {
-          id: "review",
-          capabilities: ["artifact.read", "artifact.write", "emit"],
-          consumes: "plan",
-          produces: { schema: REVIEW },
-          gate: "section-requirements",
-          requires: { section: "review", required: ["verdict"], equals: { verdict: "PASS" } },
-          onRefuse: "plan",
-        },
-      ],
-      result: "praxis.result/v1",
-    }),
+  writeFlow(
+    ws,
+    flow,
+    [
+      {
+        id: "plan",
+        capabilities: ["artifact.write", "emit"],
+        schema: PLAN,
+        requires: { section: "plan", required: ["steps"] },
+      },
+      {
+        id: "review",
+        capabilities: ["artifact.read", "artifact.write", "emit"],
+        schema: REVIEW,
+        requires: { section: "review", required: ["verdict"], equals: { verdict: "PASS" } },
+      },
+    ],
+    [
+      { kind: "data", from: "plan", to: "review" },
+      { kind: "refuse", from: "review", to: "plan" },
+    ],
   );
 }
 

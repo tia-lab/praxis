@@ -1,13 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { cpSync, readFileSync, writeFileSync } from "node:fs";
 
 import { artifactFile, cli, createInstance, dispose, instanceRow, workspace } from "../testkit.ts";
 
-/** Layer 1: the shipped delivery flow judges real documents, good and deficient. */
+/**
+ * Layer 1: the shipped `v2` flow judges real documents, good and deficient. The frozen
+ * `delivery.json` is no longer loadable after the default-path ruling, so the fixture
+ * copies the emitted nodes/edges document and the task library it composes.
+ */
 function writeDeliveryFlow(ws: ReturnType<typeof workspace>): void {
-  const text = readFileSync(new URL("../../.pi/praxis/flows/delivery.json", import.meta.url), "utf8");
-  writeFileSync(ws.config, text);
+  const text = readFileSync(new URL("../../.pi/praxis/flows/workflow.json", import.meta.url), "utf8");
+  const document = JSON.parse(text) as { flow: string };
+  document.flow = "flows/delivery";
+  writeFileSync(ws.config, JSON.stringify(document, null, 2) + "\n");
+  cpSync(new URL("../../.pi/praxis/tasks", import.meta.url), ws.tasks, { recursive: true });
 }
 
 const SCHEMA = "praxis.artifact.delivery/v1";

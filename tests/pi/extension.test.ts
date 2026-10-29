@@ -85,11 +85,11 @@ test("parameters accept start", () => {
     "affected", "artifact", "category", "categoryFields", "evidence", "flow",
     "instance", "op", "requestId", "severity", "step", "summary", "title",
   ]);
-  assert.equal(accepts(document, { op: "start", flow: "architect", requestId: "pi-e2e-1" }), true);
-  assert.equal(accepts(document, { op: "start", flow: "architect" }), true);
+  assert.equal(accepts(document, { op: "start", flow: "flows/architect", requestId: "pi-e2e-1" }), true);
+  assert.equal(accepts(document, { op: "start", flow: "flows/architect" }), true);
 });
 
 test("parameters reject unknown key", () => {
-  assert.equal(accepts(document, { op: "start", flow: "architect", requestId: "r1", actor: "cli" }), false);
+  assert.equal(accepts(document, { op: "start", flow: "flows/architect", requestId: "r1", actor: "cli" }), false);
   assert.equal(accepts(document, { op: "status" }), false);
 });

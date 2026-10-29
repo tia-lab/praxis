@@ -1,0 +1,16 @@
+{
+  "id": "spec",
+  "version": 1,
+  "state": "published",
+  "goal": "state requirements with failure behaviour and an oracle, and the model behind them",
+  "capabilities": ["artifact.read", "artifact.write", "emit"],
+  "produces": { "schema": "praxis.artifact.delivery/v1" },
+  "gate": "section-requirements",
+  "requires": [
+    { "section": "outcome", "required": ["outcome"] },
+    { "section": "requirements", "minItems": 1, "each": ["id", "requirement", "failure", "oracle"] },
+    { "section": "model", "minItems": 1, "each": ["element", "owner", "states", "invariants", "requirement"] },
+    { "section": "exclusions", "minItems": 1 },
+    { "section": "alternatives", "minItems": 1, "each": ["alternative", "rejected"] }
+  ]
+}

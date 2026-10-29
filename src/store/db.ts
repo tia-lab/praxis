@@ -14,7 +14,7 @@ import { DatabaseSync } from "node:sqlite";
 import { asAppError, fail, isAppError, type AppError } from "../types/errors.ts";
 
 /** The store's own schema identity, pinned in `meta` so a stale file fails closed. */
-export const STORE_SCHEMA = "praxis.store/v1";
+export const STORE_SCHEMA = "praxis.store/v2";
 
 const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS meta (
@@ -25,7 +25,6 @@ const SCHEMA_STATEMENTS: readonly string[] = [
      id TEXT PRIMARY KEY,
      flow TEXT NOT NULL,
      actor TEXT NOT NULL,
-     config_digest TEXT NOT NULL,
      status TEXT NOT NULL,
      current_step TEXT,
      revision INTEGER NOT NULL,
@@ -52,6 +51,23 @@ const SCHEMA_STATEMENTS: readonly string[] = [
      derived_from TEXT,
      at TEXT NOT NULL,
      PRIMARY KEY (instance, step, version)
+   ) STRICT`,
+  // The pins: one row per composed unit plus the flow, in the caller's transaction (R4).
+  `CREATE TABLE IF NOT EXISTS definition (
+     instance TEXT NOT NULL REFERENCES instance(id),
+     kind TEXT NOT NULL,
+     id TEXT NOT NULL,
+     digest TEXT NOT NULL,
+     bytes BLOB NOT NULL,
+     PRIMARY KEY (instance, kind, id)
+   ) STRICT`,
+  // The durable publication record per task version; a digest, never bytes (R3).
+  `CREATE TABLE IF NOT EXISTS publication (
+     task TEXT NOT NULL,
+     version INTEGER NOT NULL,
+     digest TEXT NOT NULL,
+     at TEXT NOT NULL,
+     PRIMARY KEY (task, version)
    ) STRICT`,
   // History is append-only in the database, not merely by convention (R3).
   `CREATE TRIGGER IF NOT EXISTS event_append_only_update BEFORE UPDATE ON event

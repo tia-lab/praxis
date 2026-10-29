@@ -1,13 +1,13 @@
 /**
- * Pi-tool fixtures (claim D): flow config, artifact payloads, fake session contexts, a
- * temp store and a pending-artifact seed. Helpers and data only — no test cases; those
- * are claim C. The five runtime exports are exactly what plan step 1 checks:
- * `config, artifacts, fakeContext, pendingArtifact, tempStore`.
+ * Pi-tool fixtures (claim D): the `v2` flow document, the task units it composes, the
+ * gate-shaped payloads, fake session contexts, a temp project/store and a pending-artifact
+ * seed. Helpers and data only — no test cases. The five runtime exports are exactly what
+ * plan step 1 checks: `config, artifacts, fakeContext, pendingArtifact, tempStore`.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { FlowConfig } from "../../src/types/schema.ts";
+import type { FlowConfig, TaskConfig } from "../../src/types/schema.ts";
 import type { PiSessionContext } from "../../src/pi/host.ts";
 import { canonicalBytes, digest, digestOf } from "../../src/runner/canonical.ts";
 import { instanceIdFor } from "../../src/runner/engine.ts";
@@ -15,15 +15,39 @@ import { actorFor } from "../../src/pi/tool.ts";
 import { openStore } from "../../src/store/db.ts";
 import { createInstance } from "../../src/store/instance.ts";
 import { recordArtifact } from "../../src/store/artifacts.ts";
+import { insertDefinition, insertPublication } from "../../src/store/definitions.ts";
+
+/** The task units the fixture flow composes, published so a pin may take them. */
+export const tasks: readonly TaskConfig[] = [
+  {
+    id: "draft",
+    version: 1,
+    state: "published",
+    goal: "write the architecture draft",
+    capabilities: ["artifact.write", "emit"],
+    produces: { schema: "praxis.artifact.architecture/v1" },
+    gate: "schema-valid-and-nonce",
+  },
+  {
+    id: "derive",
+    version: 1,
+    state: "published",
+    goal: "derive the next artifact from the draft",
+    capabilities: ["artifact.read", "artifact.write", "emit"],
+    produces: { schema: "praxis.artifact.derive/v1" },
+    gate: "schema-valid-and-nonce",
+  },
+];
 
 /** The accepted flow, copied so a fixture never reads the project's own config. */
 export const config = {
-  schema: "praxis.config/v1",
-  flow: "architect",
-  steps: [
-    { id: "draft", capabilities: ["artifact.write", "emit"], produces: { schema: "praxis.artifact.architecture/v1" }, gate: "schema-valid-and-nonce" },
-    { id: "derive", capabilities: ["artifact.read", "artifact.write", "emit"], consumes: "draft", produces: { schema: "praxis.artifact.derive/v1" }, gate: "schema-valid-and-nonce" },
+  schema: "praxis.flow/v2",
+  flow: "flows/architect",
+  nodes: [
+    { id: "draft", task: "tasks/draft" },
+    { id: "derive", task: "tasks/derive" },
   ],
+  edges: [{ kind: "data", from: "draft", to: "derive" }],
   result: "praxis.result/v1",
 } satisfies FlowConfig;
 
@@ -57,18 +81,24 @@ export interface TempStore {
   cwd: string;
   configPath: string;
   storeDir: string;
+  tasksDir: string;
   dispose(): void;
 }
 
-/** A throwaway project root with a flow config and an empty store directory. */
+/** A throwaway project root with the default flow document, its task units and a store. */
 export function tempStore(overrides: { config?: unknown; raw?: string } = {}): TempStore {
   const cwd = mkdtempSync(join(tmpdir(), "praxis-pi-"));
-  const configPath = join(cwd, ".pi", "praxis", "config.json");
+  const configPath = join(cwd, ".pi", "praxis", "flows", "workflow.json");
   const storeDir = join(cwd, ".pi", "praxis", "state");
-  mkdirSync(join(cwd, ".pi", "praxis"), { recursive: true });
+  const tasksDir = join(cwd, ".pi", "praxis", "tasks");
+  mkdirSync(dirname(configPath), { recursive: true });
+  mkdirSync(tasksDir, { recursive: true });
   mkdirSync(join(storeDir, "artifacts"), { recursive: true });
   writeFileSync(configPath, overrides.raw ?? JSON.stringify(overrides.config ?? config, null, 2) + "\n");
-  return { cwd, configPath, storeDir, dispose: () => rmSync(cwd, { recursive: true, force: true }) };
+  for (const task of tasks) {
+    writeFileSync(join(tasksDir, `${task.id}.json`), JSON.stringify(task, null, 2) + "\n");
+  }
+  return { cwd, configPath, storeDir, tasksDir, dispose: () => rmSync(cwd, { recursive: true, force: true }) };
 }
 
 export interface PendingSeed {
@@ -80,9 +110,11 @@ export interface PendingSeed {
 }
 
 function schemaOf(step: string): string {
-  const found = config.steps.find((candidate) => candidate.id === step);
-  if (found === undefined) throw new Error("no step " + JSON.stringify(step) + " in the fixture flow");
-  return found.produces.schema;
+  const node = config.nodes.find((candidate) => candidate.id === step);
+  if (node === undefined) throw new Error("no step " + JSON.stringify(step) + " in the fixture flow");
+  const task = tasks.find((candidate) => "tasks/" + candidate.id === node.task);
+  if (task === undefined) throw new Error("no task " + node.task + " in the fixture library");
+  return task.produces.schema;
 }
 
 function newNonce(): string {
@@ -93,9 +125,10 @@ function newNonce(): string {
 
 /**
  * Seed a running instance at `step` with one `pending` artifact version through the
- * store API the engine uses (P15). The actor label comes from `actorFor`, so a later
- * `start` with the same request id and session re-opens this instance rather than
- * conflicting, and a `submit` with the same payload reuses version 1.
+ * store API the engine uses (P15), including the pins `start` would have written, so a
+ * later `submit` reads pinned definitions rather than the library. The actor label comes
+ * from `actorFor`, so a later `start` with the same request id and session re-opens this
+ * instance rather than conflicting.
  */
 export function pendingArtifact(
   store: TempStore,
@@ -119,12 +152,29 @@ export function pendingArtifact(
       id: instance,
       flow: config.flow,
       actor: actorFor(fakeContext({ cwd: store.cwd, sessionId })),
-      configDigest: digestOf(config),
       status: "running",
       currentStep: step,
       nonce,
       now: NOW,
     });
+    insertDefinition(db, {
+      instance,
+      kind: "flow",
+      id: config.flow,
+      digest: digestOf(config),
+      bytes: canonicalBytes(config),
+    });
+    for (const task of tasks) {
+      const taskBytes = canonicalBytes(task);
+      insertDefinition(db, {
+        instance,
+        kind: "task",
+        id: "tasks/" + task.id,
+        digest: digest(taskBytes),
+        bytes: taskBytes,
+      });
+      insertPublication(db, { task: "tasks/" + task.id, version: task.version, digest: digest(taskBytes), at: NOW });
+    }
     recordArtifact(db, { instance, step, version: 1, path, digest: digestOfBytes, schema: schemaOf(step), derivedFrom: null, at: NOW });
   } finally {
     db.close();

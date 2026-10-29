@@ -15,8 +15,27 @@ const KEBAB = /^[a-z][a-z0-9-]{0,63}$/;
 export const StepIdSchema = z.string().regex(KEBAB, "expected a lower-case kebab name");
 export type StepId = z.infer<typeof StepIdSchema>;
 
-/** Flow name, e.g. `architect`. */
-export const FlowNameSchema = StepIdSchema;
+/**
+ * The one rule both reference kinds obey (spec R1, R2): a root directory and one or more
+ * lower-case kebab segments. The folder group is zero-or-more, so a flat
+ * `tasks/research` and a nested `tasks/core/research` are the same grammar, and no
+ * segment may be a dot or carry `.json`, so a path outside the root cannot be written.
+ */
+const PATH_SEGMENTS = "([a-z][a-z0-9-]{0,63}/)*[a-z][a-z0-9-]{0,63}";
+
+/** The directory a task reference names; the loader reads everything below it. */
+const TASKS_ROOT = "tasks/";
+
+/** Build the path schema for one root: `tasks/<segments>` or `flows/<segments>`. */
+function pathUnder(root: "tasks" | "flows"): z.ZodString {
+  return z.string().regex(new RegExp("^" + root + "/" + PATH_SEGMENTS + "$"), "expected " + root + "/<path>");
+}
+
+/**
+ * Flow identity: a path under `flows/`, e.g. `flows/workflow` or `flows/core/review`,
+ * built from the same segment rule a task reference uses.
+ */
+export const FlowNameSchema = pathUnder("flows");
 
 /** The closed capability registry (spec R7). An unknown name cannot be declared. */
 export const CapabilitySchema = z.enum(["artifact.read", "artifact.write", "emit"]);
@@ -72,87 +91,214 @@ export type Requirement = z.infer<typeof RequirementSchema>;
 export const RequirementsSchema = z.union([RequirementSchema, z.array(RequirementSchema).min(1).max(16)]);
 export type Requirements = z.infer<typeof RequirementsSchema>;
 
-export const StepConfigSchema = z.strictObject({
-  id: StepIdSchema,
-  capabilities: z.array(CapabilitySchema).max(8),
-  produces: z.strictObject({ schema: SchemaNameSchema }),
-  consumes: StepIdSchema.optional(),
-  gate: GateSchema,
-  /** What the agent must achieve in this stage. Injected, never a whitelist. */
-  goal: z.string().min(1).max(1000).optional(),
-  /** What the document must contain before this stage may pass: one clause or many. */
-  requires: RequirementsSchema.optional(),
-  /**
-   * Where a refusal sends the work. Declared as an earlier stage id, so a review can
-   * return a plan to be amended instead of ending the run. Absent means the refusal
-   * keeps this stage current and the same stage is retried.
-   */
-  onRefuse: StepIdSchema.optional(),
-});
-export type StepConfig = z.infer<typeof StepConfigSchema>;
+/** A task's declared state; only `published` may be pinned (spec R3). */
+export const TaskStateSchema = z.enum(["draft", "published"]);
+export type TaskState = z.infer<typeof TaskStateSchema>;
 
 /**
- * The flow is data (spec R1): exactly two steps, each producing one artifact.
- * `issue` is the optional issue-reporting declaration the tool's two `issue.*` ops
- * read; its shape is owned by `src/types/issue.ts`, never restated here.
+ * One task document, a strict `praxis.task/v1` unit (spec R1). The task owns the
+ * work; the flow owns the wiring, so there is no `consumes` and no `onRefuse`
+ * here — edges carry both facts.
+ */
+export const TaskConfigSchema = z.strictObject({
+  id: StepIdSchema,
+  version: z.int().min(1),
+  state: TaskStateSchema,
+  /** What the agent must achieve in this stage. Required (A3). */
+  goal: z.string().min(1).max(1000),
+  capabilities: z.array(CapabilitySchema).max(8),
+  produces: z.strictObject({ schema: SchemaNameSchema }),
+  gate: GateSchema,
+  /** What the document must contain before this stage may pass: one clause or many. */
+  requires: RequirementsSchema.optional(),
+  /** A review must carry the digest of the version it judged (spec R6). */
+  bindsSubject: z.boolean().optional(),
+});
+export type TaskConfig = z.infer<typeof TaskConfigSchema>;
+
+/**
+ * A node's task reference: a path under `tasks/`, e.g. `tasks/research` or
+ * `tasks/core/research`, never a bare id (spec R2, R3). A nested path is how one
+ * library holds task families without flattening their names.
+ */
+export const TaskRefSchema = pathUnder("tasks");
+export type TaskRef = z.infer<typeof TaskRefSchema>;
+
+/**
+ * One node of the flow: an id and the task unit it runs. The flow owns the wiring, so
+ * a node carries no capability, gate or schema and a third key is refused (spec R2).
+ */
+export const NodeSchema = z.strictObject({ id: StepIdSchema, task: TaskRefSchema });
+export type Node = z.infer<typeof NodeSchema>;
+
+/** The three declared edge kinds (spec R7): `data`, `join`, `refuse`. */
+export const EdgeKindSchema = z.enum(["data", "join", "refuse"]);
+export type EdgeKind = z.infer<typeof EdgeKindSchema>;
+
+export const EdgeSchema = z.strictObject({ kind: EdgeKindSchema, from: StepIdSchema, to: StepIdSchema });
+export type Edge = z.infer<typeof EdgeSchema>;
+
+/**
+ * The library-relative path a reference names: `tasks/core/research` -> `core/research`.
+ * The library file name is derived from it, so a caller never passes a path of its own
+ * (spec R1, A4); a bare id is `CONFIG_INVALID`. No segment may be a dot, so a path
+ * escaping the library is refused here by the contract, before any loader sees it.
+ */
+export function parseTaskRef(value: unknown): string {
+  const ref = parseWith(TaskRefSchema, value, "CONFIG_INVALID", "task reference");
+  return ref.slice(TASKS_ROOT.length);
+}
+
+/**
+ * The flow is data (spec R1, R7): nodes name task units, typed edges carry the
+ * wiring. `issue` is the optional issue-reporting declaration the tool's two
+ * `issue.*` ops read; its shape is owned by `src/types/issue.ts`, never restated here.
+ *
+ * `nodes[]` is declared in execution order (A1): a `data` or `join` edge runs from a
+ * lower index to a higher one, a `refuse` edge from a higher index to a lower one.
+ * That ordering is what makes "acyclic" checkable without a graph library.
  */
 export const FlowConfigSchema = z
   .strictObject({
-    schema: z.literal("praxis.config/v1"),
+    schema: z.literal("praxis.flow/v2"),
     flow: FlowNameSchema,
-    steps: z.array(StepConfigSchema).min(1).max(16),
+    nodes: z.array(NodeSchema).min(1).max(16),
+    edges: z.array(EdgeSchema).max(32),
     result: SchemaNameSchema,
     issue: IssueConfigSchema.optional(),
   })
   .superRefine((config, ctx) => {
-    const seen = new Set<string>();
-    config.steps.forEach((step, index) => {
-      if (seen.has(step.id)) {
-        ctx.addIssue({ code: "custom", message: `duplicate step id: ${step.id}`, path: ["steps", index, "id"] });
+    const at = new Map<string, number>();
+    config.nodes.forEach((node, index) => {
+      if (at.has(node.id)) {
+        ctx.addIssue({ code: "custom", message: `duplicate node id: ${node.id}`, path: ["nodes", index, "id"] });
       }
-      seen.add(step.id);
+      at.set(node.id, index);
     });
-    config.steps.forEach((step, index) => {
-      if (step.onRefuse !== undefined) {
-        const target = config.steps.findIndex((candidate) => candidate.id === step.onRefuse);
-        if (target < 0) {
-          ctx.addIssue({ code: "custom", message: "onRefuse names a step that is not in the flow: " + step.onRefuse, path: ["steps", index, "onRefuse"] });
-        } else if (target >= index) {
-          ctx.addIssue({ code: "custom", message: "onRefuse must name an earlier stage, not " + step.onRefuse, path: ["steps", index, "onRefuse"] });
-        }
+
+    // A `data` edge is a branch: one per target, one per source (A2). A join group — two
+    // or more `join` edges into one node — is a single consumption carrying several
+    // sources, so it may sit beside the data edges that already chain through it.
+    // Fan-out is counted per *distinct target*: a node may feed one `data` successor and
+    // one join group, never two of either (A2, reviewer defect 2). A join is counted per
+    // distinct source, so repeating one source is a single-source join and is refused.
+    const data = new Map<string, number>();
+    const dataTargets = new Map<string, Set<string>>();
+    const joinTargets = new Map<string, Set<string>>();
+    const joinSources = new Map<string, Set<string>>();
+    config.edges.forEach((edge, index) => {
+      const from = at.get(edge.from);
+      const to = at.get(edge.to);
+      if (from === undefined || to === undefined) {
+        ctx.addIssue({
+          code: "custom",
+          message: `edge names a node that is not in the flow: ${edge.from}>${edge.to}`,
+          path: ["edges", index],
+        });
+        return;
       }
-      if (step.gate === "section-requirements" && step.requires === undefined) {
-        ctx.addIssue({ code: "custom", message: "gate section-requirements needs a requires block", path: ["steps", index, "requires"] });
-      }
-      if (index === 0) {
-        if (step.consumes !== undefined) {
-          ctx.addIssue({ code: "custom", message: "the first stage cannot consume an artifact", path: ["steps", 0, "consumes"] });
+      if (edge.kind === "refuse") {
+        if (from <= to) {
+          ctx.addIssue({
+            code: "custom",
+            message: `a refuse edge must go back to an earlier node: ${edge.from}>${edge.to}`,
+            path: ["edges", index],
+          });
         }
         return;
       }
-      if (step.consumes === undefined) {
-        ctx.addIssue({ code: "custom", message: "every stage after the first must consume an earlier artifact", path: ["steps", index, "consumes"] });
-      } else if (!config.steps.slice(0, index).some((earlier) => earlier.id === step.consumes)) {
-        ctx.addIssue({ code: "custom", message: `unknown artifact source: ${step.consumes}`, path: ["steps", index, "consumes"] });
+      if (from >= to) {
+        ctx.addIssue({
+          code: "custom",
+          message: `a ${edge.kind} edge must run from an earlier node to a later one: ${edge.from}>${edge.to}`,
+          path: ["edges", index],
+        });
+      }
+      if (edge.kind === "join") {
+        const targets = joinTargets.get(edge.from) ?? new Set<string>();
+        targets.add(edge.to);
+        joinTargets.set(edge.from, targets);
+        const sources = joinSources.get(edge.to) ?? new Set<string>();
+        sources.add(edge.from);
+        joinSources.set(edge.to, sources);
+      } else {
+        data.set(edge.to, (data.get(edge.to) ?? 0) + 1);
+        const targets = dataTargets.get(edge.from) ?? new Set<string>();
+        targets.add(edge.to);
+        dataTargets.set(edge.from, targets);
+      }
+    });
+
+    for (const [id, targets] of dataTargets) {
+      if (targets.size > 1) {
+        ctx.addIssue({ code: "custom", message: `fan-out: node ${id} feeds ${targets.size} data targets`, path: ["edges"] });
+      }
+    }
+    for (const [id, targets] of joinTargets) {
+      if (targets.size > 1) {
+        ctx.addIssue({ code: "custom", message: `fan-out: node ${id} feeds ${targets.size} join groups`, path: ["edges"] });
+      }
+    }
+    for (const [id, sources] of joinSources) {
+      if (sources.size < 2) {
+        ctx.addIssue({ code: "custom", message: `a join needs two or more distinct sources, ${id} has ${sources.size}`, path: ["edges"] });
+      }
+    }
+    const refusals = new Map<string, number>();
+    for (const edge of config.edges) {
+      if (edge.kind !== "refuse") continue;
+      refusals.set(edge.from, (refusals.get(edge.from) ?? 0) + 1);
+    }
+    for (const [id, count] of refusals) {
+      if (count > 1) {
+        ctx.addIssue({ code: "custom", message: `node ${id} declares ${count} refuse edges; at most one is reviewed`, path: ["edges"] });
+      }
+    }
+    config.nodes.forEach((node, index) => {
+      // One data edge, or one join group: two of either kind into one node is refused.
+      const joinGroup = [...joinSources.entries()].some(([to]) => to === node.id) ? 1 : 0;
+      const incoming = (data.get(node.id) ?? 0) + joinGroup;
+      if (index === 0) {
+        if (incoming > 0) {
+          ctx.addIssue({ code: "custom", message: "the first node cannot consume an artifact", path: ["nodes", 0] });
+        }
+        return;
+      }
+      if (incoming === 0) {
+        ctx.addIssue({ code: "custom", message: "every node after the first must consume an earlier artifact", path: ["nodes", index] });
+      } else if (incoming > 1) {
+        ctx.addIssue({ code: "custom", message: `more than one consumption edge into ${node.id}`, path: ["nodes", index] });
       }
     });
   });
 export type FlowConfig = z.infer<typeof FlowConfigSchema>;
 
-/** Declared states. `validating` is model-only in this slice (spec, Model). */
-export const InstanceStatusSchema = z.enum(["running", "blocked", "completed", "failed"]);
+/**
+ * A node composed with the task it names (spec R2, R7): composition, never a copy of
+ * a task field. `sources` are the node ids this node consumes in declared edge order
+ * (one for `data`, many for `join`); `refuse` is the node a refusal returns work to.
+ */
+export interface ResolvedNode {
+  readonly node: Node;
+  readonly task: TaskConfig;
+  readonly sources: readonly string[];
+  readonly refuse?: string;
+}
+
+/** Declared states (spec R8). `blocked` is removed: no writer exists for it. */
+export const InstanceStatusSchema = z.enum(["running", "completed", "failed"]);
 export type InstanceStatus = z.infer<typeof InstanceStatusSchema>;
 
 /**
  * The mutable current state as a value. The plan's snake_case names are the store's
  * column names; `src/store/instance.ts` owns the one mapping between row and value.
- * A running instance always names a current step, so the value is never null.
+ * A running instance always names a current step, so the value is never null. The flow
+ * digest lives in the instance's `definition` row, not here (spec R5).
  */
 export const InstanceSchema = z.strictObject({
   id: InstanceIdSchema,
   flow: FlowNameSchema,
   actor: ActorSchema,
-  configDigest: DigestSchema,
   status: InstanceStatusSchema,
   currentStep: StepIdSchema,
   revision: z.int().min(0),
@@ -224,8 +370,30 @@ export function parseWith<T>(schema: z.ZodType<T>, value: unknown, code: Code, w
   return parsed.data;
 }
 
-/** Parse the flow config. An unknown step, capability or ref is CONFIG_INVALID. */
+/** The two keys a node may carry; a third is `NODE_INVALID`, not a config typo. */
+const NODE_KEYS: ReadonlySet<string> = new Set(["id", "task"]);
+
+/** The undeclared key of one raw node, if it carries one. */
+function nodeExtraKey(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  return Object.keys(value as Record<string, unknown>).find((key) => !NODE_KEYS.has(key));
+}
+
+/**
+ * Parse the flow config. A node that carries an undeclared key is `NODE_INVALID`;
+ * every other refusal — unknown edge kind, cycle, duplicate id, bad reference — is
+ * `CONFIG_INVALID` (spec R2, R7).
+ */
 export function parseFlowConfig(value: unknown): FlowConfig {
+  const nodes = typeof value === "object" && value !== null ? (value as { nodes?: unknown }).nodes : undefined;
+  if (Array.isArray(nodes)) {
+    nodes.forEach((node, index) => {
+      const extra = nodeExtraKey(node);
+      if (extra !== undefined) {
+        throw fail("NODE_INVALID", `flow node ${index} declares an undeclared key: ${extra}`, { node: index, key: extra });
+      }
+    });
+  }
   const parsed = FlowConfigSchema.safeParse(value);
   if (!parsed.success) throw fail("CONFIG_INVALID", "flow config is invalid", issues(parsed.error));
   return parsed.data;

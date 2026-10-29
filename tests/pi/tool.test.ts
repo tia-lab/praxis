@@ -32,7 +32,7 @@ function call(cwd: string, args: unknown, sessionId: string = SESSION): PiToolRe
 }
 
 const start = (cwd: string, requestId = "req-1", sessionId: string = SESSION): PiToolResult =>
-  call(cwd, { op: "start", flow: "architect", requestId }, sessionId);
+  call(cwd, { op: "start", flow: "flows/architect", requestId }, sessionId);
 
 /** The envelope of a tool result; success and failure details are both validated there. */
 const bag = (result: PiToolResult): any => result.details;
@@ -103,7 +103,7 @@ test("actor label is stable per session", () => {
 
 test("missing session id is a typed failure", () => {
   const cwd = project();
-  const result = executePraxisTool({ op: "start", flow: "architect", requestId: "req-1" }, fakeContext({ cwd, sessionId: null }));
+  const result = executePraxisTool({ op: "start", flow: "flows/architect", requestId: "req-1" }, fakeContext({ cwd, sessionId: null }));
   assert.equal(result.isError, true);
   assert.equal(bag(result).code, "CONFIG_INVALID");
   assert.deepEqual(bag(result).detail, { source: "sessionManager.getSessionId" });

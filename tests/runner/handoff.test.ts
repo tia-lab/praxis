@@ -9,7 +9,7 @@ import {
   dispose,
   eventsOf,
   instanceRow,
-  MAIN_STEPS,
+  MAIN_TASKS,
   workspace,
   writeFlow,
 } from "../testkit.ts";
@@ -44,7 +44,7 @@ function traces(ws: ReturnType<typeof workspace>, instance: string): Map<string,
 test("P3: draft and derive are distinct PIDs and derive's trace holds only artifact capabilities", async () => {
   const ws = workspace();
   try {
-    writeFlow(ws, "architect", MAIN_STEPS);
+    writeFlow(ws, "architect", MAIN_TASKS);
     const { instance, nonce } = await createInstance(ws, "architect", "req-p3");
 
     const draftPayload = {
@@ -118,7 +118,7 @@ test("P3: draft and derive are distinct PIDs and derive's trace holds only artif
 test("P8: a SIGKILL between phases keeps the same step and digest with no duplicate artifact row", async () => {
   const ws = workspace();
   try {
-    writeFlow(ws, "architect", MAIN_STEPS);
+    writeFlow(ws, "architect", MAIN_TASKS);
     const { instance, nonce } = await createInstance(ws, "architect", "req-p8");
 
     const draftPayload = { schema: "praxis.artifact.architecture/v1", nonce, architecture: { phases: 2 } };
@@ -145,7 +145,7 @@ test("P8: a SIGKILL between phases keeps the same step and digest with no duplic
 
     const afterKill = instanceRow(ws, instance);
     assert.equal(afterKill?.current_step, "derive", "the step pointer survives the death unchanged");
-    assert.equal(afterKill?.config_digest, beforeRetryAt?.config_digest);
+    assert.equal(afterKill?.revision, beforeRetryAt?.revision, "the revision survives the death unchanged");
 
     const retry = await cli(ws, ["resume", instance, "--artifact", deriveFile]);
     assert.equal(retry.status, 0, retry.stderr);

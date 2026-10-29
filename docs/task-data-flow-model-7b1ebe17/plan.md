@@ -2,6 +2,12 @@
 
 Task: task-data-flow-model · Hash: 7b1ebe17 · Gate: G3 · Status: draft · Date: 2026-10-29
 
+**Superseded in part, 2026-10-29:** task and flow references are paths — `tasks/<path>` and
+`flows/<path>` under `TaskRefSchema` / `FlowNameSchema` (`src/types/schema.ts`), the document's
+`id` is the last path segment, and a publication is keyed by (path, version). Wherever this plan
+says `id@version` or `<id>@<version>.json`, the spec's amended R1–R4 and the code (`a75b969f`)
+are authoritative. This plan stays as the record of what was planned, not of what the tree does.
+
 Basis: `spec.md` in this folder (provisional, frozen 2026-10-29 by owner directive; ids
 R1–R9 below) and `docs/templates/plan.md`. The D3 override, quoted verbatim from `AGENTS.md`
 at `2f0450a` (lines 102–104): "Implementation proceeds in ordered slices beside the plan rather
@@ -352,10 +358,10 @@ Requirement: R1–R9 — this step verifies every requirement above and implemen
 | C5 | `node --test tests/runner/task-library.test.ts tests/runner/pin.test.ts > /tmp/c5.out; grep -Fc '✔' /tmp/c5.out` | narrow | `12` (7 + 5), `fail 0` |
 | C6 | `npx tsc --noEmit; echo exit=$?` | full | `exit=0` and no diagnostic lines. Green at G3 time (§0); a new diagnostic is the failing step's defect |
 | C7 | `node --test 'tests/**/*.test.ts' > /tmp/c7.out; tail -8 /tmp/c7.out` | full | `fail 0`, `tests` ≥ 133 (91 baseline + 42 new) |
-| C8 | `git diff --name-only HEAD -- src/cli.ts src/runner/capabilities.ts src/runner/requirements.ts src/runner/canonical.ts src/runner/result.ts src/runner/task.ts src/runner/issues.ts src/store/artifacts.ts src/store/events.ts src/pi/host.ts src/pi/extension.ts src/types/issue.ts src/types/org.ts package.json tsconfig.json .pi/settings.json` | full | empty output (A3: `src/types/org.ts` is in unit D's scope and this unit must not touch it) |
+| C8 | `git status --porcelain -- src/cli.ts src/runner/capabilities.ts src/runner/requirements.ts src/runner/canonical.ts src/runner/result.ts src/runner/task.ts src/runner/issues.ts src/store/artifacts.ts src/store/events.ts src/pi/host.ts src/pi/extension.ts src/types/issue.ts src/types/org.ts package.json tsconfig.json .pi/settings.json` | full | empty output (A3: `src/types/org.ts` is in unit D's scope and this unit must not touch it); `git diff HEAD` would not see an untracked file, so creating `src/types/org.ts` would pass it |
 | C9 | `node --test tests/runner/subject.test.ts > /tmp/c9.out; grep -Fc '✔' /tmp/c9.out` | narrow | `7`, `fail 0` (row 42 is the shipped-flow behaviour A2 asked for; the other six are fixtures) |
 | C10 | `node --test --test-name-pattern "six keys when the pin differs" tests/runner/result.test.ts > /tmp/c10.out; grep -F "✔ the result keeps exactly six keys when the pin differs from the library" /tmp/c10.out` | narrow | exactly one `✔` line; a name-pattern run with no `✔` is a failed check, not a pass |
-| C11 | `wc -l src/runner/engine.ts src/runner/step.ts src/types/schema.ts` | full | `engine.ts` ≤ `600`; every other file ≤ 600 |
+| C11 | `awk 'FNR==1&&n>600{print f": "n;bad=1} FNR==1{n=0} {n=FNR;f=FILENAME} END{if(n>600){print f": "n;bad=1};exit bad}' src/runner/engine.ts src/runner/step.ts src/types/schema.ts` | full | no output, exit 0; `wc -l` exits 0 on a 601-line file and cannot prove the rule |
 | C12a | `git diff --quiet HEAD -- .pi/praxis/config.json .pi/praxis/flows/research.json .pi/praxis/flows/delivery.json && echo unchanged` | full | `unchanged`, exit 0. Runnable at any step, because it reads only tracked bytes. This is the whole of X1's byte-identity ruling. |
 | C12b | `node --experimental-strip-types -e 'const m=await import("./src/types/schema.ts"); const fs=await import("node:fs"); const f=m.parseFlowConfig(JSON.parse(fs.readFileSync(".pi/praxis/flows/workflow.json","utf8"))); const ids=f.nodes.map(n=>n.id).join(","); const kinds=f.edges.map(e=>e.kind+":"+e.from+">"+e.to).join(","); const t=JSON.parse(fs.readFileSync(".pi/praxis/tasks/review@1.json","utf8")); if (ids!=="research,spec,plan,implement,review") throw new Error("nodes "+ids); if (kinds!=="data:research>spec,data:spec>plan,data:plan>implement,data:implement>review,refuse:review>plan") throw new Error("edges "+kinds); if (t.bindsSubject!==true) throw new Error("the review task must bind a subject"); console.log(ids)'` | full | prints the node chain; exits 0. Asserts **values** — the ordered node ids, the five edges with their kinds and directions, and the review binding — not top-level key names, and it reads only the document step 3 emits, so the phantom-path objection (reviewer-1 A1, lead seq 89) is gone. Requires step 3 to have run. |
 | C13 | `grep -n "## G5" docs/task-data-flow-model-7b1ebe17/review.md` plus `sha256sum` of every changed file | gate | one G5 section naming every `sha256` and a verdict; a verdict without a digest is void (`docs/WORKFLOW.md` §3) |

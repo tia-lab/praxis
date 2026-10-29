@@ -11,7 +11,7 @@ import {
   dispose,
   eventsOf,
   instanceRow,
-  MAIN_STEPS,
+  MAIN_TASKS,
   workspace,
   writeFlow,
 } from "../testkit.ts";
@@ -44,7 +44,6 @@ test("P7 control: a consuming step without artifact.read fails ARTIFACT_UNAVAILA
         id: "derive",
         capabilities: ["artifact.write", "emit"],
         schema: "praxis.artifact.derive/v1",
-        consumes: "draft",
       },
     ]);
     const { instance, nonce } = await createInstance(ws, "architect", "req-p7");
@@ -93,7 +92,7 @@ test("P7 control: a consuming step without artifact.read fails ARTIFACT_UNAVAILA
 test("P8 control: corrupted artifact bytes fail ARTIFACT_DIGEST_MISMATCH before dispatch and write nothing", async () => {
   const ws = workspace();
   try {
-    writeFlow(ws, "architect", MAIN_STEPS);
+    writeFlow(ws, "architect", MAIN_TASKS);
     const { instance, nonce } = await createInstance(ws, "architect", "req-corrupt");
     const draft = await cli(ws, [
       "resume",

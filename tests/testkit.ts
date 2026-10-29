@@ -6,9 +6,9 @@
  * failure inside the store cannot mask a bad assertion about what was persisted.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 /** A fixed instant, so an assertion never depends on the wall clock. */
@@ -20,52 +20,102 @@ export interface Workspace {
   root: string;
   store: string;
   config: string;
+  /** The task library the runtime resolves from the workspace root (spec R1). */
+  tasks: string;
 }
 
-export interface StepFixture {
+export interface TaskFixture {
   id: string;
   capabilities: string[];
   schema: string;
-  consumes?: string;
+  goal?: string;
+  requires?: unknown;
+  bindsSubject?: boolean;
+  version?: number;
+  state?: "draft" | "published";
+}
+
+export interface EdgeFixture {
+  kind: "data" | "join" | "refuse";
+  from: string;
+  to: string;
 }
 
 export function workspace(): Workspace {
   const root = mkdtempSync(join(tmpdir(), "praxis-runner-"));
-  return { root, store: join(root, "state"), config: join(root, "config.json") };
+  return {
+    root,
+    store: join(root, "state"),
+    config: join(root, "flow.json"),
+    tasks: join(root, ".pi", "praxis", "tasks"),
+  };
 }
 
 export function dispose(ws: Workspace): void {
   rmSync(ws.root, { recursive: true, force: true });
 }
 
-/** Write a flow fixture. The runtime pins the digest of exactly these bytes. */
-export function writeFlow(ws: Workspace, flow: string, steps: readonly StepFixture[]): void {
-  const config = {
-    schema: "praxis.config/v1",
-    flow,
-    steps: steps.map((step) => {
-      const declared: Record<string, unknown> = {
-        id: step.id,
-        capabilities: step.capabilities,
-        produces: { schema: step.schema },
-        gate: "schema-valid-and-nonce",
-      };
-      if (step.consumes !== undefined) declared.consumes = step.consumes;
-      return declared;
-    }),
+/** A task reference is a path under the library, never a bare id (spec R1, R2). */
+export function taskRef(id: string): string {
+  return "tasks/" + id;
+}
+
+/** A flow identity is a path under `flows/`, never a bare name (spec R1, R2). */
+export function flowRef(name: string): string {
+  return "flows/" + name;
+}
+
+/** Write one task unit at `<library>/<id>.json`. The runtime reads exactly these bytes. */
+export function writeTask(ws: Workspace, task: TaskFixture): void {
+  const version = task.version ?? 1;
+  const document: Record<string, unknown> = {
+    id: task.id,
+    version,
+    state: task.state ?? "published",
+    goal: task.goal ?? `do ${task.id}`,
+    capabilities: task.capabilities,
+    produces: { schema: task.schema },
+    gate: "schema-valid-and-nonce",
+  };
+  if (task.requires !== undefined) document.requires = task.requires;
+  if (task.bindsSubject !== undefined) document.bindsSubject = task.bindsSubject;
+  // The document owns its version; the reference names only the path (spec R1, R5).
+  const path = join(ws.tasks, `${task.id}.json`);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(document, null, 2) + "\n");
+}
+
+/**
+ * Write a flow fixture and the task units it names. The default wiring is a `data`
+ * chain in node order; a row that proves an edge refusal passes its own `edges`.
+ */
+export function writeFlow(
+  ws: Workspace,
+  flow: string,
+  nodes: readonly TaskFixture[],
+  edges?: readonly EdgeFixture[],
+): void {
+  for (const node of nodes) writeTask(ws, node);
+  const wiring =
+    edges?.slice() ??
+    nodes.slice(1).map((node, index) => ({ kind: "data" as const, from: nodes[index].id, to: node.id }));
+  const document = {
+    schema: "praxis.flow/v2",
+    flow: flowRef(flow),
+    nodes: nodes.map((node) => ({ id: node.id, task: taskRef(node.id) })),
+    edges: wiring,
     result: "praxis.result/v1",
   };
-  writeFileSync(ws.config, JSON.stringify(config, null, 2) + "\n");
+  writeFileSync(ws.config, JSON.stringify(document, null, 2) + "\n");
 }
 
 /** The flow this slice proves: draft writes, derive consumes draft and writes. */
-export const MAIN_STEPS: readonly StepFixture[] = [
+export const MAIN_TASKS: readonly TaskFixture[] = [
   { id: "draft", capabilities: ["artifact.write", "emit"], schema: "praxis.artifact.architecture/v1" },
   {
     id: "derive",
     capabilities: ["artifact.read", "artifact.write", "emit"],
     schema: "praxis.artifact.derive/v1",
-    consumes: "draft",
   },
 ];
 
@@ -160,7 +210,7 @@ export async function cliKilledAtStepStart(ws: Workspace, args: readonly string[
 
 /** Create the instance and return its id plus the nonce the caller must carry. */
 export async function createInstance(ws: Workspace, flow: string, requestId: string): Promise<{ instance: string; nonce: string }> {
-  const run = await cli(ws, ["run", flow, "--request", requestId]);
+  const run = await cli(ws, ["run", flowRef(flow), "--request", requestId]);
   if (run.status !== 0) {
     throw new Error("create failed: " + run.stderr + run.stdout);
   }

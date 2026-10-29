@@ -11,6 +11,10 @@
  * identifier: the input-contract failure, distinct from a missing row.
  * `FLOW_INVALID` is a flow declaration that cannot load or resolve and
  * `GATE_REJECTED` is the deterministic gate refusing an artifact.
+ * `NODE_INVALID` is a flow node beyond its two declared keys, `TASK_*` is a task
+ * unit that is absent, unpublished or version-conflicting, `PIN_*` is an instance
+ * whose pinned definition is missing or corrupt, and `SUBJECT_*` is a review whose
+ * judged subject is absent or no longer the accepted version.
  */
 export type Code =
   | "CONFIG_INVALID"
@@ -25,6 +29,14 @@ export type Code =
   | "ARTIFACT_DIGEST_MISMATCH"
   | "ARTIFACT_STATE_INVALID"
   | "ARTIFACT_VERSION_CONFLICT"
+  | "NODE_INVALID"
+  | "TASK_NOT_FOUND"
+  | "TASK_NOT_PUBLISHED"
+  | "TASK_VERSION_CONFLICT"
+  | "PIN_MISSING"
+  | "PIN_CORRUPT"
+  | "SUBJECT_MISSING"
+  | "SUBJECT_STALE"
   | "CAPABILITY_DENIED"
   | "GATE_REJECTED"
   | "RESULT_INVALID"

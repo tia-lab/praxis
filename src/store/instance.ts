@@ -14,7 +14,6 @@ import { type Store, storeCall, transact } from "./db.ts";
 import { fail } from "../types/errors.ts";
 import {
   ActorSchema,
-  DigestSchema,
   FlowNameSchema,
   InstanceIdSchema,
   InstanceStatusSchema,
@@ -31,7 +30,6 @@ const InstanceRowSchema = z.strictObject({
   id: InstanceIdSchema,
   flow: FlowNameSchema,
   actor: ActorSchema,
-  config_digest: DigestSchema,
   status: InstanceStatusSchema,
   current_step: StepIdSchema.nullable(),
   revision: z.int().min(0),
@@ -40,19 +38,18 @@ const InstanceRowSchema = z.strictObject({
   updated_at: TimestampSchema,
 });
 
-/** Declared transitions. `completed` and `failed` are terminal in this slice. */
+/** Declared transitions (spec R8). `blocked` is not a state; `completed` and `failed` are terminal. */
 const TRANSITIONS: Record<InstanceStatus, readonly InstanceStatus[]> = {
-  running: ["blocked", "completed", "failed"],
-  blocked: ["running", "failed"],
+  running: ["completed", "failed"],
   completed: [],
   failed: [],
 };
 
 const SELECT_ROW =
-  "SELECT id, flow, actor, config_digest, status, current_step, revision, nonce, created_at, updated_at FROM instance WHERE id = ?";
+  "SELECT id, flow, actor, status, current_step, revision, nonce, created_at, updated_at FROM instance WHERE id = ?";
 
 const INSERT_ROW =
-  "INSERT INTO instance(id, flow, actor, config_digest, status, current_step, revision, nonce, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+  "INSERT INTO instance(id, flow, actor, status, current_step, revision, nonce, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
 const UPDATE_ROW =
   "UPDATE instance SET status = ?, current_step = ?, revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ?";
@@ -61,7 +58,6 @@ export interface CreateInstanceInput {
   id: string;
   flow: string;
   actor: string;
-  configDigest: string;
   status: InstanceStatus;
   currentStep: string;
   nonce: string;
@@ -83,7 +79,6 @@ function toInstance(row: unknown, what: string): Instance {
     id: parsed.id,
     flow: parsed.flow,
     actor: parsed.actor,
-    configDigest: parsed.config_digest,
     status: parsed.status,
     currentStep: parsed.current_step,
     revision: parsed.revision,
@@ -103,12 +98,19 @@ export function loadInstance(store: Store, id: string): Instance {
   return toInstance(row, `instance row ${instanceId}`);
 }
 
-/** Create an instance at revision 0. A duplicate id is a typed refusal with zero writes. */
-export function createInstance(store: Store, input: CreateInstanceInput): Instance {
+/** The validated columns of a new row. Pure: nothing is written and no transaction opens. */
+function newInstanceFields(input: CreateInstanceInput): {
+  id: string;
+  flow: string;
+  actor: string;
+  status: InstanceStatus;
+  currentStep: string;
+  nonce: string;
+  now: string;
+} {
   const id = parseWith(InstanceIdSchema, input.id, "CONFIG_INVALID", "instance id");
   const flow = parseWith(FlowNameSchema, input.flow, "CONFIG_INVALID", "flow name");
   const actor = parseWith(ActorSchema, input.actor, "CONFIG_INVALID", "actor");
-  const configDigest = parseWith(DigestSchema, input.configDigest, "CONFIG_INVALID", "config digest");
   const nonce = parseWith(NonceSchema, input.nonce, "CONFIG_INVALID", "instance nonce");
   const currentStep = parseWith(StepIdSchema, input.currentStep, "CONFIG_INVALID", "current step");
   const now = parseWith(TimestampSchema, input.now, "CONFIG_INVALID", "created-at timestamp");
@@ -116,18 +118,40 @@ export function createInstance(store: Store, input: CreateInstanceInput): Instan
   if (status !== "running") {
     throw fail("INSTANCE_STATE_INVALID", `an instance starts running, not ${status}`, { instance: id, status });
   }
+  return { id, flow, actor, status, currentStep, nonce, now };
+}
 
+/**
+ * Insert the row without opening a transaction, so one caller can pin the flow and every
+ * task version in the same transaction as the instance row (spec R4). A duplicate id is
+ * `REQUEST_CONFLICT` and writes nothing.
+ */
+export function insertInstance(store: Store, input: CreateInstanceInput): Instance {
+  const fields = newInstanceFields(input);
+  insertRow(store, fields);
+  return loadInstance(store, fields.id);
+}
+
+function insertRow(store: Store, fields: ReturnType<typeof newInstanceFields>): void {
+  const existing = storeCall("check for a duplicate instance", () =>
+    store.db.prepare("SELECT id FROM instance WHERE id = ?").get(fields.id),
+  );
+  if (existing !== undefined) {
+    throw fail("REQUEST_CONFLICT", `instance ${fields.id} already exists for this request`, { instance: fields.id });
+  }
+  storeCall("insert an instance", () =>
+    store.db
+      .prepare(INSERT_ROW)
+      .run(fields.id, fields.flow, fields.actor, fields.status, fields.currentStep, 0, fields.nonce, fields.now, fields.now),
+  );
+}
+
+/** Create an instance at revision 0 in its own transaction. A duplicate id writes nothing. */
+export function createInstance(store: Store, input: CreateInstanceInput): Instance {
+  const fields = newInstanceFields(input);
   return transact(store, () => {
-    const existing = storeCall("check for a duplicate instance", () =>
-      store.db.prepare("SELECT id FROM instance WHERE id = ?").get(id),
-    );
-    if (existing !== undefined) {
-      throw fail("REQUEST_CONFLICT", `instance ${id} already exists for this request`, { instance: id });
-    }
-    storeCall("insert an instance", () =>
-      store.db.prepare(INSERT_ROW).run(id, flow, actor, configDigest, status, currentStep, 0, nonce, now, now),
-    );
-    return loadInstance(store, id);
+    insertRow(store, fields);
+    return loadInstance(store, fields.id);
   });
 }
 

@@ -7,13 +7,14 @@ const ctx = { cwd: "/project", sessionManager: { getSessionId: () => "s" } } as 
 
 test("the tool reads the accepted flow by default", () => {
   delete process.env.PRAXIS_CONFIG;
-  assert.equal(engineOptions(ctx).configPath, "/project/.pi/praxis/config.json");
+  assert.equal(engineOptions(ctx).configPath, "/project/.pi/praxis/flows/workflow.json");
+  assert.equal(engineOptions(ctx).tasksDir, "/project/.pi/praxis/tasks");
 });
 
 test("PRAXIS_CONFIG selects another flow and is resolved under the host cwd", () => {
-  process.env.PRAXIS_CONFIG = ".pi/praxis/flows/delivery.json";
+  process.env.PRAXIS_CONFIG = ".pi/praxis/flows/other.json";
   try {
-    assert.equal(engineOptions(ctx).configPath, "/project/.pi/praxis/flows/delivery.json");
+    assert.equal(engineOptions(ctx).configPath, "/project/.pi/praxis/flows/other.json");
     process.env.PRAXIS_CONFIG = "/abs/flow.json";
     assert.equal(engineOptions(ctx).configPath, "/abs/flow.json");
   } finally {

@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readFileSync, writeFileSync } from "node:fs";
+
+import { digestOf } from "../../src/runner/canonical.ts";
 import { isAppError } from "../../src/types/errors.ts";
 import { parseWith, ResultSchema, type Instance } from "../../src/types/schema.ts";
 import { buildResult, RESULT_FIELDS } from "../../src/runner/result.ts";
-import { artifactFile, cli, createInstance, dispose, MAIN_STEPS, NOW, workspace, writeFlow } from "../testkit.ts";
+import { artifactFile, cli, createInstance, dispose, MAIN_TASKS, NOW, workspace, writeFlow } from "../testkit.ts";
 
 interface Ref {
   step: string;
@@ -24,7 +27,7 @@ function refs(result: Record<string, unknown> | undefined): Ref[] {
 test("P5: a completed run returns exactly the six declared keys and no history", async () => {
   const ws = workspace();
   try {
-    writeFlow(ws, "architect", MAIN_STEPS);
+    writeFlow(ws, "architect", MAIN_TASKS);
     const { instance, nonce } = await createInstance(ws, "architect", "req-p5");
     const draft = await cli(ws, [
       "resume",
@@ -74,13 +77,55 @@ test("P5: a completed run returns exactly the six declared keys and no history",
   }
 });
 
+/**
+ * R9 / row 41: the parent result carries no pin. The run's flow is edited after start, so
+ * the pin and the library genuinely differ, and the six keys are unchanged either way.
+ */
+test("the result keeps exactly six keys when the pin differs from the library", async () => {
+  const ws = workspace();
+  try {
+    writeFlow(ws, "architect", MAIN_TASKS);
+    const pinnedFlow = digestOf(JSON.parse(readFileSync(ws.config, "utf8")));
+    const { instance, nonce } = await createInstance(ws, "architect", "req-pin-differs");
+    const draft = await cli(ws, [
+      "resume",
+      instance,
+      "--artifact",
+      artifactFile(ws, "d1.json", { schema: "praxis.artifact.architecture/v1", nonce }),
+    ]);
+    assert.equal(draft.status, 0, draft.stderr);
+    const draftDigest = refs(draft.result)[0].digest;
+    const derive = await cli(ws, [
+      "resume",
+      instance,
+      "--artifact",
+      artifactFile(ws, "d2.json", { schema: "praxis.artifact.derive/v1", nonce, derivedFrom: draftDigest }),
+    ]);
+    assert.equal(derive.status, 0, derive.stderr);
+
+    const moved = JSON.parse(readFileSync(ws.config, "utf8")) as Record<string, unknown>;
+    moved.flow = "architect-v2";
+    writeFileSync(ws.config, JSON.stringify(moved, null, 2) + "\n");
+    assert.notEqual(digestOf(JSON.parse(readFileSync(ws.config, "utf8"))), pinnedFlow, "the library really moved");
+
+    const status = await cli(ws, ["status", instance]);
+    assert.equal(status.status, 0, status.stderr);
+    const result = status.result ?? {};
+    assert.deepEqual(Object.keys(result).sort(), [...RESULT_FIELDS].sort());
+    const text = JSON.stringify(result);
+    assert.equal(text.includes(pinnedFlow), false, "the pinned flow digest is not exposed");
+    assert.equal(refs(result).length, 2);
+  } finally {
+    dispose(ws);
+  }
+});
+
 /** R11 is enforced by the schema, not by convention: an extra key is refused. */
 test("P5: buildResult validates the six-key shape and refuses an extra key", () => {
   const instance: Instance = {
     id: "i0123456789ab",
-    flow: "architect",
+    flow: "flows/architect",
     actor: "cli",
-    configDigest: "sha256:" + "a".repeat(64),
     status: "running",
     currentStep: "derive",
     revision: 3,

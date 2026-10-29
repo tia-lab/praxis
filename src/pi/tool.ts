@@ -21,7 +21,7 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import { asAppError, fail } from "../types/errors.ts";
 import { ActorSchema, parseWith } from "../types/schema.ts";
-import type { Artifact, Instance, StepConfig } from "../types/schema.ts";
+import type { Artifact, Instance, ResolvedNode } from "../types/schema.ts";
 import { ArtifactSummarySchema, FailureDetailsSchema, PraxisToolArgsSchema, PraxisToolOpSchema, ReadEnvelopeSchema, StartEnvelopeSchema, StepDescriptorSchema, StepEnvelopeSchema } from "../types/pi.ts";
 import type { ArtifactSummary, FailureDetails, PraxisToolArgs, StepDescriptor } from "../types/pi.ts";
 import { CAPABILITY_NAMES, grantFor, requireGrant } from "../runner/capabilities.ts";
@@ -103,7 +103,7 @@ const IssueReportEnvelopeSchema = z.strictObject({ issue: z.strictObject({ file:
  */
 export function engineOptions(
   ctx: PiSessionContext,
-): Required<Pick<EngineOptions, "configPath" | "storeDir">> {
+): Required<Pick<EngineOptions, "configPath" | "storeDir" | "tasksDir">> {
   if (typeof ctx.cwd !== "string" || ctx.cwd === "") {
     throw fail("CONFIG_INVALID", "the host context carries no working directory");
   }
@@ -115,8 +115,9 @@ export function engineOptions(
     configPath:
       typeof selected === "string" && selected !== ""
         ? resolve(ctx.cwd, selected)
-        : resolve(ctx.cwd, ".pi/praxis/config.json"),
+        : resolve(ctx.cwd, ".pi/praxis/flows/workflow.json"),
     storeDir: resolve(ctx.cwd, ".pi/praxis/state"),
+    tasksDir: resolve(ctx.cwd, ".pi/praxis/tasks"),
   };
 }
 
@@ -141,17 +142,29 @@ export function actorFor(ctx: PiSessionContext): string {
   return parseWith(ActorSchema, "pi-session:" + shortDigest(sessionId), "CONFIG_INVALID", "actor label");
 }
 
-/** The current step of the pinned flow, or a typed refusal. */
-function currentStepOf(flow: OpenedFlow, instance: Instance): StepConfig {
-  const step = flow.config.steps.find((candidate) => candidate.id === instance.currentStep);
-  if (step === undefined) {
+/** The current node of the pinned flow, resolved against its task unit, or a refusal. */
+function currentStepOf(flow: OpenedFlow, instance: Instance): ResolvedNode {
+  const node = flow.config.nodes.find((candidate) => candidate.id === instance.currentStep);
+  if (node === undefined) {
     throw fail("CONFIG_INVALID", "current step " + JSON.stringify(instance.currentStep) + " is not in the pinned flow", {
       instance: instance.id,
       step: instance.currentStep,
       path: flow.path,
     });
   }
-  return step;
+  const task = flow.tasks.get(node.task);
+  if (task === undefined) {
+    throw fail("PIN_MISSING", "the pinned flow names a task that has no pinned row", {
+      instance: instance.id,
+      node: node.id,
+      task: node.task,
+    });
+  }
+  const sources = flow.config.edges
+    .filter((edge) => (edge.kind === "data" || edge.kind === "join") && edge.to === node.id)
+    .map((edge) => edge.from);
+  const refuse = flow.config.edges.find((edge) => edge.kind === "refuse" && edge.from === node.id)?.to;
+  return refuse === undefined ? { node, task, sources } : { node, task, sources, refuse };
 }
 
 /**
@@ -159,7 +172,8 @@ function currentStepOf(flow: OpenedFlow, instance: Instance): StepConfig {
  * `artifact.write`, `read` whenever the grant carries `artifact.read`, in that order.
  */
 export function stepDescriptor(flow: OpenedFlow, instance: Instance): StepDescriptor {
-  const grant = grantFor(currentStepOf(flow, instance));
+  const resolved = currentStepOf(flow, instance);
+  const grant = grantFor({ id: resolved.node.id, capabilities: resolved.task.capabilities });
   const ops: ("submit" | "read")[] = [];
   if (instance.status === "running" && grant.capabilities.has("artifact.write")) ops.push("submit");
   if (grant.capabilities.has("artifact.read")) ops.push("read");
@@ -236,10 +250,10 @@ function startOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResu
     requestId: required(args.requestId, "requestId"),
     actor,
   });
-  const { instance, result } = inspect({ ...options, instance: started.instance.id });
+  const { instance, result, flow } = inspect({ ...options, instance: started.instance.id });
   return ok(StartEnvelopeSchema, {
     result,
-    step: stepDescriptor(started.flow, instance),
+    step: stepDescriptor(flow, instance),
     nonce: instance.nonce,
   });
 }
@@ -253,24 +267,18 @@ function submitOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolRes
   });
   return ok(StepEnvelopeSchema, {
     result: advanced.result,
-    step: stepDescriptor(openFlow(options), advanced.instance),
+    step: stepDescriptor(advanced.flow, advanced.instance),
   });
 }
 
 function readOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResult {
   const options = engineOptions(ctx);
-  const flow = openFlow(options);
-  const { instance } = inspect({ ...options, instance: required(args.instance, "instance") });
-  if (flow.configDigest !== instance.configDigest) {
-    throw fail("CONFIG_INVALID", "the flow config no longer matches the digest this instance pinned", {
-      instance: instance.id,
-      pinned: instance.configDigest,
-      offered: flow.configDigest,
-      path: flow.path,
-    });
-  }
-  // R5: the current step's grant decides, before any artifact is opened.
-  requireGrant(grantFor(currentStepOf(flow, instance)), "artifact.read");
+  // R5: the pinned definition rows are read and verified inside `inspect`, so the read
+  // path never opens the library and a corrupted pin surfaces here as PIN_CORRUPT.
+  const { instance, flow } = inspect({ ...options, instance: required(args.instance, "instance") });
+  const resolved = currentStepOf(flow, instance);
+  // R5: the current node's grant decides, before any artifact is opened.
+  requireGrant(grantFor({ id: resolved.node.id, capabilities: resolved.task.capabilities }), "artifact.read");
   const read = readStepArtifact({
     ...options,
     instance: instance.id,

@@ -1,0 +1,20 @@
+{
+  "schema": "praxis.flow/v2",
+  "flow": "flows/workflow",
+  "nodes": [
+    { "id": "research", "task": "tasks/research" },
+    { "id": "spec", "task": "tasks/spec" },
+    { "id": "plan", "task": "tasks/plan" },
+    { "id": "implement", "task": "tasks/implement" },
+    { "id": "review", "task": "tasks/review" }
+  ],
+  "edges": [
+    { "kind": "data", "from": "research", "to": "spec" },
+    { "kind": "data", "from": "spec", "to": "plan" },
+    { "kind": "data", "from": "plan", "to": "implement" },
+    { "kind": "data", "from": "implement", "to": "review" },
+    { "kind": "refuse", "from": "review", "to": "plan" }
+  ],
+  "result": "praxis.result/v1",
+  "issue": { "active": true, "path": "/media/Development/AI/praxis/.dev/issues" }
+}

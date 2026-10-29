@@ -8,7 +8,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 
 import {
   artifactsOf,
@@ -19,6 +19,7 @@ import {
   eventsOf,
   instanceRow,
   workspace,
+  writeFlow,
   type Workspace,
 } from "../testkit.ts";
 
@@ -31,32 +32,17 @@ interface Failure {
   detail?: { version?: number; missing?: string[]; checks?: Record<string, boolean> };
 }
 
-/** The accepted two-step flow, with a section requirement on the first step. */
+/** The accepted two-step flow, with a section requirement on the first task. */
 function writeRequiringFlow(ws: Workspace, flow: string): void {
-  writeFileSync(
-    ws.config,
-    JSON.stringify({
-      schema: "praxis.config/v1",
-      flow,
-      steps: [
-        {
-          id: "draft",
-          capabilities: ["artifact.write", "emit"],
-          produces: { schema: DRAFT },
-          gate: "section-requirements",
-          requires: { section: "sources", minItems: 1, each: ["url"] },
-        },
-        {
-          id: "derive",
-          capabilities: ["artifact.read", "artifact.write", "emit"],
-          consumes: "draft",
-          produces: { schema: DERIVE },
-          gate: "schema-valid-and-nonce",
-        },
-      ],
-      result: "praxis.result/v1",
-    }),
-  );
+  writeFlow(ws, flow, [
+    {
+      id: "draft",
+      capabilities: ["artifact.write", "emit"],
+      schema: DRAFT,
+      requires: { section: "sources", minItems: 1, each: ["url"] },
+    },
+    { id: "derive", capabilities: ["artifact.read", "artifact.write", "emit"], schema: DERIVE },
+  ]);
 }
 
 const draft = (nonce: string, extra: Record<string, unknown> = {}) => ({ schema: DRAFT, nonce, ...extra });

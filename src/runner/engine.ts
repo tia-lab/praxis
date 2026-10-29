@@ -1,40 +1,49 @@
 /**
- * The step engine: start an instance, advance exactly one step per invocation,
- * record a verdict, hand off a reference (R5, R6, R8, R9, R10).
+ * The step engine: start an instance, advance exactly one node per invocation, record a
+ * verdict, hand off references (spec R4, R5, R6, R7, R8; plan step 5).
  *
  * Invariants this file owns:
- * - the flow is data, loaded from disk and pinned by digest on the instance;
- * - a step runs only under its own grant and every capability call is traced;
+ * - the flow is data loaded from disk, resolved against the task library, and pinned at
+ *   start: the flow document and every task version it names, in one transaction;
+ * - an advance reads pins only, never the library, and recomputes every pinned digest;
+ * - a node runs only under its own grant and every capability call is traced;
  * - the gate is deterministic and its verdict is a durable event;
- * - a consuming step receives {artifactRef, digest, path, schema} and nothing else;
  * - bytes are verified against the recorded digest before any dispatch.
  *
  * Limit, stated plainly: artifact files are written and read by this process with
  * ordinary filesystem calls. The capability checks gate the step body, not the OS;
  * gate #1 (isolation) stays open.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { z } from "zod";
+import { mkdirSync, readFileSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 import { fail, isAppError } from "../types/errors.ts";
-import { missingFor } from "./requirements.ts";
 import {
+  FlowConfigSchema,
   parseFlowConfig,
+  parseTaskRef,
+  parseWith,
+  TaskConfigSchema,
   type Artifact,
-  type Requirements,
   type ArtifactRef,
   type FlowConfig,
   type Instance,
+  type ResolvedNode,
   type Result,
-  type StepConfig,
+  type TaskConfig,
 } from "../types/schema.ts";
-import { openStore, type Store } from "../store/db.ts";
-import { createInstance, loadInstance, setStatus } from "../store/instance.ts";
+import { openStore, transact, type Store } from "../store/db.ts";
+import { insertInstance, loadInstance, setStatus } from "../store/instance.ts";
 import { appendEvent, listEvents } from "../store/events.ts";
-import { acceptArtifact, readArtifact, recordArtifact } from "../store/artifacts.ts";
-import { call, grantFor, traceOf, type Grant } from "./capabilities.ts";
+import { acceptArtifact, readArtifact } from "../store/artifacts.ts";
+import { insertDefinition, insertPublication, readDefinition } from "../store/definitions.ts";
+import { grantFor, traceOf } from "./capabilities.ts";
 import { canonicalBytes, digest, digestOf } from "./canonical.ts";
 import { buildResult } from "./result.ts";
+import { buildHandoffs, gate, runStep, successorOf } from "./step.ts";
+
+/** The gate and its verdict keep their published home on the engine surface. */
+export { gate } from "./step.ts";
+export type { Verdict } from "./step.ts";
 
 export const EVENT = {
   instanceCreated: "instance.created",
@@ -44,19 +53,13 @@ export const EVENT = {
   instanceCompleted: "instance.completed",
 } as const;
 
-/** The literal handoff a consuming step receives (R7): four fields, no more. */
-export interface Handoff {
-  artifactRef: string;
-  digest: string;
-  path: string;
-  schema: string;
-}
-
 export interface EngineOptions {
   /** Store root; default <cwd>/.pi/praxis/state or PRAXIS_STORE_DIR. */
   storeDir?: string;
-  /** Flow config path; default <cwd>/.pi/praxis/config.json or PRAXIS_CONFIG. */
+  /** Flow document; default <cwd>/.pi/praxis/flows/workflow.json or PRAXIS_CONFIG. */
   configPath?: string;
+  /** Task library root; default <cwd>/.pi/praxis/tasks or PRAXIS_TASKS_DIR. */
+  tasksDir?: string;
   /** Pinned timestamp for the artifact rows; defaults to the wall clock. */
   now?: string;
   /** Actor pinned at creation; default PRAXIS_ACTOR or "cli". */
@@ -70,7 +73,7 @@ export interface StartOptions extends EngineOptions {
 
 export interface AdvanceOptions extends EngineOptions {
   instance: string;
-  /** Parsed artifact payload supplied by the caller for the step being run. */
+  /** Parsed artifact payload supplied by the caller for the node being run. */
   artifact?: unknown;
 }
 
@@ -82,10 +85,13 @@ export interface ReadOptions extends InspectOptions {
   step: string;
 }
 
+/** A flow document plus the task units it names, all resolved before any write. */
 export interface OpenedFlow {
   config: FlowConfig;
-  configDigest: string;
+  flowDigest: string;
   path: string;
+  /** Keyed by the `id@version` reference a node carries. */
+  tasks: ReadonlyMap<string, TaskConfig>;
 }
 
 export interface Started {
@@ -97,13 +103,9 @@ export interface Started {
 export interface Inspection {
   instance: Instance;
   result: Result;
+  /** The pinned flow, so a caller never re-opens the library (R5). */
+  flow: OpenedFlow;
 }
-
-const GateSubject = z.looseObject({
-  schema: z.string().min(1),
-  nonce: z.string().min(1),
-  derivedFrom: z.string().min(1).optional(),
-});
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -114,6 +116,11 @@ export function storeDirOf(options: EngineOptions): string {
   return resolve(
     options.storeDir ?? process.env.PRAXIS_STORE_DIR ?? join(process.cwd(), ".pi/praxis/state"),
   );
+}
+
+/** Task library resolution: explicit, then env, then the project default (spec R1, A4). */
+export function tasksDirOf(options: EngineOptions): string {
+  return resolve(options.tasksDir ?? process.env.PRAXIS_TASKS_DIR ?? join(process.cwd(), ".pi/praxis/tasks"));
 }
 
 function withStore<T>(options: EngineOptions, body: (store: Store, storeDir: string) => T): T {
@@ -127,16 +134,57 @@ function withStore<T>(options: EngineOptions, body: (store: Store, storeDir: str
   }
 }
 
-/** Read, validate and digest the flow config. The digest is what an instance pins. */
+/**
+ * Read one task unit by its path. The reference names the path; the document declares
+ * the version the pin records. Absent is `TASK_NOT_FOUND`, bad bytes `CONFIG_INVALID`.
+ */
+function loadTask(tasksDir: string, ref: string): TaskConfig {
+  const relative = parseTaskRef(ref);
+  const library = resolve(tasksDir);
+  const path = resolve(library, relative + ".json");
+  // Defence in depth: the reference grammar admits no dot segment; refuse one anyway.
+  if (!path.startsWith(library + sep)) {
+    throw fail("CONFIG_INVALID", `task ${ref} escapes the library at ${library}`, { ref, path, library });
+  }
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    throw fail("TASK_NOT_FOUND", `no task ${ref} in the library at ${library}`, {
+      ref,
+      path,
+      reason: messageOf(error),
+    });
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text) as unknown;
+  } catch (error) {
+    throw fail("CONFIG_INVALID", `task ${ref} at ${path} is not JSON`, { ref, path, reason: messageOf(error) });
+  }
+  const task = parseWith(TaskConfigSchema, raw, "CONFIG_INVALID", `task ${ref}`);
+  const name = relative.slice(relative.lastIndexOf("/") + 1);
+  if (task.id !== name) {
+    throw fail("CONFIG_INVALID", `task ${ref} declares a different identity`, {
+      ref,
+      id: task.id,
+      version: task.version,
+      path,
+    });
+  }
+  return task;
+}
+
+/** Read, resolve, validate and digest the flow document. The digest is what an instance pins. */
 export function openFlow(options: EngineOptions): OpenedFlow {
   const path = resolve(
-    options.configPath ?? process.env.PRAXIS_CONFIG ?? join(process.cwd(), ".pi/praxis/config.json"),
+    options.configPath ?? process.env.PRAXIS_CONFIG ?? join(process.cwd(), ".pi/praxis/flows/workflow.json"),
   );
   let text: string;
   try {
     text = readFileSync(path, "utf8");
   } catch (error) {
-    throw fail("CONFIG_INVALID", "flow config is not readable at " + path, { path, reason: messageOf(error) });
+    throw fail("FLOW_INVALID", "flow config is not readable at " + path, { path, reason: messageOf(error) });
   }
   let raw: unknown;
   try {
@@ -145,35 +193,45 @@ export function openFlow(options: EngineOptions): OpenedFlow {
     throw fail("CONFIG_INVALID", "flow config at " + path + " is not JSON", { path, reason: messageOf(error) });
   }
   const config = parseFlowConfig(raw);
-  validateFlow(config);
-  return { config, configDigest: digestOf(config), path };
+  const tasksDir = tasksDirOf(options);
+  const tasks = new Map<string, TaskConfig>();
+  for (const node of config.nodes) {
+    if (tasks.has(node.task)) continue;
+    tasks.set(node.task, loadTask(tasksDir, node.task));
+  }
+  validateFlow(config, tasks);
+  return { config, flowDigest: digestOf(config), path, tasks };
 }
 
-/** Refuse a flow whose references cannot be resolved (R1: typed refusal, zero writes). */
-export function validateFlow(config: FlowConfig): void {
-  const seen = new Set<string>();
-  config.steps.forEach((step, index) => {
-    if (seen.has(step.id)) {
-      throw fail("CONFIG_INVALID", "duplicate step id " + JSON.stringify(step.id), { step: step.id });
+/** Refuse a flow whose references cannot be resolved (R1, R2, R7: typed refusal, zero writes). */
+export function validateFlow(config: FlowConfig, tasks: ReadonlyMap<string, TaskConfig>): void {
+  const consumedBy = new Map<string, string[]>();
+  for (const edge of config.edges) {
+    if (edge.kind === "refuse") continue;
+    const sources = consumedBy.get(edge.to) ?? [];
+    sources.push(edge.from);
+    consumedBy.set(edge.to, sources);
+  }
+  for (const node of config.nodes) {
+    const task = tasks.get(node.task);
+    if (task === undefined) {
+      throw fail("TASK_NOT_FOUND", "node " + JSON.stringify(node.id) + " names an unresolved task " + node.task, {
+        node: node.id,
+        task: node.task,
+      });
     }
-    seen.add(step.id);
-    grantFor(step);
-    if (step.consumes !== undefined) {
-      const consumed = config.steps.findIndex((candidate) => candidate.id === step.consumes);
-      if (consumed < 0) {
-        throw fail("CONFIG_INVALID", "step " + JSON.stringify(step.id) + " consumes unknown step " + JSON.stringify(step.consumes), {
-          step: step.id,
-          consumes: step.consumes,
-        });
-      }
-      if (consumed >= index) {
-        throw fail("CONFIG_INVALID", "step " + JSON.stringify(step.id) + " consumes a step that does not precede it", {
-          step: step.id,
-          consumes: step.consumes,
-        });
-      }
+    grantFor({ id: node.id, capabilities: task.capabilities });
+    if (task.bindsSubject !== true) continue;
+    const sources = consumedBy.get(node.id) ?? [];
+    const data = config.edges.filter((edge) => edge.kind === "data" && edge.to === node.id);
+    if (sources.length !== 1 || data.length !== 1) {
+      throw fail(
+        "CONFIG_INVALID",
+        "node " + JSON.stringify(node.id) + " binds a subject, so it takes exactly one data source",
+        { node: node.id, sources },
+      );
     }
-  });
+  }
 }
 
 /** Instance id is a pure function of (flow, requestId): a repeated request cannot fork. */
@@ -213,7 +271,7 @@ export function acceptedRefs(store: Store, instance: string): ArtifactRef[] {
   return refs;
 }
 
-/** Create or re-open the instance a request id names; never fork (R2). */
+/** Create or re-open the instance a request id names; never fork (R2), never re-pin (R4). */
 export function start(options: StartOptions): Started {
   const flow = openFlow(options);
   if (flow.config.flow !== options.flow) {
@@ -226,42 +284,69 @@ export function start(options: StartOptions): Started {
   const actor = options.actor ?? process.env.PRAXIS_ACTOR ?? "cli";
   const id = instanceIdFor(flow.config.flow, options.requestId);
   const at = stamp(options);
-  const first = flow.config.steps[0];
+  const first = flow.config.nodes[0];
 
   return withStore(options, (store, storeDir) => {
     const existing = loadExisting(store, id);
     if (existing !== undefined) {
-      if (existing.configDigest !== flow.configDigest || existing.actor !== actor) {
+      const pinned = readDefinition(store, existing.id, "flow", existing.flow).digest;
+      if (pinned !== flow.flowDigest || existing.actor !== actor) {
         throw fail(
           "REQUEST_CONFLICT",
           "request " + JSON.stringify(options.requestId) + " was already used with a different payload",
           {
             instance: id,
-            pinned: { configDigest: existing.configDigest, actor: existing.actor },
-            offered: { configDigest: flow.configDigest, actor },
+            pinned: { flowDigest: pinned, actor: existing.actor },
+            offered: { flowDigest: flow.flowDigest, actor },
           },
         );
       }
       return { instance: existing, flow, created: false };
     }
 
-    const instance = createInstance(store, {
-      id,
-      flow: flow.config.flow,
-      actor,
-      configDigest: flow.configDigest,
-      status: "running",
-      currentStep: first.id,
-      nonce: nonceFor(),
-      now: at,
+    const instance = transact(store, () => {
+      const row = insertInstance(store, {
+        id,
+        flow: flow.config.flow,
+        actor,
+        status: "running",
+        currentStep: first.id,
+        nonce: nonceFor(),
+        now: at,
+      });
+      // R4: the flow, every task version and the first publications commit with the row.
+      insertDefinition(store, {
+        instance: id,
+        kind: "flow",
+        id: flow.config.flow,
+        digest: flow.flowDigest,
+        bytes: canonicalBytes(flow.config),
+      });
+      for (const [ref, task] of flow.tasks) {
+        if (task.state !== "published") {
+          throw fail("TASK_NOT_PUBLISHED", `task ${ref} is ${task.state}, so it cannot be pinned`, {
+            task: ref,
+            state: task.state,
+          });
+        }
+        const bytes = canonicalBytes(task);
+        const taskDigest = digest(bytes);
+        insertDefinition(store, { instance: id, kind: "task", id: ref, digest: taskDigest, bytes });
+        // The path, not the label: two nested paths may end in the same id and are two
+        // publications. The version is the one the document declares (R3, R5).
+        insertPublication(store, { task: ref, version: task.version, digest: taskDigest, at });
+      }
+      return row;
     });
+    // The event is evidence of creation, not part of the pin set, and `appendEvent` owns
+    // its own transaction; the pins and the row above commit together without it.
     appendEvent(store, id, {
       type: EVENT.instanceCreated,
       payload: {
         flow: flow.config.flow,
         requestId: options.requestId,
         actor,
-        configDigest: flow.configDigest,
+        flowDigest: flow.flowDigest,
         nonce: instance.nonce,
         storeDir,
       },
@@ -280,11 +365,62 @@ function loadExisting(store: Store, id: string): Instance | undefined {
   }
 }
 
-/** Current durable state plus the bounded result, without running a step. */
+/** Parse pinned bytes as JSON, treating unparseable pin content as `PIN_CORRUPT`. */
+function pinnedJson(bytes: Uint8Array, what: string): unknown {
+  try {
+    return JSON.parse(Buffer.from(bytes).toString("utf8")) as unknown;
+  } catch (error) {
+    throw fail("PIN_CORRUPT", `pinned ${what} is not JSON`, { reason: messageOf(error) });
+  }
+}
+
+/**
+ * The pinned flow and its tasks, read from the instance's own `definition` rows and
+ * verified on every read (R4, R5). The library is never consulted here.
+ */
+export function loadPinnedFlow(store: Store, instance: Instance): OpenedFlow {
+  const flowRow = readDefinition(store, instance.id, "flow", instance.flow);
+  const config = parseWith(
+    FlowConfigSchema,
+    pinnedJson(flowRow.bytes, "flow"),
+    "PIN_CORRUPT",
+    `pinned flow ${instance.flow}`,
+  );
+  if (digestOf(config) !== flowRow.digest) {
+    throw fail("PIN_CORRUPT", `pinned flow ${instance.flow} no longer matches its digest`, {
+      instance: instance.id,
+      pinned: flowRow.digest,
+      actual: digestOf(config),
+    });
+  }
+  const tasks = new Map<string, TaskConfig>();
+  for (const node of config.nodes) {
+    if (tasks.has(node.task)) continue;
+    const row = readDefinition(store, instance.id, "task", node.task);
+    const task = parseWith(TaskConfigSchema, pinnedJson(row.bytes, `task ${node.task}`), "PIN_CORRUPT", `pinned task ${node.task}`);
+    if (digestOf(task) !== row.digest) {
+      throw fail("PIN_CORRUPT", `pinned task ${node.task} no longer matches its digest`, {
+        instance: instance.id,
+        task: node.task,
+        pinned: row.digest,
+        actual: digestOf(task),
+      });
+    }
+    tasks.set(node.task, task);
+  }
+  return { config, flowDigest: flowRow.digest, path: "pinned:" + instance.flow, tasks };
+}
+
+
+/** Current durable state plus the bounded result, without running a node. */
 export function inspect(options: InspectOptions): Inspection {
   return withStore(options, (store) => {
     const instance = loadInstance(store, options.instance);
-    return { instance, result: buildResult(instance, acceptedRefs(store, instance.id)) };
+    return {
+      instance,
+      result: buildResult(instance, acceptedRefs(store, instance.id)),
+      flow: loadPinnedFlow(store, instance),
+    };
   });
 }
 
@@ -304,17 +440,20 @@ export function readStepArtifact(options: ReadOptions): { artifact: Artifact; va
 }
 
 /**
- * Advance the instance by exactly one step.
- * Resume never guesses a step: `currentStep` in the store names it, and the accepted
- * predecessor artifact is reloaded from the store by reference.
+ * Advance the instance by exactly one node.
+ * Resume never guesses a node: `currentStep` in the store names it, the wiring comes from
+ * the pinned flow's edges, and the consumed artifacts are reloaded from the store.
  */
-export function advance(options: AdvanceOptions): { instance: Instance; result: Result } {
-  const flow = openFlow(options);
+export function advance(options: AdvanceOptions): { instance: Instance; result: Result; flow: OpenedFlow } {
   return withStore(options, (store, storeDir) => {
     const instance = loadInstance(store, options.instance);
     const at = stamp(options);
     if (instance.status === "completed") {
-      return { instance, result: buildResult(instance, acceptedRefs(store, instance.id)) };
+      return {
+        instance,
+        result: buildResult(instance, acceptedRefs(store, instance.id)),
+        flow: loadPinnedFlow(store, instance),
+      };
     }
     if (instance.status !== "running") {
       throw fail("INSTANCE_STATE_INVALID", "instance " + instance.id + " is " + instance.status, {
@@ -323,41 +462,81 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
         step: instance.currentStep,
       });
     }
-    if (flow.configDigest !== instance.configDigest) {
-      throw fail("CONFIG_INVALID", "the flow config no longer matches the digest this instance pinned", {
-        instance: instance.id,
-        pinned: instance.configDigest,
-        offered: flow.configDigest,
-        path: flow.path,
-      });
+
+    let flow: OpenedFlow;
+    try {
+      flow = loadPinnedFlow(store, instance);
+    } catch (error) {
+      // A mismatching pin is terminal (R5); a missing pin is not (A9).
+      if (isAppError(error) && error.code === "PIN_CORRUPT") {
+        setStatus(store, instance.id, { status: "failed", currentStep: instance.currentStep }, instance.revision);
+      }
+      throw error;
     }
 
-    const index = flow.config.steps.findIndex((step) => step.id === instance.currentStep);
+    const index = flow.config.nodes.findIndex((node) => node.id === instance.currentStep);
     if (index < 0) {
       throw fail("CONFIG_INVALID", "current step " + JSON.stringify(instance.currentStep) + " is not in the flow", {
         instance: instance.id,
         step: instance.currentStep,
       });
     }
-    const step = flow.config.steps[index];
-    const grant = grantFor(step);
-    const handoff = step.consumes === undefined ? undefined : buildHandoff(store, instance, step, grant);
-    const artifact = runStep({ store, storeDir, instance, step, grant, handoff, payload: options.artifact, at });
+    const node = flow.config.nodes[index];
+    const task = flow.tasks.get(node.task) as TaskConfig;
+    const sources = flow.config.edges
+      .filter((edge) => (edge.kind === "data" || edge.kind === "join") && edge.to === node.id)
+      .map((edge) => edge.from);
+    const refuse = flow.config.edges.find((edge) => edge.kind === "refuse" && edge.from === node.id)?.to;
+    const resolved: ResolvedNode =
+      refuse === undefined ? { node, task, sources } : { node, task, sources, refuse };
+    const grant = grantFor({ id: node.id, capabilities: task.capabilities });
+    const handoffs = buildHandoffs(store, instance, resolved, grant);
+    const artifact = runStep({ store, storeDir, instance, node, task, grant, handoffs, payload: options.artifact, at });
 
     const accepted = acceptedRefs(store, instance.id);
-    const alreadyAccepted = accepted.some((ref) => ref.step === step.id && ref.version === artifact.version);
+    const alreadyAccepted = accepted.some((ref) => ref.step === node.id && ref.version === artifact.version);
 
-    if (!alreadyAccepted) {
-      const verdict = gate(artifact.value, {
-        schema: step.produces.schema,
-        nonce: instance.nonce,
-        derivedFrom: handoff === undefined ? undefined : handoff.digest,
-        requires: step.requires,
-      });
+    // The gate runs even for a replay of an accepted artifact: acceptance was a judgement
+    // about the work as it stood, and after the work moved on the replay is stale.
+    const verdict = gate(artifact.value, {
+      schema: task.produces.schema,
+      nonce: instance.nonce,
+      ...(handoffs.length === 1 ? { derivedFrom: handoffs[0].digest } : {}),
+      ...(task.requires === undefined ? {} : { requires: task.requires }),
+      ...(task.bindsSubject === true ? { subject: true } : {}),
+    });
+
+    if (alreadyAccepted && verdict.decision !== "accept") {
       appendEvent(store, instance.id, {
         type: EVENT.gateVerdict,
         payload: {
-          step: step.id,
+          step: node.id,
+          version: artifact.version,
+          decision: verdict.decision,
+          checks: verdict.checks,
+          ...(verdict.missing === undefined ? {} : { missing: verdict.missing }),
+          artifactDigest: artifact.digest,
+        },
+        at,
+      });
+      if (resolved.refuse !== undefined) {
+        setStatus(store, instance.id, { status: "running", currentStep: resolved.refuse }, instance.revision);
+      }
+      throw fail(verdict.code ?? "ARTIFACT_INVALID", "a replay of accepted step " + JSON.stringify(node.id) + " no longer passes the gate", {
+        instance: instance.id,
+        step: node.id,
+        version: artifact.version,
+        checks: verdict.checks,
+        replayed: true,
+        ...(resolved.refuse === undefined ? {} : { reworkTo: resolved.refuse }),
+      });
+    }
+
+    if (!alreadyAccepted) {
+      appendEvent(store, instance.id, {
+        type: EVENT.gateVerdict,
+        payload: {
+          step: node.id,
           version: artifact.version,
           decision: verdict.decision,
           checks: verdict.checks,
@@ -367,240 +546,54 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
         at,
       });
       if (verdict.decision !== "accept") {
-        // A refusal is evidence, not instance death. With an onRefuse edge the flow sends
-        // the work back to the stage that must be amended; without one the refusal keeps
-        // this stage current and the same stage is retried.
-        if (step.onRefuse !== undefined) {
-          setStatus(store, instance.id, { status: "running", currentStep: step.onRefuse }, instance.revision);
+        // A refusal is evidence, not instance death. A refuse edge sends the work back to
+        // the node that must be amended; without one the node stays current and is retried.
+        if (resolved.refuse !== undefined) {
+          setStatus(store, instance.id, { status: "running", currentStep: resolved.refuse }, instance.revision);
         }
-        throw fail("ARTIFACT_INVALID", "artifact for step " + JSON.stringify(step.id) + " failed the gate", {
+        throw fail(verdict.code ?? "ARTIFACT_INVALID", "artifact for step " + JSON.stringify(node.id) + " failed the gate", {
           instance: instance.id,
-          step: step.id,
+          step: node.id,
           version: artifact.version,
           checks: verdict.checks,
           ...(verdict.missing === undefined ? {} : { missing: verdict.missing }),
-          ...(step.onRefuse === undefined ? {} : { reworkTo: step.onRefuse }),
+          ...(resolved.refuse === undefined ? {} : { reworkTo: resolved.refuse }),
         });
       }
 
-      acceptArtifact(store, instance.id, step.id, artifact.version, at);
+      acceptArtifact(store, instance.id, node.id, artifact.version, at);
       appendEvent(store, instance.id, {
         type: EVENT.artifactAccepted,
         payload: {
-          step: step.id,
+          step: node.id,
           version: artifact.version,
           path: artifact.path,
           digest: artifact.digest,
-          schema: step.produces.schema,
-          derivedFrom: handoff === undefined ? null : handoff.digest,
+          schema: task.produces.schema,
+          derivedFrom: handoffs.length === 1 ? handoffs[0].digest : null,
+          ...(handoffs.length > 1 ? { sources: handoffs.map((handoff) => handoff.artifactRef) } : {}),
         },
         at,
       });
       appendEvent(store, instance.id, {
         type: EVENT.stepTrace,
-        payload: { step: step.id, calls: traceOf(grant) },
+        payload: { step: node.id, calls: traceOf(grant) },
         at,
       });
     }
 
-    const next = flow.config.steps[index + 1];
-    const finished = next === undefined;
+    const successor = successorOf(flow.config, node.id);
+    const finished = successor === undefined;
     const updated = setStatus(
       store,
       instance.id,
-      { status: finished ? "completed" : "running", currentStep: finished ? step.id : next.id },
+      { status: finished ? "completed" : "running", currentStep: finished ? node.id : successor },
       instance.revision,
     );
     if (finished) {
-      appendEvent(store, instance.id, { type: EVENT.instanceCompleted, payload: { step: step.id }, at });
+      appendEvent(store, instance.id, { type: EVENT.instanceCompleted, payload: { step: node.id }, at });
     }
-    return { instance: updated, result: buildResult(updated, acceptedRefs(store, instance.id)) };
+    return { instance: updated, result: buildResult(updated, acceptedRefs(store, instance.id)), flow };
   });
 }
 
-interface RunStepArgs {
-  store: Store;
-  storeDir: string;
-  instance: Instance;
-  step: StepConfig;
-  grant: Grant;
-  handoff?: Handoff;
-  payload?: unknown;
-  at: string;
-}
-
-interface StepArtifact {
-  version: number;
-  path: string;
-  digest: string;
-  value: unknown;
-}
-
-/**
- * Execute the step body under its grant: read the predecessor when consuming,
- * canonicalise and persist this step's artifact. A version left `pending` by a killed
- * attempt is reused, never re-recorded (P8).
- */
-function runStep(args: RunStepArgs): StepArtifact {
-  const { store, storeDir, instance, step, grant, handoff, payload, at } = args;
-  const existing = probeArtifact(store, instance.id, step.id);
-  const value: unknown = payload === undefined ? {} : payload;
-  const bytes = canonicalBytes(value);
-  const artifactDigest = digest(bytes);
-  let version = 1;
-
-  if (existing !== undefined && existing.artifact.digest === artifactDigest) {
-    const same = existing.artifact;
-    return { version: same.version, path: same.path, digest: same.digest, value: parseStored(store, instance.id, step.id, same.version) };
-  }
-  if (existing !== undefined) {
-    // A pending version nobody refused is a killed attempt: its bytes are not evidence
-    // of a decision, so different content may not take its place. An accepted version is
-    // a decision, and re-entering the stage (rework) legitimately writes the next one.
-    if (existing.artifact.state === "pending" && !refused(store, instance.id, step.id, existing.artifact.digest)) {
-      throw fail("ARTIFACT_VERSION_CONFLICT", "step " + JSON.stringify(step.id) + " has a recorded attempt with different content", {
-        instance: instance.id,
-        step: step.id,
-        version: existing.artifact.version,
-        recorded: existing.artifact.digest,
-        offered: artifactDigest,
-      });
-    }
-    // The refused version stays pending with its bytes; the retry takes the next one.
-    version = existing.artifact.version + 1;
-  }
-
-  const path = join(storeDir, "artifacts", instance.id, step.id, "v" + version + ".json");
-
-  if (handoff !== undefined) {
-    const consumed = step.consumes as string;
-    call(grant, "artifact.read", () => {
-      const read = readArtifact(store, instance.id, consumed);
-      const seen = digest(read.bytes);
-      if (seen !== handoff.digest) {
-        throw fail("ARTIFACT_DIGEST_MISMATCH", "re-read of " + handoff.artifactRef + " no longer matches", {
-          artifactRef: handoff.artifactRef,
-          expected: handoff.digest,
-          observed: seen,
-        });
-      }
-    });
-  }
-
-  call(grant, "artifact.write", () => {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, bytes);
-    recordArtifact(store, {
-      instance: instance.id,
-      step: step.id,
-      version,
-      path,
-      digest: artifactDigest,
-      schema: step.produces.schema,
-      state: "pending",
-      derivedFrom: handoff === undefined ? null : handoff.digest,
-      at,
-    });
-  });
-
-  return { version, path, digest: artifactDigest, value };
-}
-
-/** Was this content refused by the gate for this step? A refusal is durable, so retryable. */
-function refused(store: Store, instance: string, step: string, artifactDigest: string): boolean {
-  return listEvents(store, instance).some((event) => {
-    const payload = event.type === EVENT.gateVerdict ? payloadOf(event.payload) : {};
-    return payload.step === step && payload.decision === "reject" && payload.artifactDigest === artifactDigest;
-  });
-}
-
-function parseStored(store: Store, instance: string, step: string, version: number): unknown {
-  const read = readArtifact(store, instance, step, version);
-  try {
-    return JSON.parse(Buffer.from(read.bytes).toString("utf8")) as unknown;
-  } catch (error) {
-    throw fail("ARTIFACT_INVALID", "recorded artifact " + step + " is not JSON", { reason: messageOf(error) });
-  }
-}
-
-function probeArtifact(store: Store, instance: string, step: string): { artifact: Artifact; bytes: Uint8Array } | undefined {
-  try {
-    return readArtifact(store, instance, step);
-  } catch (error) {
-    if (isAppError(error) && error.code === "ARTIFACT_UNAVAILABLE") return undefined;
-    throw error;
-  }
-}
-
-/**
- * Build the four-field handoff for a consuming step.
- * Without artifact.read there is no handoff at all: fail closed, zero effects (R9).
- * Integrity is verified here, before any dispatch (R10).
- */
-function buildHandoff(store: Store, instance: Instance, step: StepConfig, grant: Grant): Handoff {
-  const consumed = step.consumes as string;
-  if (!grant.capabilities.has("artifact.read")) {
-    throw fail(
-      "ARTIFACT_UNAVAILABLE",
-      "step " + JSON.stringify(step.id) + " may not receive a handoff without artifact.read",
-      { instance: instance.id, step: step.id, consumed, granted: [...grant.capabilities] },
-    );
-  }
-  const found = probeArtifact(store, instance.id, consumed);
-  if (found === undefined || found.artifact.state !== "accepted") {
-    throw fail("ARTIFACT_UNAVAILABLE", "no accepted artifact from " + JSON.stringify(consumed) + " to hand off", {
-      instance: instance.id,
-      step: step.id,
-      consumed,
-      state: found === undefined ? "absent" : found.artifact.state,
-    });
-  }
-  const observed = digest(found.bytes);
-  if (observed !== found.artifact.digest) {
-    throw fail("ARTIFACT_DIGEST_MISMATCH", "artifact " + consumed + " does not match its recorded digest", {
-      instance: instance.id,
-      artifactRef: consumed + "@" + found.artifact.version,
-      recorded: found.artifact.digest,
-      observed,
-    });
-  }
-  return {
-    artifactRef: consumed + "@" + found.artifact.version,
-    digest: found.artifact.digest,
-    path: found.artifact.path,
-    schema: found.artifact.schema,
-  };
-}
-
-export interface Verdict {
-  decision: "accept" | "reject";
-  checks: Record<string, boolean>;
-  /** What the document was missing, when a section requirement failed. */
-  missing?: string[];
-}
-
-/** The deterministic gate: schema-valid and nonce present, plus derivation (R5, R8). */
-export function gate(
-  value: unknown,
-  expected: { schema: string; nonce: string; derivedFrom?: string; requires?: Requirements },
-): Verdict {
-  const parsed = GateSubject.safeParse(value);
-  const subject = parsed.success ? parsed.data : undefined;
-  const checks: Record<string, boolean> = {
-    object: parsed.success,
-    schemaMatches: subject !== undefined && subject.schema === expected.schema,
-    noncePresent: subject !== undefined && subject.nonce === expected.nonce,
-  };
-  if (expected.derivedFrom !== undefined) {
-    checks.derivedFromMatches = subject !== undefined && subject.derivedFrom === expected.derivedFrom;
-  }
-  let missing: string[] | undefined;
-  if (expected.requires !== undefined) {
-    missing = missingFor(value, expected.requires);
-    checks.sectionRequirement = missing.length === 0;
-  }
-  const accepted = Object.values(checks).every(Boolean);
-  return missing !== undefined && missing.length > 0
-    ? { decision: accepted ? "accept" : "reject", checks, missing }
-    : { decision: accepted ? "accept" : "reject", checks };
-}

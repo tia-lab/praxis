@@ -248,6 +248,46 @@ acceptance here before building.
   claims; the real TypeSafe call stays opt-in and is not asserted in the suite. pi-jev itself
   (`github:tia-lab/pi-jev`) is an owner-published external dependency, built and reviewed as its own
   repo; no `pi-fabric` or Occam code is imported.
+- **2026-10-30 — quality rework loop, Units 1+2 (owner GO).** Owner authorized directly after plan
+  review (`docs/quality-loop/PLAN.md`); lead records and verifies. Scope: `src/types/pi.ts`
+  (`StepDescriptorSchema.brief.quality` + `CODES` gains `QUALITY_BLOCKED`), `src/types/errors.ts` (the
+  `Code` union gains `QUALITY_BLOCKED`), `src/types/schema.ts` (`InstanceStatusSchema` gains
+  `"blocked"`; `QualitySchema` gains optional `maxAttempts`; the instance row carries a
+  `blockedReason`), `src/pi/tool.ts` (populate `brief.quality`; refusal `detail` carries the
+  per-dimension verdict), `src/runner/engine.ts` (refusal detail includes `verdict.quality`; on a
+  quality refusal derive attempt-count + previous score from `listEvents`, and on budget-exhaust or
+  no-progress append `instance.blocked`, `setStatus("blocked")`, throw `QUALITY_BLOCKED`),
+  `src/quality/evaluate.ts` (`advanceEvaluated` digest score-cache via `listEvents`),
+  `src/runner/result.ts` (surface `blocked`), and the affected tests. Resolved decisions: `maxAttempts`
+  default 3, declared per-task on `QualitySchema`, inheritable from the flow-level quality default;
+  Units 1+2 ship as ONE unit. Acceptance: agent brief carries the rubric; a below-threshold refusal
+  names the failing dimensions with scores; a step blocks after `maxAttempts` or on no-progress with a
+  durable `instance.blocked` event; an identical-digest resubmit does NOT call the scorer; `tsc` clean;
+  full suite green with NO network in any unit test. Not authorized: Unit 3 (the six-key `Result` R11
+  change) and Unit 4 (flow-outcome scorer) — separate units; new store columns (attempt data is derived
+  from events); flow-document schema beyond `maxAttempts`; any identity, isolation or exactly-once
+  claim.
+- **2026-10-30 — onFailure policy + engine refactor (owner GO).** Owner authorized after the
+  escalation-design discussion; two SEQUENTIAL units for `wB:p22` with a lead review checkpoint between.
+  **Unit A (onFailure policy).** Scope: `src/types/schema.ts` (`QualitySchema` gains
+  `onFailure: "escalate" | "continue"`, default `continue`; the terminal escalate state from Units 1+2
+  is consolidated from status `"blocked"` to `"failed"` + `failedReason` — lead decision, owner prefers
+  “failed”), `src/runner/engine.ts` (on budget exhaustion: `escalate` → status `failed` + emit a
+  `needs-guidance` event + throw `QUALITY_BLOCKED`; `continue` → record the FAILED verdict/event and
+  advance carrying the last/best-scoring artifact version marked failed), `src/pi/tool.ts`,
+  `src/runner/result.ts`, and the affected tests (update Units 1+2 `blocked`→`failed` assertions; add
+  `escalate` and `continue` cases). Acceptance: both policies behave per brief; `continue` advances with
+  a durable FAILED record; `escalate` halts + emits `needs-guidance`; `tsc` clean; full suite green with
+  the no-network stub. **Unit B (engine refactor).** Scope: convert `src/runner/engine.ts` into
+  `src/runner/engine/` with `index.ts` **export-only** + cohesion-scoped files (types, start, advance,
+  inspect, quality-loop), **every file < 600 lines**; update all importers
+  `"../runner/engine.ts"` → `"../runner/engine/index.ts"`. Behavior-identical pure move; `tsc` clean;
+  suite count green and unchanged; no logic change. Not authorized: Unit 3 (the six-key `Result` R11
+  change), Unit 4 (flow-outcome scorer), Manifold routing of `needs-guidance` (that is Manifold's job,
+  documented in `MANIFOLD_INTEGRATION.md` — only `continue` is operational until Manifold is plugged in),
+  new store columns (derive from events), and any identity, isolation or exactly-once claim. Lead
+  decisions (owner-overridable): default `continue`; terminal status `failed` not `blocked`; `continue`
+  advances the best-scoring version. Lead scope record: `src/runner/step.ts` (+40/-4) is added to Unit A scope — because `continue` may accept a non-newest version, `buildHandoffs` resolves the highest ACCEPTED version and `runStep` re-reads the exact handed-off version (digest check intact); found via test failures and disclosed by the engineer.
 
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a

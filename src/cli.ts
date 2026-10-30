@@ -13,7 +13,7 @@
  */
 import { readFileSync } from "node:fs";
 import { asAppError, fail } from "./types/errors.ts";
-import { advance, inspect, readStepArtifact, start, type EngineOptions } from "./runner/engine.ts";
+import { advance, inspect, readStepArtifact, start, type EngineOptions } from "./runner/engine/index.ts";
 
 interface Parsed {
   positionals: string[];

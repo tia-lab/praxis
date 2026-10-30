@@ -20,15 +20,15 @@
  */
 import { resolve } from "node:path";
 import { z } from "zod";
-import { asAppError, fail } from "../types/errors.ts";
-import { ActorSchema, parseWith } from "../types/schema.ts";
+import { asAppError, fail, isAppError } from "../types/errors.ts";
+import { ActorSchema, QualityVerdictSchema, parseWith } from "../types/schema.ts";
 import type { Artifact, Instance, ResolvedNode } from "../types/schema.ts";
 import { ArtifactSummarySchema, FailureDetailsSchema, PraxisToolArgsSchema, PraxisToolOpSchema, ReadEnvelopeSchema, StartEnvelopeSchema, StepDescriptorSchema, StepEnvelopeSchema } from "../types/pi.ts";
 import type { ArtifactSummary, FailureDetails, PraxisToolArgs, StepDescriptor } from "../types/pi.ts";
 import { CAPABILITY_NAMES, grantFor, requireGrant } from "../runner/capabilities.ts";
 import { digest } from "../runner/canonical.ts";
-import { inspect, openFlow, readStepArtifact, start } from "../runner/engine.ts";
-import type { EngineOptions, HandoffRef, OpenedFlow } from "../runner/engine.ts";
+import { inspect, openFlow, readStepArtifact, start } from "../runner/engine/index.ts";
+import type { EngineOptions, HandoffRef, OpenedFlow } from "../runner/engine/index.ts";
 import { advanceEvaluated, jevScorer, type Scorer } from "../quality/index.ts";
 import { ISSUE_CATEGORIES, issueTemplate } from "../types/issue.ts";
 import { ISSUE_DISABLED, openIssue } from "../runner/issues.ts";
@@ -181,6 +181,7 @@ export function stepDescriptor(flow: OpenedFlow, instance: Instance, handoffs: r
   const resolved = currentStepOf(flow, instance);
   const single = handoffs.length === 1 ? handoffs[0].digest : undefined;
   const grant = grantFor({ id: resolved.node.id, capabilities: resolved.task.capabilities });
+  const quality = resolved.task.quality ?? flow.config.quality;
   const ops: ("submit" | "read")[] = [];
   if (instance.status === "running" && grant.capabilities.has("artifact.write")) ops.push("submit");
   if (grant.capabilities.has("artifact.read")) ops.push("read");
@@ -199,6 +200,10 @@ export function stepDescriptor(flow: OpenedFlow, instance: Instance, handoffs: r
         ...(handoffs.length > 0 ? { consumes: handoffs.map((handoff) => ({ step: handoff.step, schema: handoff.schema, digest: handoff.digest })) } : {}),
         ...(single !== undefined ? { derivedFrom: single } : {}),
         ...(single !== undefined && resolved.task.bindsSubject === true ? { subject: single } : {}),
+        // The standard this step is judged against, before it submits rather than only on refusal.
+        ...(quality === undefined
+          ? {}
+          : { quality: { dimensions: quality.dimensions, threshold: quality.threshold, policy: quality.policy } }),
       },
     },
     "RESULT_INVALID",
@@ -288,24 +293,84 @@ export function setScorerForTest(scorer: Scorer | undefined): void {
   scorerOverride = scorer;
 }
 
+/** The codes a quality floor can refuse with; only these carry per-dimension feedback. */
+const QUALITY_CODES: ReadonlySet<string> = new Set(["QUALITY_REQUIRED", "QUALITY_BELOW_THRESHOLD", "QUALITY_BLOCKED"]);
+
+/**
+ * Turn a quality refusal into actionable feedback: the typed verdict plus the rubric's own
+ * dimension statements, so the agent learns which named dimensions are below the floor and by
+ * how much, and can fix those. Praxis reports the standard it measured against; it never
+ * authors remediation prose. Best effort — a failure that cannot be re-read is passed through
+ * untouched, so the typed code is never lost (R8).
+ */
+function qualityFeedback(error: unknown, options: EngineOptions & { instance: string }): unknown {
+  if (!isAppError(error) || !QUALITY_CODES.has(error.code)) return error;
+  const detail = error.detail;
+  if (typeof detail !== "object" || detail === null) return error;
+  const parsed = QualityVerdictSchema.safeParse((detail as { quality?: unknown }).quality);
+  if (!parsed.success) return error;
+  const verdict = parsed.data;
+  try {
+    const view = inspect({ ...options });
+    // The step that refused, not necessarily the current one: a refuse edge has already sent the
+    // work back, and the rubric to report on is the one that judged the artifact.
+    const refused = (detail as { step?: unknown }).step;
+    const step = typeof refused === "string" ? refused : view.instance.currentStep;
+    const node = view.flow.config.nodes.find((candidate) => candidate.id === step);
+    const task = node === undefined ? undefined : view.flow.tasks.get(node.task);
+    const effective = task?.quality ?? view.flow.config.quality;
+    if (effective === undefined) return error;
+    const statements = new Map(effective.dimensions.map((dimension) => [dimension.id, dimension.statement]));
+    const dimensions = verdict.dimensions.map((dimension) => ({
+      id: dimension.id,
+      score: dimension.score,
+      statement: statements.get(dimension.id) ?? "",
+      belowThreshold: dimension.score < effective.threshold,
+    }));
+    const weakest = dimensions.length === 0 ? undefined : dimensions.reduce((low, current) => (current.score < low.score ? current : low));
+    return fail(error.code, error.message, {
+      ...(detail as Record<string, unknown>),
+      quality: {
+        overall: verdict.score,
+        threshold: effective.threshold,
+        policy: effective.policy,
+        dimensions,
+        weakest,
+        rationale: verdict.rationale,
+        source: verdict.source,
+        scorer: verdict.scorer,
+      },
+    });
+  } catch {
+    return error;
+  }
+}
+
 /**
  * Submit one artifact. Scoring happens in `advanceEvaluated`, outside any store transaction,
  * and only when the pinned task declares an effective quality floor and holds `evaluate`;
  * the engine then records the verdict and enforces the floor in the same synchronous advance.
+ * A quality refusal reaches the agent with the named dimensions and their scores, and the
+ * attempt budget and no-progress rule live in the engine (they are bounds, not prompt text).
  */
 async function submitOperation(args: PraxisToolArgs, ctx: PiSessionContext): Promise<PiToolResult> {
   const options = engineOptions(ctx);
-  const advanced = await advanceEvaluated({
-    ...options,
-    instance: required(args.instance, "instance"),
-    artifact: args.artifact,
-    actor: actorFor(ctx),
-    scorer: scorerOverride ?? jevScorer(),
-  });
-  return ok(StepEnvelopeSchema, {
-    result: advanced.result,
-    step: stepDescriptor(advanced.flow, advanced.instance, advanced.handoffs),
-  });
+  const instance = required(args.instance, "instance");
+  try {
+    const advanced = await advanceEvaluated({
+      ...options,
+      instance,
+      artifact: args.artifact,
+      actor: actorFor(ctx),
+      scorer: scorerOverride ?? jevScorer(),
+    });
+    return ok(StepEnvelopeSchema, {
+      result: advanced.result,
+      step: stepDescriptor(advanced.flow, advanced.instance, advanced.handoffs),
+    });
+  } catch (error) {
+    throw qualityFeedback(error, { ...options, instance });
+  }
 }
 
 function readOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResult {

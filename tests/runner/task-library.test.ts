@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { isAppError } from "../../src/types/errors.ts";
-import { start } from "../../src/runner/engine.ts";
+import { start } from "../../src/runner/engine/index.ts";
 import { digestOf } from "../../src/runner/canonical.ts";
 import { openStore } from "../../src/store/db.ts";
 import { publicationOf, readDefinition } from "../../src/store/definitions.ts";

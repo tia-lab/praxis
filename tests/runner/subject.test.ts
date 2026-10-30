@@ -12,7 +12,7 @@ import { test } from "node:test";
 import { cpSync, readFileSync, writeFileSync } from "node:fs";
 
 import { isAppError } from "../../src/types/errors.ts";
-import { advance, openFlow, start } from "../../src/runner/engine.ts";
+import { advance, openFlow, start } from "../../src/runner/engine/index.ts";
 import { canonicalBytes, digest, digestOf } from "../../src/runner/canonical.ts";
 import { NOW, artifactsOf, dispose, flowRef, workspace, writeFlow, type Workspace } from "../testkit.ts";
 

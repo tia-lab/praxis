@@ -1,0 +1,198 @@
+/**
+ * The flow layer: read and resolve the flow document against the task library, pin it with every
+ * task version, and read the pins back. No node runs here.
+ */
+import { readFileSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
+import { fail } from "../../types/errors.ts";
+import {
+  FlowConfigSchema,
+  parseFlowConfig,
+  parseTaskRef,
+  parseWith,
+  TaskConfigSchema,
+  type ArtifactRef,
+  type FlowConfig,
+  type Instance,
+  type TaskConfig,
+} from "../../types/schema.ts";
+import type { Store } from "../../store/db.ts";
+import { readDefinition } from "../../store/definitions.ts";
+import { listEvents } from "../../store/events.ts";
+import { grantFor } from "../capabilities.ts";
+import { digest, digestOf } from "../canonical.ts";
+import { messageOf, payloadOf, pinnedJson, tasksDirOf } from "./support.ts";
+import { EVENT, type EngineOptions, type HandoffRef, type OpenedFlow } from "./types.ts";
+
+/**
+ * Read one task unit by its path. The reference names the path; the document declares
+ * the version the pin records. Absent is `TASK_NOT_FOUND`, bad bytes `CONFIG_INVALID`.
+ */
+function loadTask(tasksDir: string, ref: string): TaskConfig {
+  const relative = parseTaskRef(ref);
+  const library = resolve(tasksDir);
+  const path = resolve(library, relative + ".json");
+  // Defence in depth: the reference grammar admits no dot segment; refuse one anyway.
+  if (!path.startsWith(library + sep)) {
+    throw fail("CONFIG_INVALID", `task ${ref} escapes the library at ${library}`, { ref, path, library });
+  }
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    throw fail("TASK_NOT_FOUND", `no task ${ref} in the library at ${library}`, {
+      ref,
+      path,
+      reason: messageOf(error),
+    });
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text) as unknown;
+  } catch (error) {
+    throw fail("CONFIG_INVALID", `task ${ref} at ${path} is not JSON`, { ref, path, reason: messageOf(error) });
+  }
+  const task = parseWith(TaskConfigSchema, raw, "CONFIG_INVALID", `task ${ref}`);
+  const name = relative.slice(relative.lastIndexOf("/") + 1);
+  if (task.id !== name) {
+    throw fail("CONFIG_INVALID", `task ${ref} declares a different identity`, {
+      ref,
+      id: task.id,
+      version: task.version,
+      path,
+    });
+  }
+  return task;
+}
+
+/** Read, resolve, validate and digest the flow document. The digest is what an instance pins. */
+export function openFlow(options: EngineOptions): OpenedFlow {
+  const path = resolve(
+    options.configPath ?? process.env.PRAXIS_CONFIG ?? join(process.cwd(), ".pi/praxis/flows/engineering/feature.json"),
+  );
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    throw fail("FLOW_INVALID", "flow config is not readable at " + path, { path, reason: messageOf(error) });
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text) as unknown;
+  } catch (error) {
+    throw fail("CONFIG_INVALID", "flow config at " + path + " is not JSON", { path, reason: messageOf(error) });
+  }
+  const config = parseFlowConfig(raw);
+  const tasksDir = tasksDirOf(options);
+  const tasks = new Map<string, TaskConfig>();
+  for (const node of config.nodes) {
+    if (tasks.has(node.task)) continue;
+    tasks.set(node.task, loadTask(tasksDir, node.task));
+  }
+  validateFlow(config, tasks);
+  return { config, flowDigest: digestOf(config), path, tasks };
+}
+
+/** Refuse a flow whose references cannot be resolved (R1, R2, R7: typed refusal, zero writes). */
+export function validateFlow(config: FlowConfig, tasks: ReadonlyMap<string, TaskConfig>): void {
+  const consumedBy = new Map<string, string[]>();
+  for (const edge of config.edges) {
+    if (edge.kind === "refuse") continue;
+    const sources = consumedBy.get(edge.to) ?? [];
+    sources.push(edge.from);
+    consumedBy.set(edge.to, sources);
+  }
+  for (const node of config.nodes) {
+    const task = tasks.get(node.task);
+    if (task === undefined) {
+      throw fail("TASK_NOT_FOUND", "node " + JSON.stringify(node.id) + " names an unresolved task " + node.task, {
+        node: node.id,
+        task: node.task,
+      });
+    }
+    grantFor({ id: node.id, capabilities: task.capabilities });
+    if (task.bindsSubject !== true) continue;
+    const sources = consumedBy.get(node.id) ?? [];
+    const data = config.edges.filter((edge) => edge.kind === "data" && edge.to === node.id);
+    if (sources.length !== 1 || data.length !== 1) {
+      throw fail(
+        "CONFIG_INVALID",
+        "node " + JSON.stringify(node.id) + " binds a subject, so it takes exactly one data source",
+        { node: node.id, sources },
+      );
+    }
+  }
+}
+
+/** Instance id is a pure function of (flow, requestId): a repeated request cannot fork. */
+export function instanceIdFor(flow: string, requestId: string): string {
+  if (flow === "" || requestId === "") throw fail("CONFIG_INVALID", "flow and request id are required");
+  return "i" + digest("request:" + flow + "\u0000" + requestId).slice(7, 39);
+}
+
+/** Accepted artifact references, derived from the append-only event log alone. */
+export function acceptedRefs(store: Store, instance: string): ArtifactRef[] {
+  const refs: ArtifactRef[] = [];
+  for (const event of listEvents(store, instance)) {
+    if (event.type !== EVENT.artifactAccepted) continue;
+    const payload = payloadOf(event.payload);
+    refs.push({
+      step: String(payload.step),
+      version: Number(payload.version),
+      digest: String(payload.digest),
+      schema: String(payload.schema),
+    });
+  }
+  return refs;
+}
+
+/** The accepted sources the instance's current step consumes, from refs already read. */
+export function currentHandoffs(flow: OpenedFlow, instance: Instance, accepted: readonly ArtifactRef[]): HandoffRef[] {
+  const node = flow.config.nodes.find((candidate) => candidate.id === instance.currentStep);
+  if (node === undefined) return [];
+  const sources = new Set(
+    flow.config.edges
+      .filter((edge) => (edge.kind === "data" || edge.kind === "join") && edge.to === node.id)
+      .map((edge) => edge.from),
+  );
+  return accepted
+    .filter((ref) => sources.has(ref.step))
+    .map((ref) => ({ step: ref.step, schema: ref.schema, digest: ref.digest }));
+}
+
+/**
+ * The pinned flow and its tasks, read from the instance's own `definition` rows and
+ * verified on every read (R4, R5). The library is never consulted here.
+ */
+export function loadPinnedFlow(store: Store, instance: Instance): OpenedFlow {
+  const flowRow = readDefinition(store, instance.id, "flow", instance.flow);
+  const config = parseWith(
+    FlowConfigSchema,
+    pinnedJson(flowRow.bytes, "flow"),
+    "PIN_CORRUPT",
+    `pinned flow ${instance.flow}`,
+  );
+  if (digestOf(config) !== flowRow.digest) {
+    throw fail("PIN_CORRUPT", `pinned flow ${instance.flow} no longer matches its digest`, {
+      instance: instance.id,
+      pinned: flowRow.digest,
+      actual: digestOf(config),
+    });
+  }
+  const tasks = new Map<string, TaskConfig>();
+  for (const node of config.nodes) {
+    if (tasks.has(node.task)) continue;
+    const row = readDefinition(store, instance.id, "task", node.task);
+    const task = parseWith(TaskConfigSchema, pinnedJson(row.bytes, `task ${node.task}`), "PIN_CORRUPT", `pinned task ${node.task}`);
+    if (digestOf(task) !== row.digest) {
+      throw fail("PIN_CORRUPT", `pinned task ${node.task} no longer matches its digest`, {
+        instance: instance.id,
+        task: node.task,
+        pinned: row.digest,
+        actual: digestOf(task),
+      });
+    }
+    tasks.set(node.task, task);
+  }
+  return { config, flowDigest: flowRow.digest, path: "pinned:" + instance.flow, tasks };
+}

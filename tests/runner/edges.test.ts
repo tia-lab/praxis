@@ -14,7 +14,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { isAppError } from "../../src/types/errors.ts";
-import { openFlow } from "../../src/runner/engine.ts";
+import { openFlow } from "../../src/runner/engine/index.ts";
 import { openStore } from "../../src/store/db.ts";
 import { parseFlowConfig } from "../../src/types/schema.ts";
 import { artifactsOf, artifactFile, cli, createInstance, dispose, eventsOf, flowRef, taskRef, workspace, writeFlow, type Workspace } from "../testkit.ts";

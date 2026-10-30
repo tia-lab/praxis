@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { isAppError } from "../../src/types/errors.ts";
-import { advance, inspect, start } from "../../src/runner/engine.ts";
+import { advance, inspect, start } from "../../src/runner/engine/index.ts";
 import { NOW, dispose, flowRef, workspace, writeFlow, type Workspace } from "../testkit.ts";
 
 const RESEARCH = "praxis.artifact.research/v1";

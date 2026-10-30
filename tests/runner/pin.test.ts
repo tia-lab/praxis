@@ -10,7 +10,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { isAppError } from "../../src/types/errors.ts";
-import { advance, start } from "../../src/runner/engine.ts";
+import { advance, start } from "../../src/runner/engine/index.ts";
 import { canonicalBytes, digest, digestOf } from "../../src/runner/canonical.ts";
 import { openStore, type Store } from "../../src/store/db.ts";
 import { NOW, dispose, flowRef, query, taskRef, workspace, writeFlow, type Workspace } from "../testkit.ts";

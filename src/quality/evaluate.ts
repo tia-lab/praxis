@@ -5,9 +5,10 @@
  * `unavailable` (fail-closed for a `required` floor). The score is computed here — OUTSIDE any store
  * transaction — then handed to the synchronous engine, which records it and enforces the floor.
  */
-import { digestOf } from "../runner/canonical.ts";
-import { advance, inspect, type AdvanceOptions } from "../runner/engine.ts";
+import { canonicalBytes, digest, digestOf } from "../runner/canonical.ts";
+import { advance, inspect, type AdvanceOptions } from "../runner/engine/index.ts";
 import { parseWith, QualityVerdictSchema, type Quality, type QualityVerdict } from "../types/schema.ts";
+import type { QualityAttempt } from "../runner/engine/index.ts";
 
 /** The injected typed-judgment port. Returns a per-dimension score in [0,1] and its own id. */
 export interface Scorer {
@@ -63,10 +64,33 @@ export async function evaluateArtifact(
 }
 
 /**
+ * The digest score-cache: the same bytes judged against the same rubric never reach the scorer
+ * twice. The lookup reads the step's recorded `quality.verdict` events, so the cache is exactly as
+ * durable as the record — no store column, no in-memory map that a restart forgets. The recorded
+ * verdict is reused unchanged, and the engine still records this attempt and still enforces the
+ * floor, so a repeated failure stays visible and still counts toward the step's budget.
+ */
+function cachedVerdict(
+  history: readonly QualityAttempt[],
+  artifactDigest: string,
+  rubricDigest: string,
+): QualityVerdict | undefined {
+  let found: QualityVerdict | undefined;
+  for (const attempt of history) {
+    if (attempt.artifactDigest !== artifactDigest) continue;
+    if (attempt.verdict.rubricDigest !== rubricDigest) continue;
+    found = attempt.verdict;
+  }
+  return found;
+}
+
+/**
  * Advance one step, scoring first when the current task declares a quality floor and holds the
  * `evaluate` capability. The score is computed here (no store transaction is open) and passed to the
  * synchronous `advance`, which records a `quality.verdict` event and enforces the floor. A task
  * without a quality floor, or lacking the capability, advances exactly as the plain engine does.
+ * Bytes this step already had judged against this rubric reuse the recorded verdict instead of
+ * paying for the same judgment twice.
  */
 export async function advanceEvaluated(
   options: AdvanceOptions & { scorer?: Scorer },
@@ -78,6 +102,9 @@ export async function advanceEvaluated(
     const effective = task?.quality ?? view.flow.config.quality;
     if (effective !== undefined && task !== undefined && task.capabilities.includes("evaluate")) {
       const subjectDigest = view.handoffs.length === 1 ? view.handoffs[0].digest : undefined;
+      const artifactDigest = digest(canonicalBytes(options.artifact === undefined ? {} : options.artifact));
+      const cached = cachedVerdict(view.qualityHistory, artifactDigest, digestOf(effective));
+      if (cached !== undefined) return advance({ ...options, qualityVerdict: cached });
       const verdict = await evaluateArtifact(options.scorer, effective, {
         goal: task.goal,
         artifact: options.artifact,

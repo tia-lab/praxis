@@ -62,6 +62,18 @@ function sourceOf(handoff: Handoff): string {
   return at < 0 ? handoff.artifactRef : handoff.artifactRef.slice(0, at);
 }
 
+/** The version a handoff names, so a re-read opens exactly the version that was handed off. */
+function versionOf(handoff: Handoff): number {
+  const at = handoff.artifactRef.lastIndexOf("@");
+  const version = Number(at < 0 ? "" : handoff.artifactRef.slice(at + 1));
+  if (!Number.isInteger(version) || version < 1) {
+    throw fail("ARTIFACT_INVALID", "handoff " + JSON.stringify(handoff.artifactRef) + " names no version", {
+      artifactRef: handoff.artifactRef,
+    });
+  }
+  return version;
+}
+
 /**
  * The node this one hands off to: the earliest node it feeds, never "the first edge as
  * declared". An ambiguous set (two data targets or two join groups) is refused here and
@@ -102,7 +114,11 @@ export function buildHandoffs(store: Store, instance: Instance, resolved: Resolv
     );
   }
   return resolved.sources.map((source) => {
-    const found = probeArtifact(store, instance.id, source);
+    // A handoff is an ACCEPTED artifact, and since the onFailure `continue` policy carries the
+    // best-scoring attempt forward, the accepted version need not be the newest row: read the
+    // highest accepted version, never merely the latest one.
+    const accepted = acceptedVersionOf(store, instance.id, source);
+    const found = accepted === undefined ? undefined : probeArtifact(store, instance.id, source, accepted);
     if (found === undefined || found.artifact.state !== "accepted") {
       throw fail("ARTIFACT_UNAVAILABLE", "no accepted artifact from " + JSON.stringify(source) + " to hand off", {
         instance: instance.id,
@@ -168,7 +184,9 @@ export function runStep(args: RunStepArgs): StepArtifact {
   if (handoffs.length > 0) {
     call(grant, "artifact.read", () => {
       for (const handoff of handoffs) {
-        const read = readArtifact(store, instance.id, sourceOf(handoff));
+        // The named version, not the newest row: a hidden change is exactly what the digest
+        // check exists to catch (quality loop: a continued artifact may not be the latest).
+        const read = readArtifact(store, instance.id, sourceOf(handoff), versionOf(handoff));
         const seen = digest(read.bytes);
         if (seen !== handoff.digest) {
           throw fail("ARTIFACT_DIGEST_MISMATCH", "re-read of " + handoff.artifactRef + " no longer matches", {
@@ -225,13 +243,31 @@ function parseStored(store: Store, instance: string, step: string, version: numb
   }
 }
 
-function probeArtifact(store: Store, instance: string, step: string): { artifact: Artifact; bytes: Uint8Array } | undefined {
+function probeArtifact(
+  store: Store,
+  instance: string,
+  step: string,
+  version?: number,
+): { artifact: Artifact; bytes: Uint8Array } | undefined {
   try {
-    return readArtifact(store, instance, step);
+    return readArtifact(store, instance, step, version);
   } catch (error) {
     if (isAppError(error) && error.code === "ARTIFACT_UNAVAILABLE") return undefined;
     throw error;
   }
+}
+
+/** The highest accepted version of a step, from its own `artifact.accepted` events. */
+function acceptedVersionOf(store: Store, instance: string, step: string): number | undefined {
+  let accepted: number | undefined;
+  for (const event of listEvents(store, instance)) {
+    if (event.type !== "artifact.accepted") continue;
+    const payload = payloadOf(event.payload);
+    if (payload.step !== step) continue;
+    const version = Number(payload.version);
+    if (Number.isInteger(version) && (accepted === undefined || version > accepted)) accepted = version;
+  }
+  return accepted;
 }
 
 const GateSubject = z.looseObject({

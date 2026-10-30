@@ -9,7 +9,7 @@ import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 
 import { isAppError } from "../../src/types/errors.ts";
-import { openFlow, start } from "../../src/runner/engine.ts";
+import { openFlow, start } from "../../src/runner/engine/index.ts";
 import { parseFlowConfig, parseTaskRef, TaskConfigSchema } from "../../src/types/schema.ts";
 import { openStore } from "../../src/store/db.ts";
 import { publicationOf, readDefinition } from "../../src/store/definitions.ts";

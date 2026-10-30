@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import type { FlowConfig, TaskConfig } from "../../src/types/schema.ts";
 import type { PiSessionContext } from "../../src/pi/host.ts";
 import { canonicalBytes, digest, digestOf } from "../../src/runner/canonical.ts";
-import { instanceIdFor } from "../../src/runner/engine.ts";
+import { instanceIdFor } from "../../src/runner/engine/index.ts";
 import { actorFor } from "../../src/pi/tool.ts";
 import { openStore } from "../../src/store/db.ts";
 import { createInstance } from "../../src/store/instance.ts";
@@ -85,8 +85,50 @@ export interface TempStore {
   dispose(): void;
 }
 
+/**
+ * The fixture tasks with a required quality floor on `draft` (quality loop): the rubric the agent
+ * must see before it submits, and the floor each injected fake scorer is measured against. Same
+ * ids as `tasks`, so the accepted fixture flow document composes them unchanged.
+ */
+export const qualityTasks: readonly TaskConfig[] = [
+  {
+    id: "draft",
+    version: 1,
+    state: "published",
+    goal: "write the architecture draft",
+    capabilities: ["artifact.write", "emit", "evaluate"],
+    produces: { schema: "praxis.artifact.architecture/v1" },
+    gate: "schema-valid-and-nonce",
+    quality: {
+      dimensions: [
+        { id: "solves", statement: "the draft answers the stated goal" },
+        { id: "evidence", statement: "every claim carries evidence" },
+      ],
+      threshold: 0.6,
+      policy: "required",
+    },
+  },
+  {
+    id: "derive",
+    version: 1,
+    state: "published",
+    goal: "derive the next artifact from the draft",
+    capabilities: ["artifact.read", "artifact.write", "emit"],
+    produces: { schema: "praxis.artifact.derive/v1" },
+    gate: "schema-valid-and-nonce",
+  },
+];
+
+/**
+ * The same fixture tasks with the floor set to `escalate`, so a test can prove the halting policy
+ * at the tool surface; `qualityTasks` keeps the default `continue`.
+ */
+export const escalateTasks: readonly TaskConfig[] = qualityTasks.map((task) =>
+  task.quality === undefined ? task : { ...task, quality: { ...task.quality, onFailure: "escalate" as const } },
+);
+
 /** A throwaway project root with the default flow document, its task units and a store. */
-export function tempStore(overrides: { config?: unknown; raw?: string } = {}): TempStore {
+export function tempStore(overrides: { config?: unknown; raw?: string; tasks?: readonly TaskConfig[] } = {}): TempStore {
   const cwd = mkdtempSync(join(tmpdir(), "praxis-pi-"));
   const configPath = join(cwd, ".pi", "praxis", "flows", "engineering", "feature.json");
   const storeDir = join(cwd, ".pi", "praxis", "state");
@@ -95,7 +137,7 @@ export function tempStore(overrides: { config?: unknown; raw?: string } = {}): T
   mkdirSync(tasksDir, { recursive: true });
   mkdirSync(join(storeDir, "artifacts"), { recursive: true });
   writeFileSync(configPath, overrides.raw ?? JSON.stringify(overrides.config ?? config, null, 2) + "\n");
-  for (const task of tasks) {
+  for (const task of overrides.tasks ?? tasks) {
     writeFileSync(join(tasksDir, `${task.id}.json`), JSON.stringify(task, null, 2) + "\n");
   }
   return { cwd, configPath, storeDir, tasksDir, dispose: () => rmSync(cwd, { recursive: true, force: true }) };

@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { isAppError } from "../../src/types/errors.ts";
-import { start } from "../../src/runner/engine.ts";
+import { start } from "../../src/runner/engine/index.ts";
 import { advanceEvaluated, type Scorer } from "../../src/quality/index.ts";
 import { NOW, dispose, eventsOf, flowRef, workspace, writeFlow, type Workspace } from "../testkit.ts";
 

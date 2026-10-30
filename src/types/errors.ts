@@ -14,7 +14,9 @@
  * `NODE_INVALID` is a flow node beyond its two declared keys, `TASK_*` is a task
  * unit that is absent, unpublished or version-conflicting, `PIN_*` is an instance
  * whose pinned definition is missing or corrupt, and `SUBJECT_*` is a review whose
- * judged subject is absent or no longer the accepted version.
+ * judged subject is absent or no longer the accepted version. `QUALITY_*` is the
+ * typed judgment over an artifact: a missing score, a score below the floor, and the
+ * escalation when a step exhausts its attempt budget or stops improving.
  */
 export type Code =
   | "CONFIG_INVALID"
@@ -42,6 +44,7 @@ export type Code =
   | "GATE_REJECTED"
   | "QUALITY_REQUIRED"
   | "QUALITY_BELOW_THRESHOLD"
+  | "QUALITY_BLOCKED"
   | "RESULT_INVALID"
   | "STORE_INVALID"
   | "INTERNAL";

@@ -147,6 +147,18 @@ export const QualitySchema = z.strictObject({
   dimensions: z.array(QualityDimensionSchema).min(1).max(8),
   threshold: z.number().min(0).max(1),
   policy: z.enum(["required", "advisory"]),
+  /**
+   * How many refused attempts one step may make before the onFailure policy applies (quality
+   * loop). Absent means the code default of 3; a task may override the flow default. Part of the
+   * declared floor, so it is inside the rubric digest and the pin.
+   */
+  maxAttempts: z.int().min(1).max(50).optional(),
+  /**
+   * What happens when a step cannot reach its floor within the budget: `escalate` halts the
+   * instance in `failed` and records a needs-guidance signal; `continue` carries the
+   * best-scoring attempt forward with the failure on the record. Absent means `continue`.
+   */
+  onFailure: z.enum(["escalate", "continue"]).optional(),
 });
 export type Quality = z.infer<typeof QualitySchema>;
 
@@ -353,7 +365,11 @@ export interface ResolvedNode {
   readonly refuse?: string;
 }
 
-/** Declared states (spec R8). `blocked` is removed: no writer exists for it. */
+/**
+ * Declared states (spec R8). `failed` has two writers: an unreadable pin (terminal corruption)
+ * and the quality escalation, which additionally records a failedReason, an `instance.failed`
+ * event and a needs-guidance signal. Nothing is silently resumed from a failed instance.
+ */
 export const InstanceStatusSchema = z.enum(["running", "completed", "failed"]);
 export type InstanceStatus = z.infer<typeof InstanceStatusSchema>;
 
@@ -369,6 +385,11 @@ export const InstanceSchema = z.strictObject({
   actor: ActorSchema,
   status: InstanceStatusSchema,
   currentStep: StepIdSchema,
+  /**
+   * Why the instance failed, derived on read from its own `instance.failed` event. Never a
+   * store column: the event log is the one owner of that fact.
+   */
+  failedReason: z.string().min(1).max(1000).optional(),
   revision: z.int().min(0),
   nonce: NonceSchema,
   createdAt: TimestampSchema,

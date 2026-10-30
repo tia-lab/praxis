@@ -76,6 +76,21 @@ export const StepDescriptorSchema = z.strictObject({
     derivedFrom: DigestSchema.optional(),
     /** When the step binds a subject, the digest to carry as `subject`. */
     subject: DigestSchema.optional(),
+    /**
+     * The quality floor this step is judged against, when the task (or the flow it inherits
+     * from) declares one: the agent sees the standard before it submits, not only on refusal.
+     * Bounded by the task document itself (at most 8 dimensions of at most 500 characters).
+     */
+    quality: z
+      .strictObject({
+        dimensions: z
+          .array(z.strictObject({ id: z.string().min(1).max(64), statement: z.string().min(1).max(500) }))
+          .min(1)
+          .max(8),
+        threshold: z.number().min(0).max(1),
+        policy: z.enum(["required", "advisory"]),
+      })
+      .optional(),
   }),
 });
 export type StepDescriptor = z.infer<typeof StepDescriptorSchema>;
@@ -146,6 +161,7 @@ const CODES = [
   "GATE_REJECTED",
   "QUALITY_REQUIRED",
   "QUALITY_BELOW_THRESHOLD",
+  "QUALITY_BLOCKED",
   "RESULT_INVALID",
   "STORE_INVALID",
   "INTERNAL",

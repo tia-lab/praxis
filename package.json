@@ -1,64 +1,59 @@
 {
-  "name": "pi-manifold",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "description": "Durable asynchronous communication for independent local Pi sessions",
-  "keywords": [
-    "pi-package"
-  ],
-  "engines": {
-    "node": ">=24.9.0 <25"
-  },
-  "files": [
-    "src",
-    "skills",
-    "examples",
-    "README.md",
-    "USAGE.md"
-  ],
-  "pi": {
-    "extensions": [
-      "./src/extension.ts"
-    ],
-    "skills": [
-      "./skills/manifold",
-      "./skills/manifold-organizer",
-      "./skills/manifold-issue"
-    ]
-  },
-  "scripts": {
-    "check": "node scripts/check.ts",
-    "test": "node --test tests/*.test.ts",
-    "bench": "node scripts/bench.ts",
-    "release": "bun scripts/release.ts",
-    "prepare": "husky"
-  },
-  "dependencies": {
-    "@nats-io/transport-node": "3.4.0",
-    "zod": "4.6.7"
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
-    "typebox": "*"
-  },
-  "peerDependenciesMeta": {
-    "@earendil-works/pi-tui": {
-      "optional": true
-    },
-    "@earendil-works/pi-coding-agent": {
-      "optional": true
-    },
-    "typebox": {
-      "optional": true
-    }
-  },
-  "devDependencies": {
-    "@types/node": "24.9.1",
-    "typescript": "5.9.3",
-    "@commitlint/cli": "^19.3.0",
-    "@commitlint/config-conventional": "^19.2.2",
-    "husky": "^9.1.7"
-  }
+	"name": "pi-praxis",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Composable persistent work runtime for Pi: gated flow steps, validated step artifacts and durable receipts, returned to the caller as a bounded result",
+	"keywords": [
+		"pi-package"
+	],
+	"engines": {
+		"node": ">=24.9.0 <25"
+	},
+	"files": [
+		"src",
+		"skills",
+		"examples",
+		"README.md",
+		"USAGE.md"
+	],
+	"pi": {
+		"extensions": [
+			"./src/extension.ts"
+		]
+	},
+	"scripts": {
+		"check": "node scripts/check.ts",
+		"test": "node --test tests/*.test.ts",
+		"bench": "node scripts/bench.ts",
+		"release": "bun scripts/release.ts",
+		"prepare": "husky"
+	},
+	"dependencies": {
+		"@nats-io/transport-node": "3.4.0",
+		"zod": "4.6.7"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*",
+		"typebox": "*"
+	},
+	"peerDependenciesMeta": {
+		"@earendil-works/pi-tui": {
+			"optional": true
+		},
+		"@earendil-works/pi-coding-agent": {
+			"optional": true
+		},
+		"typebox": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@types/node": "24.9.1",
+		"typescript": "5.9.3",
+		"@commitlint/cli": "^19.3.0",
+		"@commitlint/config-conventional": "^19.2.2",
+		"husky": "^9.1.7"
+	}
 }

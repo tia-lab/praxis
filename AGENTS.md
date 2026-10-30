@@ -196,6 +196,14 @@ acceptance here before building.
   instance creator; an agent assigning roles can only do so for an instance it creates and SoD
   still blocks self-review, so a bad assignment cannot manufacture a self-approved review.
 
+- **2026-10-30 — manifest identity: praxis, not manifold.** Owner direction in words: the
+  `package.json` description did not match what Praxis is. Scope: `package.json` (name
+  `pi-praxis`, a description stating this project, the manifold skill pointers dropped) and this
+  entry. Acceptance: name and description describe Praxis; no script, dependency, `pi` extension
+  entry or ignore rule changes. Still not authorized: settling `scripts`, `dependencies`,
+  `peerDependencies`, `files`, `.husky/`, `commitlint.config.cjs` or `.gitignore` — that full
+  manifest/dependency housekeeping remains the separate unit named above.
+
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a
 tool denies it, stop and correct host rooting rather than bypass the denial.

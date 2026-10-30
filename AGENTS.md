@@ -547,6 +547,30 @@ acceptance here before building.
   store context is attached at collection). Nothing committed. The deferred `tool.ts` split (739 lines) is now
   DUE and needs its own owner GO; husky/commitlint restore is the owner's; then one consolidation commit.
 
+- **2026-10-30 — tool.ts split GO (the deferred cap unit, now due).** The roadmap is 5/5, so the `tool.ts`
+  600-cap waiver ends. Owner GO: split now. Pure behaviour-preserving MOVE (§4 waiver: no model/contract/
+  schema/result-key change, reversible) — plan.md records the move, no spec. Scope: `src/pi/tool.ts`,
+  `src/pi/operations.ts` (new, the op handlers + op-only helpers), `docs/tool-split-<hash8>/plan.md`, and
+  `tests/` ONLY if an import path must change (prefer re-export so tests do not move). Acceptance: `src/pi/tool.ts`
+  < 600 lines; the op handlers (`startOperation`, `submitOperation`, `noteOperation`, `checkOperation`,
+  `readOperation`, `issueOperation`, the `recall` handler, `verdictSummaryOf` and op-only helpers) live in
+  `operations.ts`; `tool.ts` keeps the schemas, args parse/refine and the `executePraxisTool` dispatcher; the
+  test seams (`setScorerForTest`, `setAlignJudgeForTest`, `setRankerForTest`) and `executePraxisTool` STILL
+  resolve from `src/pi/tool.ts` (re-export if moved) so no test import changes; no import cycle; `tsc` 0;
+  258/258 no-network with EVERY envelope byte-identical (the deep-equals are the oracle). Not authorized: any
+  behaviour, schema, contract or result-key change — a move only.
+
+- **2026-10-30 — tool.ts split ACCEPTED (cap cleanup complete).** Pure behaviour-preserving move verified:
+  `src/pi/tool.ts` 739->115 (schemas + args parse + `executePraxisTool` dispatcher + re-exports);
+  `src/pi/operations.ts` 509 (new: the seven op handlers + their plumbing); `src/pi/descriptor.ts` 167 (new:
+  `currentStepOf`, `learningView`, `stepDescriptor`, `artifactSummary`, `JUDGING_STANCE`). All three < 600, so
+  the owner cap waiver on `tool.ts` is discharged. No import cycle (one-way: extension->tool->operations->
+  descriptor); the public surface is unchanged (re-exports); ZERO test/extension changes (git diff empty);
+  the only edit to moved code was the keyword `export` on six within-package helpers; `tsc` 0; 258/258
+  no-network with byte-identical envelopes. Scope: `src/pi/tool.ts` (M), `src/pi/operations.ts` + `src/pi/descriptor.ts`
+  (new), `docs/tool-split-72ffd0d0/`. Nothing committed. REMAINING: the owner's husky/commitlint restore, then
+  one consolidation commit of all five units + README + the vision reconciliation + this split.
+
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a
 tool denies it, stop and correct host rooting rather than bypass the denial.

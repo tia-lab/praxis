@@ -42,11 +42,20 @@ export {
 } from "./bar.ts";
 /** The bounded experience query (P7): solved cases ranked deterministically behind an injected port. */
 export {
+  activeRanker,
   applyBounds,
   collectCases,
   deterministicRanker,
+  DUPLICATE_JACCARD,
+  JEV_CLIP,
+  JEV_POOL,
   recallExperience,
   setRankerForTest,
+  SINGLE_FLIGHT_WAIT_MS,
+  type DistinctChoice,
+  type DistinctOutcome,
+  type DistinctRanker,
+  type RankedKey,
   type CaseSignals,
   type ExperienceCase,
   type QueryNeed,
@@ -54,6 +63,15 @@ export {
   type RankerPort,
   type RecallPayload,
 } from "./ranker.ts";
+/** The jev distinct-exemplar stage and its persisted, lazily read-through cache (D1-D11). */
+export {
+  coverDigestOf,
+  jevRanker,
+  recallRanked,
+  setDistinctRankerForTest,
+  setRankedPersistForTest,
+  setSingleFlightWaitForTest,
+} from "./ranker-jev.ts";
 /** Execution learning, task-level (O1): the ranked, bounded recall set and its targeted lesson. */
 export {
   RECALL_MAX,

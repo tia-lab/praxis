@@ -24,7 +24,7 @@ import type { EngineOptions } from "../runner/engine/index.ts";
 import { projectConfig, projectMaxAttempts, withStore } from "../runner/engine/support.ts";
 import { afterOp, beforeOp } from "../runner/hooks.ts";
 import { noteStanding, recordNote } from "../runner/note-gate.ts";
-import { advanceEvaluated, briefRecall, compoundDecision, effectiveBarsFor, escalatedLesson, gateBar, jevScorer, recallExperience, type Scorer } from "../quality/index.ts";
+import { advanceEvaluated, briefRecall, compoundDecision, effectiveBarsFor, escalatedLesson, gateBar, jevScorer, recallRanked, type Scorer } from "../quality/index.ts";
 import { anchorOf, jevAlignJudge, judgeOrder, orderDigestOf, uncheckedClause, type AlignJudge } from "../quality/jev-align.ts";
 import { artifactSummary, currentStepOf, learningView, stepDescriptor } from "./descriptor.ts";
 import type { PiSessionContext, PiToolResult } from "./host.ts";
@@ -377,7 +377,7 @@ export async function submitOperation(args: PraxisToolArgs, ctx: PiSessionContex
       const verdict = verdictSummaryOf({ ...options, instance }, refusedStep, Number(detail?.version ?? 0));
       await afterOp("after_submit", { op: "submit", instance, step: refusedStep, decision: "refused", ...(verdict === undefined ? {} : { verdict }) });
       // The refusal carries the examples for the dimensions that failed; nothing else about it changes.
-      throw recallFeedback(reviewed, { ...options, instance, actor }, refusedStep, verdict);
+      throw await recallFeedback(reviewed, { ...options, instance, actor }, refusedStep, verdict);
     }
     throw reviewed;
   }
@@ -393,12 +393,12 @@ export async function submitOperation(args: PraxisToolArgs, ctx: PiSessionContex
  * `compoundDecision`), falling back to the step's whole rubric when the refusal was the MEAN gate
  * alone — that refusal means "every dimension may be the reason", not "no dimension".
  */
-function recallFeedback(
+async function recallFeedback(
   error: AppError,
   options: EngineOptions & { instance: string; actor: string },
   step: string,
   verdict: VerdictSummary | undefined,
-): AppError {
+): Promise<AppError> {
   // No recorded verdict means no below-bar judgment to point examples at (e.g. QUALITY_REQUIRED).
   if (verdict === undefined) return error;
   try {
@@ -416,7 +416,7 @@ function recallFeedback(
       "passing work for " + tags.map((id) => id + ": " + (statements.get(id) ?? "")).join("; "),
       500,
     );
-    const payload = recallExperience(options, { need, tags, max: 3 });
+    const payload = await recallRanked(options, { need, tags, max: 3 });
     if (payload.cases.length === 0) return error;
     return fail(error.code, error.message, { ...detail, recall: payload });
   } catch {
@@ -487,7 +487,10 @@ export async function checkOperation(args: PraxisToolArgs, ctx: PiSessionContext
  */
 export async function recallOperation(args: PraxisToolArgs, ctx: PiSessionContext): Promise<PiToolResult> {
   const options = engineOptions(ctx);
-  const payload = recallExperience(
+  // The jev distinct-exemplar stage behind a persisted, lazily read-through cache: a fresh entry is
+  // served with no model call, a cold or stale one computes once (and falls back deterministically
+  // when jev is unavailable). The envelope is unchanged.
+  const payload = await recallRanked(
     { ...options, instance: required(args.instance, "instance"), actor: actorFor(ctx) },
     {
       need: required(args.need, "need"),

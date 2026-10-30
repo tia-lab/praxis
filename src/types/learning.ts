@@ -140,6 +140,49 @@ export const RecallNoteSchema = z.strictObject({
 });
 export type RecallNote = z.infer<typeof RecallNoteSchema>;
 
+/**
+ * One derived recall-cache entry: the jev-ranked exemplar set for one EVIDENCE state. It is a cache,
+ * not a fact — rebuildable by recomputation and superseded by a newer entry, never edited (events are
+ * append-only). The key is (task, taskVersion, coverDigest, watermark) where the watermark is the
+ * number of solved cases the task had when the entry was computed, so any new solved case invalidates
+ * it. Like the alignment judgment, a jev-ranked result is RECORDED but not reproducible: the
+ * deterministic stage is, and this record says which model ordered it and what it cost.
+ */
+export const RecallRankedSchema = z.strictObject({
+  task: TaskRefSchema,
+  taskVersion: z.int().min(1),
+  /** The dimensions the query asked for (the cover), as the caller supplied them. */
+  cover: z.array(z.string().min(1).max(64)).min(1).max(8),
+  /** A stable digest of the sorted cover, so key lookup does not depend on order. */
+  coverDigest: z.string().min(1).max(64),
+  /** The solved-case count at computation time: equal to the current count means FRESH. */
+  watermark: z.int().min(0),
+  /** Only a jev-ranked set is cached; a deterministic fallback answer is never persisted (D10). */
+  rankedBy: z.literal("jev"),
+  model: z.string().min(1).max(200),
+  usage: z
+    .strictObject({
+      input: z.int().min(0),
+      output: z.int().min(0),
+    })
+    .optional(),
+  /** How many candidates stage 1 offered the model (bounded by the code constant). */
+  pool: z.int().min(0).max(64),
+  /** The chosen exemplars, in the order jev put them, with the score that ordered them. */
+  chosen: z
+    .array(
+      z.strictObject({
+        instance: InstanceIdSchema,
+        step: StepIdSchema,
+        version: z.int().min(1),
+        jev: z.number().min(0).max(1),
+      }),
+    )
+    .max(5),
+  at: TimestampSchema,
+});
+export type RecallRanked = z.infer<typeof RecallRankedSchema>;
+
 /** The recorded RecallSet: the selected lessons, the weak-set they were ranked against (O1, audit). */
 export const RecallSetSchema = z.strictObject({
   bar: z.number().min(0).max(1),

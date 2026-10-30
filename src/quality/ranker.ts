@@ -135,6 +135,11 @@ export function setRankerForTest(ranker: RankerPort | undefined): void {
   rankerOverride = ranker;
 }
 
+/** The stage-1 ranker in force: the injected one in a test, the deterministic one otherwise. */
+export function activeRanker(): RankerPort {
+  return rankerOverride ?? deterministicRanker();
+}
+
 /** The task document a case's instance pinned, so its bars are that task's own. */
 function pinnedQuality(store: Store, instance: string, task: string): TaskConfig["quality"] | undefined {
   try {
@@ -302,8 +307,51 @@ export function recallExperience(
     const tags = input.tags ?? (task?.quality?.dimensions.map((dimension) => dimension.id) ?? []);
     const need: QueryNeed = { text: input.need, tags };
     const candidates = collectCases(store);
-    const ranked = (rankerOverride ?? deterministicRanker()).rank({ need, candidates });
+    const ranked = activeRanker().rank({ need, candidates });
     const cases = applyBounds(ranked, max);
     return { need: input.need, count: cases.length, truncated: cases.length < ranked.length, cases };
   });
+}
+
+// --- Stage 2: the jev distinct-exemplar seam (spec D1-D3, Model table). The implementation lives in
+// `ranker-jev.ts` so this module stays the small, synchronous deterministic ranker.
+
+/** How many pre-ranked candidates stage 2 offers jev: the jev input is O(1) in store size. */
+export const JEV_POOL = 20;
+/** The clip on each candidate field handed to jev, so one call stays bounded. */
+export const JEV_CLIP = 240;
+/** Two lessons at or above this normalized-token Jaccard are the same exemplar. */
+export const DUPLICATE_JACCARD = 0.8;
+/** How long a cold miss waits for another process to publish before computing itself. */
+export const SINGLE_FLIGHT_WAIT_MS = 250;
+
+/** One chosen exemplar: the case and the jev score that ordered it. */
+export interface DistinctChoice {
+  case: RankedCase;
+  jev: number;
+}
+
+/** What one stage-2 run produced, with the model and spend it cost. */
+export interface DistinctOutcome {
+  chosen: DistinctChoice[];
+  model: string;
+  usage?: { input: number; output: number };
+}
+
+/**
+ * The stage-2 port: async, injectable, and SEPARATE from the synchronous `RankerPort`, so every
+ * existing deterministic test is untouched by the jev stage.
+ */
+export interface DistinctRanker {
+  rankDistinct(input: { need: QueryNeed; ranked: readonly RankedCase[]; max: number }): Promise<DistinctOutcome>;
+}
+
+/** The identity of one cached ranking: the EVIDENCE state, never the caller's phrasing (spec D7). */
+export interface RankedKey {
+  task: string;
+  taskVersion: number;
+  cover: readonly string[];
+  coverDigest: string;
+  /** How many solved cases the task had when the entry was computed. */
+  watermark: number;
 }

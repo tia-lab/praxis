@@ -712,6 +712,56 @@ acceptance here before building.
   StepDescriptorSchema so existing descriptors validate unchanged. Skill updated: beat the gate, not the
   aspiration. One existing test (quality-loop) re-pinned to the new key set with the gate asserted equal to the
   earned values below the cap. Committed through the husky hook. This closes the pareto-gate follow-up.
+- **2026-10-30 — jev recall engine unit GO (SPEC-FIRST, store-touching).** Owner agreed the architecture: a
+  jev-backed recall ranker that returns substantively DISTINCT exemplars (not echoes), with the jev result
+  PERSISTED and shared so 1000 agents do not each call jev. Locked design (owner 'agreed design'): (1) two
+  stages — deterministic pre-rank (reuse collectCases[window]+scoreCandidate) to the top ~20, then ONE jev
+  `evaluate` selection over the ≤20 returning N distinct, higher-score preferred; (2) PERSISTED derived cache,
+  LAZY READ-THROUGH, keyed by (task, taskVersion, coverKey, watermark=latest solved-case seq for the task) —
+  fresh row served with NO jev; miss/stale recomputes once and persists; (3) jev compute runs OUTSIDE any store
+  write txn (durable intent → jev → durable receipt); (4) deterministic fallback when jev is down (recall never
+  blocks); (5) single-flight on a cold miss (first computes, others wait-or-fallback); (6) start cover = ALL
+  dimensions (N=5), refusal cover = failed dims (N=3), pool ~20; (7) recall's RecallSet shape is UNCHANGED.
+  LEAD STEER (owner-overridable): persist the ranked result as a DERIVED `recall.ranked` EVENT folded like the
+  bars, NOT a new SQL table — a table is a store migration (open §13 gate); an event fits the append-only model,
+  stays rebuildable, and avoids the gate. Research confirms event-fold vs table and the spec pins it; STOP for
+  lead review + owner confirm on the persistence mechanism before implementing. Scope: `src/quality/ranker.ts`,
+  `src/quality/recall.ts`, `src/quality/index.ts`, the recall injection sites, `src/types/learning.ts` (only if
+  a `recall.ranked` event schema is needed), `tests/quality/*` or `tests/pi/*`, `README.md`, `docs/<slug>-<hash8>/`.
+  Not authorized: opening the background-maintenance gate (the cache is LAZY read-through, in-process, NOT a
+  daemon or write-trigger), a general store migration mechanism beyond the chosen persistence, making the cache
+  authoritative (it is derived/rebuildable), or changing compoundDecision / the EMA ratchet / pareto. Lever A
+  (the weak-set recency bug in docs/recall-steering/PLAN.md) stays a SEPARATE unit — out of scope here.
+- **2026-10-30 — jev recall engine: G2 spec PASS, owner confirmed, G3 RELEASED.** Spec
+  `docs/jev-recall-ranker-966ef33b/spec.md` (D1-D11, R1-R10) reviewed independently and PASSED; owner confirmed
+  the three open points: **D6 = EVENT-FOLD** (a derived `recall.ranked` event folded like the bars, NOT a SQL
+  table — no STORE_SCHEMA bump, no migration), **D10 = persist NOTHING on a jev failure**, and **op=recall
+  jev-backed BY DEFAULT with the deterministic fallback**. Implementation released. Paths: `src/quality/ranker.ts`
+  (async `DistinctRanker` seam + `jevRanker` + `recallRanked` + persistence + in-process single-flight +
+  deterministic fallback), the two recall call sites (op=recall in `src/pi/operations.ts` + the refusal path),
+  `src/quality/index.ts`, `src/types/learning.ts` (the `recall.ranked` payload schema), `src/runner/engine/types.ts`
+  (`EVENT.recallRanked` name), tests, `README.md`. Honest facts the research established and the spec keeps:
+  the jev hybrid (jev SCORES <=20 candidates in one evaluate call, deterministic Jaccard>=0.8 dedup guarantees
+  distinctness — pi-jev has no pairwise type); `recallExperience` stays sync/deterministic and is the fallback;
+  jev runs OUTSIDE any write txn, persist is one appendEvent after jev; a fresh hit still does cheap local scans,
+  only the jev call is cached; a jev-ranked entry is recorded but not reproducible. Not authorized: a table,
+  STORE_SCHEMA/migration change, new dependency, bounding `collectCases`' full scan (separate unit), Lever A
+  (separate unit), or any change to compoundDecision / the EMA ratchet / pareto. Commit only after lead accepts.
+- **2026-10-30 — jev recall engine ACCEPTED (G3).** Verified independently (commands run this session): tsc 0;
+  suite 292/292 (284 + 8). A jev distinct-exemplar recall ranker, persisted as a derived `recall.ranked` event
+  (event-fold, NO table/STORE_SCHEMA/migration — `git diff src/store` empty, schema still praxis.store/v2) and
+  shared via lazy read-through so N agents cost ~1 jev call: stage 1 deterministic pre-rank to JEV_POOL=20,
+  stage 2 ONE pi-jev evaluate scoring the <=20 (one score question per candidate, clipped 240), deterministic
+  Jaccard>=0.8 dedup guarantees distinct exemplars. `recallRanked` serves a FRESH watermark entry with ZERO
+  jev; a miss computes once and persists one event AFTER jev, outside any write txn (a write failure costs only
+  the cache); in-process single-flight + bounded 250ms cross-process wait; jev down -> deterministic payload,
+  NOTHING cached. The cache stores only ids (instance/step/version/jev score) — the note event stays the sole
+  owner of the lesson body. `recallExperience` is UNCHANGED and synchronous and is the fallback; op=recall and
+  the refusal path await `recallRanked`; recallFeedback kept its try/catch so a ranker fault never costs the
+  typed refusal. New file `src/quality/ranker-jev.ts`; `EVENT.recallRanked`; `RecallRankedSchema`. README gains
+  a 'Recall — exact' subsection with numbers matching code. jev-ranked results are recorded but not reproducible
+  (stated plainly). Committed through the husky hook. This completes the recall/quality arc; Lever A (weak-set
+  recency bug) remains the one separate follow-up.
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a
 tool denies it, stop and correct host rooting rather than bypass the denial.

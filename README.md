@@ -192,6 +192,26 @@ prior lessons, so a shortfall on one run steers the next. This is Praxis's execu
 (P7), not Occam's cognition: it judges whether work meets the standard and records the lesson, it
 does not reason.
 
+**Recall — exact (two stages, one cached jev call).** `op=recall` and the refusal feedback rank
+this project's solved cases in two stages. **Stage 1** is deterministic and unchanged: the cases
+are ordered by the brief's own relevance scorer and cut to **20 candidates** (`JEV_POOL`). **Stage
+2** is ONE pi-jev `evaluate` call over those candidates — one `score` question each, fields clipped
+to **240 characters** (`JEV_CLIP`) — asking how much *new* guidance each case adds; the result is
+ordered by that score (deterministic relevance as the tie-break) and near-duplicates are collapsed
+at **Jaccard ≥ 0.8** (`DUPLICATE_JACCARD`), so the agent gets N different exemplars rather than N
+echoes of the same lesson. Counts come from the caller: **5** at a start, **3** on a refusal.
+
+The jev answer is **persisted as a derived cache**, not a fact: a `recall.ranked` event in the same
+append-only log, keyed by the **evidence state** — task, task version, the cover (dimension ids) and
+a **watermark** = how many solved cases the task had — and folded like the adaptive bars. A recall
+whose watermark still matches is served from that entry with **zero jev calls**; a new solved case,
+a different cover or a new task version misses once, computes once and persists once. In one
+process concurrent misses share a single call; across processes the others wait briefly
+(`SINGLE_FLIGHT_WAIT_MS = 250`) for the publisher's entry. If jev is unavailable the deterministic
+ranker answers that call and **nothing is cached**, so the next jev-up recall recomputes. The
+envelope is unchanged — same `{need, count, truncated, cases}` — and a jev-ranked set is recorded
+with its model and token spend; like the alignment judgment it is recorded, not reproducible.
+
 ## Configuration
 
 Flows and tasks are plain JSON under `.pi/praxis/`. The active flow is selected by the

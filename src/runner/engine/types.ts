@@ -19,6 +19,8 @@ export const EVENT = {
   barRaised: "bar.raised",
   barContested: "bar.contested",
   recallSelected: "recall.selected",
+  /** The derived, watermark-versioned recall cache: a jev-ranked exemplar set, never a fact. */
+  recallRanked: "recall.ranked",
 } as const;
 
 /**

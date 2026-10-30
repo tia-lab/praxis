@@ -127,22 +127,27 @@ against learned **bars** by one rule in one place (`compoundDecision`, `src/qual
 the scorer, the gate and the audit cannot drift.
 
 **The acceptance test — exact.** Let `score_d` be a dimension's score, `bar_d` its bar (its own
-per-dimension bar, or the global bar if it has none yet), `mean` the arithmetic mean of all the
-dimension scores, and `global` the global bar. With `DIMENSION_TOLERANCE = 0.05`:
+per-dimension bar, or the global bar if it has none yet), `global` the global bar, `mean` the
+arithmetic mean of all the dimension scores, and `paretoThreshold` the task's Pareto point (the
+code default is `0.8`). The gate compares against the **capped effective bar**,
+`effBar_d = min(bar_d, paretoThreshold)`, and the capped global bar, `min(global, paretoThreshold)`.
+With `DIMENSION_TOLERANCE = 0.05`:
 
 | dimension outcome | condition |
 | --- | --- |
-| **refused** (hard fail) | `score_d < bar_d − 0.05` |
-| **flagged** (passes, owes a lesson) | `bar_d − 0.05 ≤ score_d < bar_d` |
-| **clean** | `score_d ≥ bar_d` |
+| **refused** (hard fail) | `score_d < effBar_d − 0.05` |
+| **flagged** (passes, owes a lesson) | `effBar_d − 0.05 ≤ score_d < effBar_d` |
+| **clean** | `score_d ≥ effBar_d` |
 
 ```
-PASS  ⇺  (no dimension refused)  AND  (mean ≥ global)
+PASS  ⇺  (no dimension refused)  AND  (mean ≥ min(global, paretoThreshold))
 ```
 
-So **each dimension is gated against its own bar within a 5% band**, *and* the **mean must clear
-the global bar with no tolerance**. The reported headline score is the MIN dimension; it is not
-part of the pass rule.
+So **each dimension is gated against its own (capped) bar within a 5% band**, *and* the **mean must
+clear the (capped) global bar with no tolerance**. Above the Pareto point the gate stops tightening:
+a learned bar may sit higher than `paretoThreshold` and the run is still accepted, so a good run is
+never refused merely because the ratchet climbed. The reported headline score is the MIN dimension;
+it is not part of the pass rule.
 
 **What each bar tracks.** Bars are engine-computed folds of `bar.raised` events over the
 append-only log — never set by the agent. There is one **global** scope (keyed by the rubric's
@@ -154,7 +159,10 @@ value:
 - **a dimension** ← **that dimension's own** score.
 
 Seeds: the global bar starts at the task's `quality.threshold`, each dimension at its
-`dimension.floor`.
+`dimension.floor`, and the gate's cap at the task's `quality.paretoThreshold` (**default `0.8`**) —
+the Pareto / good-enough point. Once the mean reaches it and every dimension is inside its (capped)
+band, the run is accepted even though the EMA ratchet may have climbed the bar higher; the ratchet
+still **records** the true level (option A), only the gate is capped.
 
 **The ratchet — exact (9-period EMA of the earned level, every scope).** For each scope, over its
 genuine-pass values in log order, with `N = 9` and `α = 2/(N+1) = 0.2`:

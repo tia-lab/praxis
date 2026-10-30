@@ -7,9 +7,13 @@
  *
  * The fixture puts the flagged dimension and the weakest dimension on DIFFERENT ids, so the refusal
  * proves the flagged rule itself and not the (already covered) weakest rule:
- *   grounded      floor 0.85  <- scores 0.80, inside [0.80, 0.85): FLAGGED
+ *   grounded      floor 0.75  <- scores 0.72, inside [0.70, 0.75): FLAGGED
  *   covers-question floor 0.40 <- scores 0.50, its own bar is low, so it is merely the WEAKEST
  *   honest-uncertainty floor 0.40
+ *
+ * The floor sits UNDER the Pareto point (0.8, the code default) on purpose: since pareto-gate the
+ * gate compares against min(bar, 0.8), so a band above 0.8 no longer exists — a 0.80 score against a
+ * 0.85 floor is CLEAN now, not flagged. The chain is unchanged; only the band it exercises moved.
  *
  * A fake scorer drives every submit: no network.
  */
@@ -41,7 +45,7 @@ import {
 const TASK = "tasks/make";
 
 const RUBRIC = [
-  { id: "grounded", statement: "claims are grounded in sources", floor: 0.85 },
+  { id: "grounded", statement: "claims are grounded in sources", floor: 0.75 },
   { id: "covers-question", statement: "the answer covers the question", floor: 0.4 },
   { id: "honest-uncertainty", statement: "limits are stated", floor: 0.4 },
 ];
@@ -98,11 +102,11 @@ test("flag -> record -> steer: a band pass is recorded, enforced by the note gat
 
     // --- history: one strong pass, then two that already sit inside grounded's band -------------
     await submit(ws, tick, "chain-0", { grounded: g, "covers-question": g, "honest-uncertainty": g });
-    await submit(ws, tick, "chain-1", { grounded: 0.81, "covers-question": 0.5, "honest-uncertainty": 0.5 });
-    await submit(ws, tick, "chain-2", { grounded: 0.81, "covers-question": 0.5, "honest-uncertainty": 0.5 });
+    await submit(ws, tick, "chain-1", { grounded: 0.68, "covers-question": 0.5, "honest-uncertainty": 0.5 });
+    await submit(ws, tick, "chain-2", { grounded: 0.68, "covers-question": 0.5, "honest-uncertainty": 0.5 });
 
-    // --- 1. FLAG: grounded lands inside [0.85 - 0.05, 0.85) and the verdict records it ---------
-    const chain = await submit(ws, tick, "chain-3", { grounded: 0.8, "covers-question": 0.5, "honest-uncertainty": 0.5 });
+    // --- 1. FLAG: grounded lands inside [0.75 - 0.05, 0.75) and the verdict records it ---------
+    const chain = await submit(ws, tick, "chain-3", { grounded: 0.72, "covers-question": 0.5, "honest-uncertainty": 0.5 });
     assert.equal(chain.refusal, undefined, "the band pass is ACCEPTED: " + JSON.stringify(chain.refusal?.detail));
     const verdict = eventsOf(ws, chain.run.instance).find((event) => event.type === "quality.verdict")?.payload as
       | { decision: string; score: number; mean: number; flagged: string[] }

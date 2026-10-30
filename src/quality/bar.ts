@@ -30,6 +30,7 @@ import { storeCall, type Store } from "../store/db.ts";
 import { appendEvent } from "../store/events.ts";
 import { withStore } from "../runner/engine/support.ts";
 import { EVENT } from "../runner/engine/types.ts";
+import { DEFAULT_PARETO_THRESHOLD } from "../runner/engine/types.ts";
 import type { EngineOptions } from "../runner/engine/types.ts";
 import { digest } from "../runner/canonical.ts";
 
@@ -131,6 +132,11 @@ export interface Bars {
   keys: Map<string, string>;
   /** The rubric composition the global bar belongs to. */
   composition: string;
+  /**
+   * The Pareto point this rubric's gate stops tightening at (`quality.paretoThreshold`, default 0.8).
+   * Derived, never stored: it travels with the bars so every decision site caps identically.
+   */
+  pareto: number;
 }
 
 /** The seed bars of a rubric, with no history at all: what a store-less caller should use. */
@@ -141,7 +147,13 @@ export function barsFromQuality(quality: Quality): Bars {
     perDimension.set(dimension.id, dimension.floor ?? quality.threshold);
     keys.set(dimension.id, dimensionKey(dimension));
   }
-  return { global: quality.threshold, perDimension, keys, composition: compositionKey(quality) };
+  return {
+    global: quality.threshold,
+    perDimension,
+    keys,
+    composition: compositionKey(quality),
+    pareto: quality.paretoThreshold ?? DEFAULT_PARETO_THRESHOLD,
+  };
 }
 
 /** Every raise recorded for one task, in log order (the audit view; the fold is per scope). */
@@ -297,10 +309,20 @@ export function emaOf(values: readonly number[], periods: number = BAR_EMA_PERIO
 }
 
 /**
+ * The bar a gate actually compares against: the bar in force, capped at the Pareto point. Acceptance
+ * stops tightening there while the ratchet keeps recording the level it reaches (option A).
+ */
+export function gateBar(bar: number, pareto: number | undefined): number {
+  return Math.min(bar, pareto ?? DEFAULT_PARETO_THRESHOLD);
+}
+
+/**
  * The compound acceptance test, in ONE place so the scorer path, the gate and the audit cannot
- * drift: every dimension must sit at or above \`bar - DIMENSION_TOLERANCE\` (a dimension inside
- * \`[bar - tolerance, bar)\` PASSES but is FLAGGED, and below the band is a hard refuse), and the MEAN
- * must clear the global bar with NO tolerance. MIN is not consulted here; it stays the headline.
+ * drift: every dimension must sit at or above `effBar - DIMENSION_TOLERANCE` (a dimension inside
+ * `[effBar - tolerance, effBar)` PASSES but is FLAGGED, and below the band is a hard refuse), and the
+ * MEAN must clear the global bar with NO tolerance. Both compare against `effBar = gateBar(bar,
+ * pareto)`: the gate stops tightening at the Pareto point while the bars themselves keep rising.
+ * MIN is not consulted here; it stays the headline.
  */
 export interface Compound {
   pass: boolean;
@@ -313,17 +335,17 @@ export interface Compound {
 
 export function compoundDecision(
   dimensions: readonly { id: string; score: number }[],
-  bars: Pick<Bars, "global" | "perDimension">,
+  bars: Pick<Bars, "global" | "perDimension"> & { readonly pareto?: number },
 ): Compound {
   const flagged: string[] = [];
   const refused: string[] = [];
   for (const dimension of dimensions) {
-    const bar = bars.perDimension.get(dimension.id) ?? bars.global;
+    const bar = gateBar(bars.perDimension.get(dimension.id) ?? bars.global, bars.pareto);
     if (dimension.score < bar - DIMENSION_TOLERANCE) refused.push(dimension.id);
     else if (dimension.score < bar) flagged.push(dimension.id);
   }
   const mean = dimensions.length === 0 ? 0 : dimensions.reduce((sum, dimension) => sum + dimension.score, 0) / dimensions.length;
-  return { pass: refused.length === 0 && mean >= bars.global, mean, flagged, refused };
+  return { pass: refused.length === 0 && mean >= gateBar(bars.global, bars.pareto), mean, flagged, refused };
 }
 
 /** What one evaluation of one scope decided, so a caller (or a test) can assert it. */

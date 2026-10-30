@@ -1,4 +1,5 @@
 /** The quality-evaluation surface (quality eval): the scorer port, the two entry points, the pi-jev adapter. */
+export { DEFAULT_PARETO_THRESHOLD } from "../runner/engine/types.ts";
 export { advanceEvaluated, evaluateArtifact, type Scorer } from "./evaluate.ts";
 export { jevScorer, type JevScorerOptions } from "./jev-scorer.ts";
 /** Execution learning, task-level (O2): the per-scope adaptive bars and the compound acceptance. */
@@ -24,6 +25,7 @@ export {
   effectiveBars,
   effectiveBarsFor,
   emaOf,
+  gateBar,
   genuinePasses,
   lowerQuartile,
   ofTask,

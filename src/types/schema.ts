@@ -165,6 +165,14 @@ export const QualitySchema = z.strictObject({
    * best-scoring attempt forward with the failure on the record. Absent means `continue`.
    */
   onFailure: z.enum(["escalate", "continue"]).optional(),
+  /**
+   * The Pareto / good-enough point: above it the gate stops tightening. Acceptance compares every
+   * dimension and the mean against `min(bar, paretoThreshold)`, so the adaptive ratchet may record a
+   * higher bar without refusing a run that is already good enough. Absent means the code default of
+   * 0.8 (`DEFAULT_PARETO_THRESHOLD`). Part of the declared floor, so it is inside the rubric digest
+   * and the pin; the ratchet itself is unaffected.
+   */
+  paretoThreshold: z.number().min(0).max(1).optional(),
 });
 export type Quality = z.infer<typeof QualitySchema>;
 

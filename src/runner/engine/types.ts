@@ -28,6 +28,14 @@ export const EVENT = {
 export const DEFAULT_MAX_ATTEMPTS = 3;
 
 /**
+ * The Pareto (good-enough) point of a quality gate, when neither the task nor the flow declares one:
+ * the gate compares every dimension and the mean against `min(bar, paretoThreshold)`, so a run that is
+ * good enough is never refused merely because the adaptive bar climbed above it. The RATCHET is not
+ * capped by this constant: bars keep rising and recording the level actually reached.
+ */
+export const DEFAULT_PARETO_THRESHOLD = 0.8;
+
+/**
  * What a step does when it cannot reach its floor, unless the task or the flow says otherwise.
  * `continue` keeps the flow moving with the best attempt on the record; `escalate` halts the
  * instance in `failed` and records a needs-guidance signal. Escalation cannot route anywhere

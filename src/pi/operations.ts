@@ -24,7 +24,7 @@ import type { EngineOptions } from "../runner/engine/index.ts";
 import { projectConfig, projectMaxAttempts, withStore } from "../runner/engine/support.ts";
 import { afterOp, beforeOp } from "../runner/hooks.ts";
 import { noteStanding, recordNote } from "../runner/note-gate.ts";
-import { advanceEvaluated, briefRecall, compoundDecision, effectiveBarsFor, escalatedLesson, jevScorer, recallExperience, type Scorer } from "../quality/index.ts";
+import { advanceEvaluated, briefRecall, compoundDecision, effectiveBarsFor, escalatedLesson, gateBar, jevScorer, recallExperience, type Scorer } from "../quality/index.ts";
 import { anchorOf, jevAlignJudge, judgeOrder, orderDigestOf, uncheckedClause, type AlignJudge } from "../quality/jev-align.ts";
 import { artifactSummary, currentStepOf, learningView, stepDescriptor } from "./descriptor.ts";
 import type { PiSessionContext, PiToolResult } from "./host.ts";
@@ -256,8 +256,10 @@ function qualityFeedback(error: unknown, options: EngineOptions & { instance: st
     const task = node === undefined ? undefined : view.flow.tasks.get(node.task);
     const effective = task?.quality ?? view.flow.config.quality;
     if (effective === undefined) return error;
-    // The floor this attempt was judged against is the adaptive bar, not the authored threshold.
-    const bar = node === undefined || task === undefined ? effective.threshold : effectiveBarsFor(options, node.task, effective).global;
+    // The floor this attempt was judged against is the adaptive bar, not the authored threshold — and
+    // the GATE caps it at the Pareto point, so the reported threshold is the one that decided.
+    const bars = node === undefined || task === undefined ? undefined : effectiveBarsFor(options, node.task, effective);
+    const bar = gateBar(bars?.global ?? effective.threshold, bars?.pareto);
     const statements = new Map(effective.dimensions.map((dimension) => [dimension.id, dimension.statement]));
     const dimensions = verdict.dimensions.map((dimension) => ({
       id: dimension.id,

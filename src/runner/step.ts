@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 import { fail, isAppError, type Code } from "../types/errors.ts";
 import { missingFor } from "./requirements.ts";
-import { compoundDecision } from "../quality/bar.ts";
+import { compoundDecision, gateBar } from "../quality/bar.ts";
 import {
   DigestSchema,
   type Artifact,
@@ -313,6 +313,8 @@ export function gate(
       policy: "required" | "advisory";
       threshold: number;
       floors?: Record<string, number>;
+      /** The Pareto point the gate stops tightening at; absent means the code default (0.8). */
+      pareto?: number;
       verdict?: QualityVerdict;
     };
   },
@@ -368,10 +370,13 @@ export function gate(
       const compound = compoundDecision(qualityVerdict.dimensions, {
         global: expected.quality.threshold,
         perDimension: new Map(Object.entries(expected.quality.floors ?? {})),
+        pareto: expected.quality.pareto,
       });
+      // Both halves compare against the CAPPED bar, so the recorded checks can never claim a
+      // standard the gate did not apply.
       checks.qualityPerDimension = compound.refused.length === 0;
-      checks.qualityMean = compound.mean >= expected.quality.threshold;
-      checks.qualityFloor = checks.qualityPerDimension && checks.qualityMean;
+      checks.qualityMean = compound.mean >= gateBar(expected.quality.threshold, expected.quality.pareto);
+      checks.qualityFloor = compound.pass;
       decide(!checks.qualityFloor, "QUALITY_BELOW_THRESHOLD");
     }
   }

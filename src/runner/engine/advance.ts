@@ -144,6 +144,8 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
               policy: effectiveQuality.policy,
               threshold: bars.global,
               floors: Object.fromEntries(bars.perDimension),
+              // The gate caps at the Pareto point; the cached verdict above already used the same cap.
+              pareto: bars.pareto,
               verdict: gatedVerdict(options.qualityVerdict, bars),
             },
           }),

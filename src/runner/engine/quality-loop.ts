@@ -18,7 +18,7 @@ import { appendEvent, listEvents } from "../../store/events.ts";
 import { setStatus } from "../../store/instance.ts";
 import { traceOf, type Grant } from "../capabilities.ts";
 import type { Handoff, Verdict } from "../step.ts";
-import { DIMENSION_TOLERANCE, recomputeBar, type Bars } from "../../quality/bar.ts";
+import { DIMENSION_TOLERANCE, gateBar, recomputeBar, type Bars } from "../../quality/bar.ts";
 import { writeNote } from "../note-gate.ts";
 import { payloadOf } from "./support.ts";
 import { DEFAULT_MAX_ATTEMPTS, DEFAULT_ON_FAILURE, EVENT, type QualityAttempt } from "./types.ts";
@@ -105,7 +105,9 @@ function failedReasonFor(args: {
   }
   // The compound model: name every dimension that fell below its OWN bar past the tolerance band,
   // and say separately whether the HARD MEAN gate failed. Numbers, never prose the agent must guess.
-  const barOf = (id: string): number => args.bars.perDimension.get(id) ?? args.bars.global;
+  // The gate compares against the CAPPED bar, so the message must too: never claim a standard the
+  // gate did not apply (the ratchet may sit above the Pareto point).
+  const barOf = (id: string): number => gateBar(args.bars.perDimension.get(id) ?? args.bars.global, args.bars.pareto);
   const below = args.verdict.dimensions.filter((dimension) => dimension.score < barOf(dimension.id) - DIMENSION_TOLERANCE);
   const named = below.length === 0
     ? ""
@@ -116,9 +118,10 @@ function failedReasonFor(args: {
   const mean = args.verdict.mean ?? (args.verdict.dimensions.length === 0
     ? 0
     : args.verdict.dimensions.reduce((sum, dimension) => sum + dimension.score, 0) / args.verdict.dimensions.length);
-  const meanFailed = mean < args.bars.global;
+  const gateGlobal = gateBar(args.bars.global, args.bars.pareto);
+  const meanFailed = mean < gateGlobal;
   return cause + "; step " + JSON.stringify(args.step) + " scored " + score + " with mean " + mean.toFixed(2) +
-    (meanFailed ? " under the global " + args.bars.global.toFixed(2) : "") + named;
+    (meanFailed ? " under the global " + gateGlobal.toFixed(2) : "") + named;
 }
 
 /**

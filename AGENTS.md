@@ -660,6 +660,39 @@ acceptance here before building.
   itself (same tags, higher max up to 10) for more. New test `tests/pi/recall-feedback.test.ts` (3): warm store
   carries up to 3 ranked passing cases with sha256 provenance for the refused dimension; cold store omits the
   field; ARTIFACT_INVALID carries none. Committed by the engineer through the husky hook.
+- **2026-10-30 — paretoThreshold gate-cap unit GO (option A).** Owner agreed A: a per-task `paretoThreshold`
+  (default 0.8) caps the ACCEPTANCE GATE — once the mean reaches it and the dimensions are within their
+  (capped) band, accept, even when the EMA ratchet climbed the bar higher (stops refusing good runs that
+  merely missed e.g. 0.87). The EMA ratchet is UNCHANGED — bars keep rising and recording the true level
+  (measurement/recall); only the gate is capped. Gate formula: `effBar = min(bar, pareto)`; a dimension
+  refuses if `score < effBar - DIMENSION_TOLERANCE`, flags if `effBar - tol <= score < effBar`; pass iff no
+  dimension refused AND `mean >= min(global, pareto)`. Below pareto: byte-identical to now. Spec-first-ish:
+  research traces EVERY pass/refuse decision site (confirm `compoundDecision` is the sole gate; if the engine's
+  floor/no-progress check decides separately, cap there too), then implement. Scope: `src/types/schema.ts`
+  (QualitySchema gains optional `paretoThreshold`, default 0.8 applied wherever acceptance is decided, with a
+  satisficing doc-comment), `src/quality/bar.ts` (`compoundDecision` cap), the README `Quality bars and learning` section, `tests/quality/*`,
+  `docs/<slug>-<hash8>/`. Task JSONs need NO edit (the schema default covers absence); a task MAY override.
+  Acceptance: a run with mean>=0.8 and dims in the capped band passes even when the ratcheted bar exceeds 0.8;
+  below-0.8 behaviour unchanged (existing bar/compound tests green); default 0.8 when absent; a task override
+  works; bars still ratchet/record above pareto; tsc 0; suite green. Not authorized: capping the RATCHET
+  (that is option B, rejected), changing the EMA ratchet, the ranker, the best-attempt selection, or any store/
+  flow schema beyond the one QualitySchema field.
+- **2026-10-30 — paretoThreshold gate-cap ACCEPTED (option A).** G-review PASS, verified independently
+  (commands run this session): tsc 0; suite 281/281 (277 + 4). `compoundDecision` caps BOTH the per-dimension
+  bars and the global mean through `gateBar(bar, pareto) = min(bar, pareto ?? 0.8)`; the EMA ratchet
+  (`emaOf`/`decideRaise`) is byte-identical (diff grep empty) — bars still ratchet and record above 0.8, only
+  the gate is capped. `paretoThreshold` is an optional QualitySchema field whose default (0.8,
+  `DEFAULT_PARETO_THRESHOLD` in runner/engine/types.ts) is applied at READ time in `barsFromQuality`, so
+  existing tasks (field absent) keep their exact rubric digest/pins. `compoundDecision` is the single gate;
+  the three decision callers (evaluate.ts, step.ts, advance.ts) read `compound.pass`, and the message sites
+  (quality-loop failureMessage, operations.ts qualityFeedback, step.ts mean flag) were capped via gateBar so a
+  message can't claim a standard the gate didn't apply. Below the Pareto point: byte-identical (bar.test.ts and
+  compound.test.ts unchanged); the one re-derived case (learning-chain) legitimately moved a flag band from
+  ABOVE 0.8 — which the cap removes — to below it, chain intact. README acceptance section updated to
+  `mean >= min(global, paretoThreshold)` with numbers matching the code. No store, envelope, flow or task
+  document change; no event added. Committed by the engineer through the husky hook. Open follow-up (owner's
+  call, NOT built): the step brief still shows the EARNED bar as the displayed threshold, not the capped gate
+  value — display-only, nothing is refused by it (shown standard is higher than the gate's).
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a
 tool denies it, stop and correct host rooting rather than bypass the denial.

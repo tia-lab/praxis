@@ -693,6 +693,25 @@ acceptance here before building.
   document change; no event added. Committed by the engineer through the husky hook. Open follow-up (owner's
   call, NOT built): the step brief still shows the EARNED bar as the displayed threshold, not the capped gate
   value — display-only, nothing is refused by it (shown standard is higher than the gate's).
+- **2026-10-30 — brief capped-gate display GO.** Owner: fix the open follow-up from pareto-gate — the step
+  brief shows the EARNED bar as its threshold, not the capped gate value, so an agent could over-work to beat
+  a standard the gate does not apply. Add the EFFECTIVE (capped) gate value — `min(earned, paretoThreshold)` —
+  to the brief's quality block ALONGSIDE the earned bar, for the global mean and each dimension, so the agent
+  sees both the aspiration (earned) and the actual gate. Scope: `src/pi/descriptor.ts` (brief builder),
+  `src/types/pi.ts` (the StartEnvelope/StepEnvelope quality shape — add the capped field, additive/optional),
+  `.pi/skills/praxis/SKILL.md` (one line), `tests/pi/*`, `docs/<slug>-<hash8>/`. Display-only: no gate, ratchet,
+  ranker, store or flow change; the acceptance decision is unchanged. Acceptance: the brief carries the capped
+  effective gate (= compoundDecision's gateBar) for global + each dimension; below-pareto it equals the earned
+  bar; tsc 0; suite green + a test. This is NOT the jev recall engine (separate, to be aligned).
+- **2026-10-30 — brief capped-gate display ACCEPTED.** G-review PASS, verified independently: tsc 0; suite
+  284/284 (281 + 3). The step brief now carries `brief.quality.gate { threshold, dimensions }` = the EFFECTIVE
+  gate `gateBar(earnedBar, pareto)` per scope, shown BESIDE the earned bar (unchanged) and the authored floor
+  (unchanged); below the Pareto point it equals the earned values (no-op display). Display-only: `git diff`
+  over src/quality, src/runner and src/store is EMPTY — compoundDecision, the ratchet, the ranker, the store
+  and every flow/task document are untouched; the acceptance decision is unchanged. The field is optional on
+  StepDescriptorSchema so existing descriptors validate unchanged. Skill updated: beat the gate, not the
+  aspiration. One existing test (quality-loop) re-pinned to the new key set with the gate asserted equal to the
+  earned values below the cap. Committed through the husky hook. This closes the pareto-gate follow-up.
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a
 tool denies it, stop and correct host rooting rather than bypass the denial.

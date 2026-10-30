@@ -11,7 +11,7 @@ import { ArtifactSummarySchema, StepDescriptorSchema, type ArtifactSummary, type
 import type { RecallSet } from "../types/learning.ts";
 import { CAPABILITY_NAMES, grantFor } from "../runner/capabilities.ts";
 import type { EngineOptions, HandoffRef, OpenedFlow } from "../runner/engine/index.ts";
-import { briefRecall } from "../quality/index.ts";
+import { briefRecall, effectiveBarsFor, gateBar } from "../quality/index.ts";
 import { noteStanding } from "../runner/note-gate.ts";
 
 export function currentStepOf(flow: OpenedFlow, instance: Instance): ResolvedNode {
@@ -47,6 +47,12 @@ export const JUDGING_STANCE =
 
 interface LearningView {
   bar: number | undefined;
+  /**
+   * The gate actually applied, per scope: `gateBar(earnedBar, pareto)`. Reported BESIDE the earned
+   * bar so the agent sees the aspiration and the standard the gate enforces, and never over-works to
+   * beat a bar the gate caps.
+   */
+  gate: { threshold: number; dimensions: Record<string, number> } | undefined;
   recall: RecallSet | undefined;
   /** The step that already reached its terminal outcome and still owes a note. */
   pending: string | undefined;
@@ -73,8 +79,18 @@ export function learningView(options: EngineOptions, flow: OpenedFlow, instance:
           taskVersion: resolved.task.version,
           quality,
         });
+  // The same effective bars the gate and the recorded bar are derived from, capped at the Pareto
+  // point: one formula (`gateBar`), so the brief cannot disagree with the gate.
+  const bars = quality === undefined ? undefined : effectiveBarsFor(options, resolved.node.task, quality);
   return {
     bar: recall?.bar,
+    gate:
+      bars === undefined
+        ? undefined
+        : {
+            threshold: gateBar(bars.global, bars.pareto),
+            dimensions: Object.fromEntries([...bars.perDimension].map(([id, bar]) => [id, gateBar(bar, bars.pareto)])),
+          },
     recall,
     pending: standing.pending?.step,
     attempts: standing.attempts,
@@ -134,6 +150,7 @@ export function stepDescriptor(
               quality: {
                 dimensions: quality.dimensions,
                 threshold: learning?.bar ?? quality.threshold,
+                ...(learning?.gate === undefined ? {} : { gate: learning.gate }),
                 policy: quality.policy,
                 aggregation: "min" as const,
                 judging: JUDGING_STANCE,

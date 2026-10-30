@@ -82,8 +82,10 @@ You get back three things:
     `requires` (the section contract), and when they apply `consumes[]`, `derivedFrom`,
     `subject`, `bindsSubject`;
   - `brief.quality` — **the standard**: `dimensions[{id, statement}]`, `threshold` (the
-    bar in force for this run, which may have risen), `aggregation`, `judging` (how the
-    judge reads your artifact), and `recall`.
+    **earned** bar for this run, which may have risen), `gate{threshold, dimensions}` (the
+    **effective** standard the gate actually applies: `min(earnedBar, paretoThreshold)`, so
+    above the Pareto point it is lower than the earned bar — beat the gate, not the
+    aspiration), `aggregation`, `judging` (how the judge reads your artifact), and `recall`.
 - `nonce` — carry it into the artifact on every submit.
 
 **Read the recall before you work.** `brief.quality.recall` holds `weakSet[]` — the

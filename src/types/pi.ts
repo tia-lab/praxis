@@ -134,6 +134,20 @@ export const StepDescriptorSchema = z.strictObject({
         policy: z.enum(["required", "advisory"]),
         /** How the per-dimension judgments become one score: the MINIMUM (MIN-011). */
         aggregation: z.literal("min"),
+        /**
+         * The gate ACTUALLY applied, beside the earned bar above: the Pareto cap,
+         * `min(earnedBar, paretoThreshold)`, per scope. Display only — the decision is
+         * `compoundDecision`, which reads the same cap. Below the Pareto point these values equal
+         * the earned bar / authored floor, so the field only says something new above it.
+         */
+        gate: z
+          .strictObject({
+            /** `min(threshold, paretoThreshold)`: what the MEAN must reach to pass. */
+            threshold: z.number().min(0).max(1),
+            /** Per dimension id: `min(earnedBar_d, paretoThreshold)`. */
+            dimensions: z.record(z.string().min(1).max(64), z.number().min(0).max(1)),
+          })
+          .optional(),
         /** The judging stance: what the judge does, in the agent's own terms (F1). */
         judging: z.string().min(1).max(400),
         /** The lessons selected for this step, ranked from recorded notes (F3, F7). */

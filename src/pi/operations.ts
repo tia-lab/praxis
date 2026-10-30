@@ -9,7 +9,7 @@
  */
 import { resolve } from "node:path";
 import { z } from "zod";
-import { asAppError, fail, isAppError } from "../types/errors.ts";
+import { asAppError, fail, isAppError, type AppError } from "../types/errors.ts";
 import { ActorSchema, QualityVerdictSchema, parseWith } from "../types/schema.ts";
 import { CheckEnvelopeSchema, FailureDetailsSchema, NoteEnvelopeSchema, ReadEnvelopeSchema, RecallEnvelopeSchema, StartEnvelopeSchema, StepEnvelopeSchema } from "../types/pi.ts";
 import type { FailureDetails, PraxisToolArgs } from "../types/pi.ts";
@@ -374,8 +374,51 @@ export async function submitOperation(args: PraxisToolArgs, ctx: PiSessionContex
       const refusedStep = typeof detail?.step === "string" ? detail.step : step;
       const verdict = verdictSummaryOf({ ...options, instance }, refusedStep, Number(detail?.version ?? 0));
       await afterOp("after_submit", { op: "submit", instance, step: refusedStep, decision: "refused", ...(verdict === undefined ? {} : { verdict }) });
+      // The refusal carries the examples for the dimensions that failed; nothing else about it changes.
+      throw recallFeedback(reviewed, { ...options, instance, actor }, refusedStep, verdict);
     }
     throw reviewed;
+  }
+}
+
+/**
+ * Attach the recalled passing work for the dimensions the gate refused, so a below-bar refusal arrives
+ * with examples instead of only numbers. Read-only (`recallExperience` writes nothing), bounded (three
+ * cases) and best effort: a cold store returns the refusal untouched rather than an empty field, and
+ * any failure returns it as it was, so the typed code is never lost.
+ *
+ * The dimensions come from the verdict the gate itself produced (`verdictSummaryOf` runs the same
+ * `compoundDecision`), falling back to the step's whole rubric when the refusal was the MEAN gate
+ * alone — that refusal means "every dimension may be the reason", not "no dimension".
+ */
+function recallFeedback(
+  error: AppError,
+  options: EngineOptions & { instance: string; actor: string },
+  step: string,
+  verdict: VerdictSummary | undefined,
+): AppError {
+  // No recorded verdict means no below-bar judgment to point examples at (e.g. QUALITY_REQUIRED).
+  if (verdict === undefined) return error;
+  try {
+    const detail = (typeof error.detail === "object" && error.detail !== null ? error.detail : {}) as Record<string, unknown>;
+    const view = inspect({ ...options });
+    const node = view.flow.config.nodes.find((candidate) => candidate.id === step);
+    const task = node === undefined ? undefined : view.flow.tasks.get(node.task);
+    const quality = task?.quality ?? view.flow.config.quality;
+    if (quality === undefined) return error;
+    const statements = new Map(quality.dimensions.map((dimension) => [dimension.id, dimension.statement]));
+    const refused = verdict.refused.length === 0 ? [...statements.keys()] : verdict.refused;
+    const tags = refused.filter((id) => statements.has(id));
+    if (tags.length === 0) return error;
+    const need = clipText(
+      "passing work for " + tags.map((id) => id + ": " + (statements.get(id) ?? "")).join("; "),
+      500,
+    );
+    const payload = recallExperience(options, { need, tags, max: 3 });
+    if (payload.cases.length === 0) return error;
+    return fail(error.code, error.message, { ...detail, recall: payload });
+  } catch {
+    return error;
   }
 }
 

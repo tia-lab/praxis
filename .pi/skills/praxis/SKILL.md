@@ -151,11 +151,20 @@ holding:
 - `compound.flagged[]` — dimensions that passed only narrowly, `compound.refused[]` — the
   ones that failed their own bar, `compound.mean` — the overall mean against the
   `detail.quality.threshold` in force;
-- `lesson` — a targeted prior lesson for the weakest dimension when one exists.
+- `lesson` — a targeted prior lesson for the weakest dimension when one exists;
+- `recall` — the best **passing** examples for exactly the dimensions that failed:
+  `{need, count, truncated, cases[{score, relevance, provenance{instance, task, step, version,
+  digest, writtenBy, at}, outcome: "pass", lesson}]}`, at most three. Omitted when this
+  project has no solved case yet — a cold store, not a missing field.
 
 Fix what the numbers say, not what feels close: a dimension in `refused` must be genuinely
 improved; a high mean does not buy a weak dimension through. A resubmission must carry
 **changed bytes**.
+
+Read `detail.recall` before rewriting: those cases cleared the same bar on this project, so
+revise toward what they did rather than guessing again. Want more or broader examples? Call
+`op=recall` yourself with those dimension ids as `tags` and a higher `max` (up to 10); it is
+read-only and never changes the instance.
 
 The attempt budget is per step, and the loop stops when it is spent or the score stops
 moving. At that point the task's failure policy decides, and both outcomes are recorded:

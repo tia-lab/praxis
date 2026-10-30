@@ -632,6 +632,34 @@ acceptance here before building.
   a sustained level L pulls the bar to L in ≤0.05 steps per cooldown instead of creeping, and a volatile series
   reaches only its smoothed level, never its best single pass. Committed by the engineer through the husky hook.
   REMAINING: the final 16-window live test (to observe the ratchet reach level faster), then the tasks part closes.
+- **2026-10-30 — refusal-recall unit GO.** Owner directed it: on a below-bar quality refusal, Praxis returns
+  the recalled passing examples for the FAILED dimensions inline, and the agent is told it can `op=recall` for
+  more. The rest (tags=refused, max 3–4, the existing relevance ranking) stays as-is — NO ranker change. This is
+  new scope opened after the tasks part closed; the lead treats the owner's message as the GO and records it.
+  Mechanism (verified before scoping): the refusal is thrown as an AppError whose `detail` is `z.unknown`
+  (`src/types/pi.ts:299`) and already reaches the agent; `recallExperience` is already imported in
+  `src/pi/operations.ts`; `verdictSummaryOf`/`compoundDecision` already yield `refused[]` in the submit catch.
+  Defaults set by the lead (owner-overridable): tags = `refused[]` (fall back to the step's dims when the
+  refusal was mean-only), max = 3, need-text synthesized from the refused dimensions' statements, ONLY on a
+  quality-gate refusal (ARTIFACT_INVALID and ALIGNMENT_REJECTED untouched), cold store → omit. Scope:
+  `src/pi/operations.ts`, `.pi/skills/praxis/SKILL.md`, `tests/pi/*`, `docs/<slug>-<hash8>/`; `src/types/pi.ts`
+  ONLY if a typed `detail.recall` is cleaner than leaving it under `z.unknown` (prefer minimal). Acceptance: a
+  below-bar refusal carries `detail.recall` with up to 3 ranked passing cases + provenance for the refused
+  dimensions; a cold store omits it; schema-invalid and alignment refusals are unchanged; the skill states the
+  examples are included and that `op=recall` returns more; tsc 0; suite green + one new test. Not authorized:
+  changing the gate/compoundDecision, the EMA ratchet, the ranker's ranking, or any store/flow document.
+- **2026-10-30 — refusal-recall ACCEPTED.** G-review PASS, verified independently (commands run this session):
+  tsc 0; suite 277/277 (274 + 3 new). On a below-bar quality refusal, `recallFeedback` (new private helper in
+  `src/pi/operations.ts`) attaches `detail.recall` = `recallExperience(tags = refused dims → step dims
+  fallback, max 3)` to the thrown error, preserving its typed code, message and existing detail; gated on a
+  recorded verdict; cold store returns the error untouched (no empty field); the whole body is try/catch so the
+  typed code is never lost. The quality branch's `throw reviewed` became `throw recallFeedback(...)`; the
+  non-quality `throw reviewed` is byte-identical, so ARTIFACT_INVALID and ALIGNMENT_REJECTED are unchanged. No
+  gate, compoundDecision, EMA ratchet, ranker, engine or store change; no store write (read-only `inspect` +
+  `recallExperience`). Skill §4 tells the agent the examples are in `detail.recall` and that it may `op=recall`
+  itself (same tags, higher max up to 10) for more. New test `tests/pi/recall-feedback.test.ts` (3): warm store
+  carries up to 3 ranked passing cases with sha256 provenance for the refused dimension; cold store omits the
+  field; ARTIFACT_INVALID carries none. Committed by the engineer through the husky hook.
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a
 tool denies it, stop and correct host rooting rather than bypass the denial.

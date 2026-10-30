@@ -396,6 +396,24 @@ acceptance here before building.
   consciously deferred, with every other §13 gate left visible and annotated deferred/open — no gate
   is marked met that is not. Documentation only: no code, schema, store or flow change.
 
+- **2026-10-30 — extras roadmap (G0).** `docs/extras-roadmap-ad609563/` · hash8 `ad609563` ·
+  owner-directed sequencing roadmap over five units (skill+one-tool, housekeeping, jev alignment
+  gate, hooks, experience-query) with two rejects recorded (agent-picks-flow, peer scoreboard).
+  This entry authorizes the plan document and the order only. Each unit still needs its own
+  bounded G0 GO before G4 code; the roadmap's boundaries (skills guide not enforce; routing not
+  isolation; within-store not federated; no identity/exactly-once claim; gates #1/#3/#8 open)
+  bind every unit. Documentation only so far: no code, dependency, schema, store or flow change.
+
+- **2026-10-30 — Unit 1 GO (skill + one-tool ergonomics).** Owner GO in words: start with Unit 1 of
+  `docs/extras-roadmap-ad609563/`. Scope: `.pi/skills/praxis/SKILL.md` (+ any files it references);
+  read-only use of `src/pi/tool.ts`, `src/types/pi.ts`, `.pi/praxis/tasks/**` and `.pi/praxis/flows/**`
+  for grounding. Acceptance: an agent given only the skill and the `praxis` tool completes a `research`
+  step end-to-end on a fresh store (start → check → submit → note, tagging every flagged dimension) with
+  no hand-written scaffolding; the skill states plainly that it guides conduct and enforces nothing; it
+  does not restate scoring internals (the standard arrives in the runtime brief). Not authorized: any
+  `src` change (a missing brief field is a finding, not a fix), any dependency/schema/store/flow change,
+  and any isolation/identity/exactly-once claim.
+
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a
 tool denies it, stop and correct host rooting rather than bypass the denial.

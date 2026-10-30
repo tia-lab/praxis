@@ -17,7 +17,10 @@ import type { PiToolResult } from "../../src/pi/host.ts";
 import { sequenceScorer } from "../testkit.ts";
 import type { FlowConfig, TaskConfig } from "../../src/types/schema.ts";
 import { eventsOf, instanceRow, type Workspace } from "../testkit.ts";
-import { fakeContext, tempStore } from "./fixtures.ts";
+import { fakeContext, tempStore, useAlignedJudge } from "./fixtures.ts";
+
+// No test may reach a model: every start here goes through the injected aligned judge.
+useAlignedJudge();
 
 const SESSION = "session-check";
 
@@ -63,7 +66,7 @@ const bag = (result: PiToolResult): any => result.details;
 
 /** A fresh instance of the fixture flow, plus the nonce it pinned. */
 async function started(cwd: string, requestId: string): Promise<{ instance: string; nonce: string }> {
-  const start = bag(await call(cwd, { op: "start", flow: "flows/architect", requestId }));
+  const start = bag(await call(cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId }));
   return { instance: start.result.instanceId, nonce: start.nonce };
 }
 
@@ -86,7 +89,7 @@ test("a complete artifact checks clean, and the descriptor offers the dry run", 
     );
     assert.deepEqual(checked, { ok: true, missing: [], step: "draft" });
 
-    const again = bag(await call(ws.cwd, { op: "start", flow: "flows/architect", requestId: "check-ok" }));
+    const again = bag(await call(ws.cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId: "check-ok" }));
     assert.deepEqual(again.step.ops, ["submit", "check"], "offered wherever a submit is");
     assert.equal(again.nonce, nonce);
   } finally {

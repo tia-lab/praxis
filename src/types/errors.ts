@@ -45,6 +45,8 @@ export type Code =
   | "QUALITY_REQUIRED"
   | "QUALITY_BELOW_THRESHOLD"
   | "QUALITY_BLOCKED"
+  /** The order does not belong to the task the pinned flow will run (routing hygiene, not safety). */
+  | "ALIGNMENT_REJECTED"
   | "RESULT_INVALID"
   | "STORE_INVALID"
   | "INTERNAL";

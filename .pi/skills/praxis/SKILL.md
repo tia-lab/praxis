@@ -24,7 +24,8 @@ standard — it arrives in the brief at runtime.
   never shop for a different one.
 - No claim of isolation, trusted identity or exactly-once execution is made anywhere. Tools
   other than `praxis` are not blocked by this runtime; only calls routed through the tool
-  are gated.
+  are gated. The alignment gate in particular is **routing hygiene**: it compares your order to
+  the task the flow pins, and it is skipped when the judge is unavailable rather than halting you.
 
 ## The tool
 
@@ -32,7 +33,7 @@ One tool, `praxis`, with these operations. Every call is a single JSON argument 
 
 | op | requires | returns |
 | --- | --- | --- |
-| `start` | `flow`, `requestId` | `{ result, step, nonce }` — opens **or re-opens** the instance that request id names |
+| `start` | `flow`, `requestId`, `order` | `{ result, step, nonce }` — opens **or re-opens** the instance that request id names |
 | `check` | `instance`, `artifact` | `{ ok, missing[], step }` — dry run, records nothing |
 | `submit` | `instance`, `artifact` | `{ result, step }` — advances exactly one step, or refuses |
 | `note` | `instance`, `subjective` | `{ result, step, note{step, noteVersion, stub, missing?} }` |
@@ -46,8 +47,22 @@ and nothing in the flow has advanced. Read the code, not the prose.
 ### 1. Start (or resume) and read the descriptor
 
 ```
-praxis { op: "start", flow: "<the flow you were dispatched on>", requestId: "<your unit's id>" }
+praxis { op: "start", flow: "<the flow you were dispatched on>", requestId: "<your unit's id>",
+         order: "<the order you were given, in its own words>" }
 ```
+
+`order` is **required**, and it is judged before anything is created: Praxis asks an independent
+judge whether that order is work the task this flow runs can accept. Three outcomes, and they look
+different:
+
+- **aligned** — nothing to notice, the start proceeds and you get the descriptor below;
+- **misaligned** — refused with `ALIGNMENT_REJECTED` and **nothing is created**; the detail names
+  the anchor (flow, step, goal, role), the judge's reason and your order's digest. Do not reword
+  the order to get past it: if your dispatch really is different work, say so in your report;
+- **judge unavailable** (model outage, timeout, unreadable answer) — the start **proceeds
+  unchecked**. You will see `step.alignment = { decision: "unchecked", reason, orderDigest }` and
+  the result's `summary` will say `alignment unchecked: …`. That is not a failure of your work:
+  it means the gate could not run. Note it when you report.
 
 The same flow + request id always addresses the same instance, so **re-calling `start` is how
 you resume** — never invent a new request id to "get a fresh start", that forks the work.

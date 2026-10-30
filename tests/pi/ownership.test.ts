@@ -10,7 +10,9 @@ import { test } from "node:test";
 
 import { executePraxisTool } from "../../src/pi/tool.ts";
 import type { PiToolResult } from "../../src/pi/host.ts";
-import { artifacts, fakeContext, tempStore } from "./fixtures.ts";
+import { artifacts, fakeContext, tempStore, useAlignedJudge } from "./fixtures.ts";
+
+useAlignedJudge();
 
 const OWNER = "session-owner";
 const INTRUDER = "session-intruder";
@@ -21,7 +23,7 @@ const bag = (result: PiToolResult): any => result.details;
 
 /** Start as OWNER and return the instance id + nonce for the intruder cases. */
 async function ownerInstance(cwd: string): Promise<{ instance: string; nonce: string }> {
-  const started = bag(await run(cwd, { op: "start", flow: "flows/architect", requestId: "own-1" }, OWNER));
+  const started = bag(await run(cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId: "own-1" }, OWNER));
   return { instance: started.result.instanceId as string, nonce: started.nonce as string };
 }
 

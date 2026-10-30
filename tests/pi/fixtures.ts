@@ -11,7 +11,8 @@ import type { FlowConfig, TaskConfig } from "../../src/types/schema.ts";
 import type { PiSessionContext } from "../../src/pi/host.ts";
 import { canonicalBytes, digest, digestOf } from "../../src/runner/canonical.ts";
 import { instanceIdFor } from "../../src/runner/engine/index.ts";
-import { actorFor } from "../../src/pi/tool.ts";
+import { actorFor, setAlignJudgeForTest } from "../../src/pi/tool.ts";
+import type { AlignJudge } from "../../src/quality/jev-align.ts";
 import { openStore } from "../../src/store/db.ts";
 import { createInstance } from "../../src/store/instance.ts";
 import { recordArtifact } from "../../src/store/artifacts.ts";
@@ -62,6 +63,23 @@ export const artifacts = {
   wrongDerivedFromB: (nonce: string) => ({ schema: "praxis.artifact.derive/v1", nonce, derivedFrom: WRONG_DIGEST, claim: "wrong derivation" }),
   missingNonceA: () => ({ schema: "praxis.artifact.architecture/v1", claim: "no nonce" }),
 };
+
+/**
+ * A fake alignment judge: no model call, no network. `aligned` is what most tests want, because an
+ * aligned start must look exactly like a pre-unit start; the alignment tests install their own.
+ */
+export function fakeAlignJudge(decision: "aligned" | "misaligned" = "aligned", reason = "fake align judge"): AlignJudge {
+  return {
+    async judge({ order }) {
+      return { decision, reason, model: "fake-align/v1", orderDigest: digest(order) };
+    },
+  };
+}
+
+/** Install the aligned fake for a whole test file, so no start reaches the real judge. */
+export function useAlignedJudge(): void {
+  setAlignJudgeForTest(fakeAlignJudge("aligned"));
+}
 
 export interface FakeContextOptions {
   cwd: string;

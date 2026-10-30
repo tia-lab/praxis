@@ -414,6 +414,61 @@ acceptance here before building.
   `src` change (a missing brief field is a finding, not a fix), any dependency/schema/store/flow change,
   and any isolation/identity/exactly-once claim.
 
+- **2026-10-30 — Unit 2 GO (repo identity / housekeeping).** Owner GO in words: go with 2.
+  Decisions taken with owner endorsement of the lead's lean: **remove unused
+  `@nats-io/transport-node`; remove the inherited manifold `.husky/commit-msg` hook and
+  `commitlint.config.cjs`; keep `zod`** (used). Scope: `package.json` (praxis name/description,
+  pi extension/skill entries pointing at real files, `check`/`test`/`bench`/`release` scripts
+  repointed at commands/files that exist or removed), `.husky/`, `commitlint.config.cjs`,
+  `.gitignore` (add the praxis store root; keep WAL/SHM out of Git), lockfile if present.
+  Acceptance: `tsc` clean and the suite green after the changes; `npm run` scripts resolve to
+  files/commands that exist; no NATS dependency remains; the praxis store path is git-ignored;
+  no runtime behaviour change and the change is reversible (§4 waiver, no model/contract change).
+  Not authorized: any `src` runtime change, new dependency, schema/store/flow change, or
+  isolation/identity/exactly-once claim.
+
+- **2026-10-30 — Unit 3 GO (jev alignment gate), SPEC-FIRST.** Owner GO in words: proceed. Unit 3 is
+  contract-bearing (it adds a typed refusal code and, per the owner model, an order input praxis does
+  not have today), so it is NOT a §4 waiver: it runs G1 research + G2 spec and STOPS for review before
+  any G4 code. Scope (research/spec now; code only after spec PASS): `docs/<unit3-slug>-<hash8>/`, later
+  `src/runner/`, `src/types/errors.ts`, `src/types/pi.ts`, `src/pi/tool.ts`, `tests/`. Key questions the
+  spec must settle: (1) where the "order" enters — an `op=start` arg (contract change, owner-visible) vs a
+  dispatcher-side check outside praxis src; (2) the trusted task-anchor (flow + `role` + the step brief
+  goal, all from the pinned flow, never the order); (3) the jev decision shape reusing `jev-scorer.ts`'s
+  pattern; (4) the one new typed `Code` and the fail-closed refuse behaviour; (5) that this is routing
+  hygiene, logged, NOT isolation (gate #1) or identity (gate #3). Not authorized yet: any code before the
+  spec passes review, any dependency/store/flow-schema change, and any isolation/identity/exactly-once claim.
+
+- **2026-10-30 — lead scope refinement: Unit 3 check lives at the tool boundary, not `src/runner/`.**
+  The Unit 3 roadmap listed `src/runner/` for the pre-dispatch check; the accepted G2 spec
+  (`docs/jev-alignment-gate-b8c0e751/`) keeps the check in `startOperation` (`src/pi/tool.ts`) plus a
+  new `src/quality/jev-align.ts`, because the tool boundary is the only surface that carries an `order`.
+  Declared, not silent (spec A1/Exclusions). Implementation paths for Unit 3: `src/quality/jev-align.ts`
+  (new), `src/pi/tool.ts`, `src/types/errors.ts`, `src/types/pi.ts`, `tests/`, plus the `.pi/skills/praxis/SKILL.md`
+  update (op=start gains a required `order` arg) in the same acceptance. Owner-overridable. G1+G2 passed
+  review; G4 is gated on owner sign-off of the three owner-visible decisions (required `order` arg;
+  judge-unavailable fail-closed; non-durable refusal record) recorded in the review.
+
+- **2026-10-30 — Unit 3 G4 GO (jev alignment gate), owner decisions settled.** After G1+G2 PASS and the
+  three owner-visible decisions: **(D1) `order` is a REQUIRED `op=start` arg — accepted** (owner did not
+  object; lead recommendation); **(fail-mode) judge-unavailable PROCEEDS with a typed, visible flag,
+  NOT a refusal — owner chose option (ii)**; **(durability) refusals are non-durable for now — accepted**
+  (A4 is a separate unit). The engineer first AMENDS `docs/jev-alignment-gate-b8c0e751/spec.md` D3/R3/model
+  to the (ii) behaviour (appending the amendment line), then plans and implements. Impl paths:
+  `src/quality/jev-align.ts` (new), `src/pi/tool.ts`, `src/types/errors.ts`, `src/types/pi.ts`, `tests/`,
+  `.pi/skills/praxis/SKILL.md` (teach the required `order` arg) — all in one acceptance. Three outcomes:
+  aligned → proceed clean; misaligned → `ALIGNMENT_REJECTED` before any write; judge-unavailable → proceed
+  with a visible typed flag (never silent). Not authorized: expanding the six result KEYS, store/flow-schema
+  change, new dependency, or any isolation/identity/exactly-once claim.
+
+- **2026-10-30 — Unit 3 ACCEPTED + cap waiver.** The jev alignment gate (`docs/jev-alignment-gate-b8c0e751/`)
+  passed independent G5 review on R1–R9 (aligned byte-identical, misaligned write-free, judge-unavailable
+  proceeds with a typed visible flag per owner decision ii, order required, mirror drift-proof, 242/242
+  no-network). One blocking finding — `src/pi/tool.ts` at 651 lines over the binding 600 cap — is **owner-
+  waived**: keep as-is for now; the `tool.ts` op-handler extraction is **deferred until all of praxis is
+  done**. Owner is restoring husky + commitlint himself (the post-Unit-2 reversal), so the engineer was
+  told NOT to touch `.husky/`/`commitlint.config.cjs`. Unit 3 source stands as reported; nothing committed.
+
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a
 tool denies it, stop and correct host rooting rather than bypass the denial.

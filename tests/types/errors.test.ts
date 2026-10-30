@@ -41,7 +41,7 @@ const ADDED: readonly Code[] = [
 ];
 
 /** The taxonomy size the mirror must report: 17 existing + these 12. */
-const TAXONOMY_SIZE = 29;
+const TAXONOMY_SIZE = 30;
 
 /** The runtime mirror, reached through the schema the tool actually validates with. */
 const MIRROR = FailureDetailsSchema.shape.code.options;

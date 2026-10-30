@@ -17,7 +17,9 @@ import { actorFor, engineOptions, executePraxisTool } from "../../src/pi/tool.ts
 import type { PiToolResult } from "../../src/pi/host.ts";
 import { PraxisToolArgsSchema } from "../../src/types/pi.ts";
 import { canonicalBytes } from "../../src/runner/canonical.ts";
-import { artifacts, config, fakeContext, pendingArtifact, tempStore } from "./fixtures.ts";
+import { artifacts, config, fakeContext, pendingArtifact, tempStore, useAlignedJudge } from "./fixtures.ts";
+
+useAlignedJudge();
 
 const SIX_KEYS = ["artifacts", "flow", "instanceId", "nextAction", "status", "summary"];
 const UNKNOWN_INSTANCE = "i0123456789abcdef0123456789abcdef";
@@ -32,7 +34,7 @@ async function call(cwd: string, args: unknown, sessionId: string = SESSION): Pr
 }
 
 const start = (cwd: string, requestId = "req-1", sessionId: string = SESSION): Promise<PiToolResult> =>
-  call(cwd, { op: "start", flow: "flows/architect", requestId }, sessionId);
+  call(cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId }, sessionId);
 
 /** The envelope of a tool result; success and failure details are both validated there. */
 const bag = (result: PiToolResult): any => result.details;
@@ -61,8 +63,8 @@ async function throughDraft(cwd: string) {
 // --------------------------------------------------------------------------- step 2
 
 test("schema rejects missing start flow", async () => {
-  assert.equal(PraxisToolArgsSchema.safeParse({ op: "start", requestId: "req" }).success, false);
-  const result = await call(project(), { op: "start", requestId: "req" });
+  assert.equal(PraxisToolArgsSchema.safeParse({ op: "start", order: "carry out the task this flow runs", requestId: "req" }).success, false);
+  const result = await call(project(), { op: "start", order: "carry out the task this flow runs", requestId: "req" });
   assert.equal(result.isError, true);
   assert.equal(bag(result).code, "CONFIG_INVALID");
 });
@@ -103,7 +105,7 @@ test("actor label is stable per session", async () => {
 
 test("missing session id is a typed failure", async () => {
   const cwd = project();
-  const result = await executePraxisTool({ op: "start", flow: "flows/architect", requestId: "req-1" }, fakeContext({ cwd, sessionId: null }));
+  const result = await executePraxisTool({ op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId: "req-1" }, fakeContext({ cwd, sessionId: null }));
   assert.equal(result.isError, true);
   assert.equal(bag(result).code, "CONFIG_INVALID");
   assert.deepEqual(bag(result).detail, { source: "sessionManager.getSessionId" });

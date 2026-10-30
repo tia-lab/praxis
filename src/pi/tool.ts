@@ -36,6 +36,7 @@ import type { EngineOptions, HandoffRef, OpenedFlow } from "../runner/engine/ind
 import { advanceEvaluated, briefRecall, effectiveBarsFor, escalatedLesson, jevScorer, type Scorer } from "../quality/index.ts";
 import { noteStanding, recordNote } from "../runner/note-gate.ts";
 import { projectConfig, projectMaxAttempts } from "../runner/engine/support.ts";
+import { anchorOf, jevAlignJudge, judgeOrder, uncheckedClause, type AlignJudge } from "../quality/jev-align.ts";
 import { ISSUE_CATEGORIES, issueTemplate } from "../types/issue.ts";
 import { ISSUE_DISABLED, openIssue } from "../runner/issues.ts";
 import type { PiSessionContext, PiToolDefinition, PiToolResult } from "./host.ts";
@@ -343,22 +344,61 @@ function required(value: string | undefined, what: string): string {
   return value;
 }
 
-function startOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResult {
+/**
+ * The alignment judge. It defaults to the real pi-jev adapter; an injected fake replaces it so no
+ * unit test can reach the network, and `undefined` restores the default.
+ */
+let alignJudgeOverride: AlignJudge | undefined;
+
+/** Replace the alignment judge; `undefined` restores the pi-jev default. */
+export function setAlignJudgeForTest(judge: AlignJudge | undefined): void {
+  alignJudgeOverride = judge;
+}
+
+/**
+ * The alignment gate (routing hygiene, not isolation and not identity): the order the agent was
+ * handed is judged against the task the flow will run, BEFORE anything is written. Three outcomes:
+ * `aligned` proceeds untouched; `misaligned` refuses with ALIGNMENT_REJECTED and writes nothing;
+ * `unavailable` proceeds with a VISIBLE flag (descriptor + summary clause), because a model outage
+ * must not halt every start. Only a genuine misalignment refuses.
+ */
+async function startOperation(args: PraxisToolArgs, ctx: PiSessionContext): Promise<PiToolResult> {
   const actor = actorFor(ctx);
   const options = engineOptions(ctx);
-  const started = start({
-    ...options,
-    flow: required(args.flow, "flow"),
-    requestId: required(args.requestId, "requestId"),
-    actor,
-    ...(args.roles !== undefined ? { roles: args.roles } : {}),
-  });
+  const flowName = required(args.flow, "flow");
+  const requestId = required(args.requestId, "requestId");
+  const order = required(args.order, "order");
+  // The anchor is read from the flow document this start would pin, and the judgment happens here,
+  // BEFORE start(): a refusal leaves no instance, pin, event or artifact behind.
+  const anchor = anchorOf(openFlow(options));
+  const verdict = await judgeOrder(alignJudgeOverride ?? jevAlignJudge(), { order, anchor });
+  if (verdict.decision === "misaligned") {
+    throw fail("ALIGNMENT_REJECTED", "the order does not belong to the task this flow runs", {
+      decision: verdict.decision,
+      reason: clipText(verdict.reason, 400),
+      model: verdict.model,
+      orderDigest: verdict.orderDigest,
+      anchor,
+    });
+  }
+  const started = start({ ...options, flow: flowName, requestId, actor, ...(args.roles !== undefined ? { roles: args.roles } : {}) });
   const { instance, result, flow, handoffs } = inspect({ ...options, instance: started.instance.id, actor });
+  const step = stepDescriptor(flow, instance, handoffs, learningView(options, flow, instance));
+  if (verdict.decision === "aligned") {
+    return ok(StartEnvelopeSchema, { result, step, nonce: instance.nonce });
+  }
+  // Judged unavailable: proceed, and make it VISIBLE to both parties without adding a result key.
+  const flag = { decision: "unchecked" as const, reason: clipText(verdict.reason, 400), orderDigest: verdict.orderDigest };
   return ok(StartEnvelopeSchema, {
-    result,
-    step: stepDescriptor(flow, instance, handoffs, learningView(options, flow, instance)),
+    result: { ...result, summary: clipText(result.summary + uncheckedClause(verdict), 4096) },
+    step: { ...step, alignment: flag },
     nonce: instance.nonce,
   });
+}
+
+/** Keep a derived string inside the field's own bound. */
+function clipText(text: string, limit: number): string {
+  return text.length <= limit ? text : text.slice(0, limit - 1) + "\u2026";
 }
 
 /**
@@ -578,7 +618,8 @@ export async function executePraxisTool(args: unknown, ctx: PiSessionContext): P
       return issueOperation(parseWith(IssueOpArgsSchema, args, "CONFIG_INVALID", "praxis arguments"), ctx);
     }
     const parsed = parseWith(PraxisToolArgsSchema, args, "CONFIG_INVALID", "praxis arguments");
-    if (parsed.op === "start") return startOperation(parsed, ctx);
+    // `await`, not `return`: an async rejection must reach the catch below (R8: never reject).
+    if (parsed.op === "start") return await startOperation(parsed, ctx);
     // `await`, not `return`: an async rejection must reach the catch below (R8: never reject).
     if (parsed.op === "submit") return await submitOperation(parsed, ctx);
     if (parsed.op === "note") return noteOperation(parsed, ctx);

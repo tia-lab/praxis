@@ -13,7 +13,9 @@ import { test } from "node:test";
 import { executePraxisTool, setScorerForTest } from "../../src/pi/tool.ts";
 import type { PiToolResult } from "../../src/pi/host.ts";
 import type { Scorer } from "../../src/quality/index.ts";
-import { artifacts, escalateTasks, fakeContext, qualityTasks, tempStore } from "./fixtures.ts";
+import { artifacts, escalateTasks, fakeContext, qualityTasks, tempStore, useAlignedJudge } from "./fixtures.ts";
+
+useAlignedJudge();
 import type { FlowConfig, TaskConfig } from "../../src/types/schema.ts";
 
 const SESSION = "session-alpha";
@@ -46,7 +48,7 @@ function project(): ReturnType<typeof tempStore> {
 test("start shows the quality rubric in the step descriptor", async () => {
   const ws = project();
   try {
-    const started = bag(await call(ws.cwd, { op: "start", flow: "flows/architect", requestId: "q-brief" }));
+    const started = bag(await call(ws.cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId: "q-brief" }));
     const quality = started.step.brief.quality;
     assert.deepEqual(quality.dimensions.map((dimension: { id: string }) => dimension.id), ["solves", "evidence"]);
     assert.equal(quality.dimensions[0].statement, "the draft answers the stated goal");
@@ -68,7 +70,7 @@ test("a below-threshold submit names each dimension score and its statement", as
   const calls = { count: 0 };
   try {
     setScorerForTest(fakeScorer(0.3, calls));
-    const started = bag(await call(ws.cwd, { op: "start", flow: "flows/architect", requestId: "q-below" }));
+    const started = bag(await call(ws.cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId: "q-below" }));
     const submitted = await call(ws.cwd, {
       op: "submit",
       instance: started.result.instanceId,
@@ -98,7 +100,7 @@ test("a below-threshold submit names each dimension score and its statement", as
     assert.equal(quality.rationale, "fake scorer");
     assert.equal(calls.count, 1, "one judgment per attempt");
     // The instance is still running at the same step: a refusal is retryable, not death.
-    const reread = bag(await call(ws.cwd, { op: "start", flow: "flows/architect", requestId: "q-below" }));
+    const reread = bag(await call(ws.cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId: "q-below" }));
     assert.equal(reread.result.status, "running");
     assert.equal(reread.step.id, "draft");
   } finally {
@@ -111,7 +113,7 @@ test("a passing submit advances and the next step declares no floor", async () =
   const ws = project();
   try {
     setScorerForTest(fakeScorer(0.9));
-    const started = bag(await call(ws.cwd, { op: "start", flow: "flows/architect", requestId: "q-pass" }));
+    const started = bag(await call(ws.cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId: "q-pass" }));
     const submitted = await call(ws.cwd, {
       op: "submit",
       instance: started.result.instanceId,
@@ -177,7 +179,7 @@ test("a refusal on a refuse edge reports the rubric of the step that judged", as
   const ws = tempStore({ config: REFUSE_FLOW, tasks: REFUSE_TASKS });
   try {
     setScorerForTest(fakeScorer(0.2));
-    const started = bag(await call(ws.cwd, { op: "start", flow: "flows/architect", requestId: "q-refuse" }));
+    const started = bag(await call(ws.cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId: "q-refuse" }));
     const draft = bag(
       await call(ws.cwd, { op: "submit", instance: started.result.instanceId, artifact: artifacts.validA(started.nonce) }),
     );
@@ -200,7 +202,7 @@ test("a refusal on a refuse edge reports the rubric of the step that judged", as
     );
 
     // The refuse edge really moved the work back: the reason to report is still derive's rubric.
-    const back = bag(await call(ws.cwd, { op: "start", flow: "flows/architect", requestId: "q-refuse" }));
+    const back = bag(await call(ws.cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId: "q-refuse" }));
     assert.equal(back.step.id, "draft");
     assert.equal(back.result.status, "running");
   } finally {
@@ -213,7 +215,7 @@ test("escalate halts the instance in failed and the result asks for guidance", a
   const ws = tempStore({ tasks: escalateTasks });
   try {
     setScorerForTest(fakeScorer(0.2));
-    const started = bag(await call(ws.cwd, { op: "start", flow: "flows/architect", requestId: "q-escalate" }));
+    const started = bag(await call(ws.cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId: "q-escalate" }));
     const artifact = artifacts.validA(started.nonce);
     const send = () => call(ws.cwd, { op: "submit", instance: started.result.instanceId, artifact });
 
@@ -229,7 +231,7 @@ test("escalate halts the instance in failed and the result asks for guidance", a
     assert.equal(failure.detail.quality.dimensions[0].statement, "the draft answers the stated goal");
     assert.equal(failure.detail.quality.overall, 0.2);
 
-    const reopened = bag(await call(ws.cwd, { op: "start", flow: "flows/architect", requestId: "q-escalate" }));
+    const reopened = bag(await call(ws.cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId: "q-escalate" }));
     assert.equal(reopened.result.status, "failed");
     assert.match(reopened.result.nextAction, /^needs-guidance: /);
     assert.match(reopened.result.summary, /^failed at draft/);
@@ -253,7 +255,7 @@ test("the default onFailure carries the flow to the next step instead of failing
   const ws = project(); // qualityTasks declares no onFailure: the default is continue
   try {
     setScorerForTest(fakeScorer(0.2));
-    const started = bag(await call(ws.cwd, { op: "start", flow: "flows/architect", requestId: "q-continue" }));
+    const started = bag(await call(ws.cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId: "q-continue" }));
     const artifact = artifacts.validA(started.nonce);
     const send = () => call(ws.cwd, { op: "submit", instance: started.result.instanceId, artifact });
 

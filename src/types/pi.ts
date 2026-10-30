@@ -33,6 +33,12 @@ export const PraxisToolArgsSchema = z
     op: PraxisToolOpSchema,
     flow: FlowNameSchema.optional(),
     requestId: z.string().min(1).max(128).optional(),
+    /**
+     * The order this start is carrying: the work the agent was told to do. `op=start` requires it,
+     * because it is the thing the alignment gate judges against the flow-pinned task. The order is
+     * never stored; only its digest appears in a refusal or in the unchecked flag.
+     */
+    order: z.string().min(1).max(4000).optional(),
     instance: InstanceIdSchema.optional(),
     artifact: z.record(z.string(), z.unknown()).optional(),
     step: StepIdSchema.optional(),
@@ -42,7 +48,7 @@ export const PraxisToolArgsSchema = z
     subjective: LearningNoteSubjectiveSchema.optional(),
   })
   .superRefine((args, ctx) => {
-    const require = (field: "flow" | "requestId" | "instance" | "artifact" | "step"): void => {
+    const require = (field: "flow" | "requestId" | "instance" | "artifact" | "step" | "order"): void => {
       if (args[field] === undefined) {
         ctx.addIssue({ code: "custom", path: [field], message: `${args.op} requires ${field}` });
       }
@@ -50,6 +56,7 @@ export const PraxisToolArgsSchema = z
     if (args.op === "start") {
       require("flow");
       require("requestId");
+      require("order");
     } else if (args.op === "submit") {
       require("instance");
       require("artifact");
@@ -76,6 +83,18 @@ export const StepDescriptorSchema = z.strictObject({
   capabilities: z.array(CapabilitySchema),
   ops: z.array(z.enum(["submit", "read", "note", "check"])),
   steps: z.array(StepIdSchema),
+  /**
+   * Present ONLY when the alignment judge could not answer: the start proceeded unchecked, and both
+   * the agent and the parent are told so (the parent through the result's `summary`). A start that
+   * was judged aligned carries no field at all, so the unchanged path stays unchanged.
+   */
+  alignment: z
+    .strictObject({
+      decision: z.literal("unchecked"),
+      reason: z.string().min(1).max(400),
+      orderDigest: DigestSchema,
+    })
+    .optional(),
   brief: z.strictObject({
     goal: z.string().min(1),
     produces: SchemaNameSchema,
@@ -209,6 +228,7 @@ const CODES = [
   "QUALITY_REQUIRED",
   "QUALITY_BELOW_THRESHOLD",
   "QUALITY_BLOCKED",
+  "ALIGNMENT_REJECTED",
   "RESULT_INVALID",
   "STORE_INVALID",
   "INTERNAL",

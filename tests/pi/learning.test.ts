@@ -13,7 +13,9 @@ import { test } from "node:test";
 import { executePraxisTool, setScorerForTest } from "../../src/pi/tool.ts";
 import type { PiToolResult } from "../../src/pi/host.ts";
 import type { Scorer } from "../../src/quality/index.ts";
-import { artifacts, fakeContext, qualityTasks, tempStore } from "./fixtures.ts";
+import { artifacts, fakeContext, qualityTasks, tempStore, useAlignedJudge } from "./fixtures.ts";
+
+useAlignedJudge();
 import { eventsOf, type Workspace } from "../testkit.ts";
 
 /** The fixture store, in the shape the testkit's raw event reader expects. */
@@ -49,7 +51,7 @@ const NOTE = {
 
 /** Run one instance of the judged fixture to completion, recording its note. */
 async function seedNote(cwd: string, requestId: string, note: unknown = NOTE): Promise<void> {
-  const started = bag(await call(cwd, { op: "start", flow: "flows/architect", requestId }));
+  const started = bag(await call(cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId }));
   const submitted = await call(cwd, { op: "submit", instance: started.result.instanceId, artifact: artifacts.validA(started.nonce) });
   assert.notEqual(submitted.isError, true, "the seeded submit passes: " + JSON.stringify(bag(submitted)));
   const noted = await call(cwd, { op: "note", instance: started.result.instanceId, subjective: note });
@@ -61,7 +63,7 @@ test("the brief discloses the standard and the recall, and the same store yields
   try {
     setScorerForTest(fakeScorer(0.9));
     await seedNote(ws.cwd, "learn-seed");
-    const started = bag(await call(ws.cwd, { op: "start", flow: "flows/architect", requestId: "learn-brief" }));
+    const started = bag(await call(ws.cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId: "learn-brief" }));
     const quality = started.step.brief.quality;
     assert.deepEqual(quality.dimensions.map((dimension: { id: string }) => dimension.id), ["solves", "evidence"]);
     assert.equal(quality.threshold, 0.6, "the floor in force is the effective bar");
@@ -73,7 +75,7 @@ test("the brief discloses the standard and the recall, and the same store yields
     assert.equal(typeof quality.recall.notes[0].relevance, "number");
 
     // Determinism (F8): the same durable state rebuilds the same brief byte for byte.
-    const again = bag(await call(ws.cwd, { op: "start", flow: "flows/architect", requestId: "learn-brief" }));
+    const again = bag(await call(ws.cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId: "learn-brief" }));
     assert.equal(JSON.stringify(again.step), JSON.stringify(started.step));
     const recorded = eventsOf(storeOf(ws), started.result.instanceId).filter((event) => event.type === "recall.selected");
     assert.equal(recorded.length, 1, "the selected set is recorded once, for audit");
@@ -89,7 +91,7 @@ test("a refusal re-injects the lesson aimed at the weakest dimension", async () 
     setScorerForTest(fakeScorer(0.9));
     await seedNote(ws.cwd, "learn-seed-2");
     setScorerForTest(fakeScorer(0.3));
-    const started = bag(await call(ws.cwd, { op: "start", flow: "flows/architect", requestId: "learn-refuse" }));
+    const started = bag(await call(ws.cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId: "learn-refuse" }));
     const refused = await call(ws.cwd, { op: "submit", instance: started.result.instanceId, artifact: artifacts.validA(started.nonce) });
     assert.equal(refused.isError, true);
     const quality = bag(refused).detail.quality;
@@ -107,7 +109,7 @@ test("an accepted step offers note instead of submit, and closes on the note", a
   const ws = tempStore({ tasks: qualityTasks });
   try {
     setScorerForTest(fakeScorer(0.9));
-    const started = bag(await call(ws.cwd, { op: "start", flow: "flows/architect", requestId: "learn-note" }));
+    const started = bag(await call(ws.cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId: "learn-note" }));
     const submitted = bag(await call(ws.cwd, { op: "submit", instance: started.result.instanceId, artifact: artifacts.validA(started.nonce) }));
     assert.equal(submitted.result.status, "running", "accepted, but the reflection is owed");
     assert.ok(submitted.step.ops.includes("note"), "the brief offers the note op");
@@ -135,7 +137,7 @@ test("after the bounded attempts the engine stubs the note and the instance comp
   const ws = tempStore({ tasks: qualityTasks });
   try {
     setScorerForTest(fakeScorer(0.9));
-    const started = bag(await call(ws.cwd, { op: "start", flow: "flows/architect", requestId: "learn-stub" }));
+    const started = bag(await call(ws.cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId: "learn-stub" }));
     await call(ws.cwd, { op: "submit", instance: started.result.instanceId, artifact: artifacts.validA(started.nonce) });
     const trivial = { ...NOTE, whatBetter: NOTE.whatWrong };
     const first = await call(ws.cwd, { op: "note", instance: started.result.instanceId, subjective: trivial });

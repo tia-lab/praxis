@@ -24,7 +24,7 @@ import { fail, isAppError } from "../../src/types/errors.ts";
 import { failure } from "../../src/pi/tool.ts";
 import { FailureDetailsSchema } from "../../src/types/pi.ts";
 
-/** The eight codes this slice adds. The seventeen older names are untouched. */
+/** The codes added beyond the original seventeen: eight from unit D, INSTANCE_FORBIDDEN from unit F. */
 const ADDED: readonly Code[] = [
   "NODE_INVALID",
   "TASK_NOT_FOUND",
@@ -34,10 +34,11 @@ const ADDED: readonly Code[] = [
   "PIN_CORRUPT",
   "SUBJECT_MISSING",
   "SUBJECT_STALE",
+  "INSTANCE_FORBIDDEN",
 ];
 
-/** The taxonomy size the mirror must report: 17 existing + these 8. */
-const TAXONOMY_SIZE = 25;
+/** The taxonomy size the mirror must report: 17 existing + these 9. */
+const TAXONOMY_SIZE = 26;
 
 /** The runtime mirror, reached through the schema the tool actually validates with. */
 const MIRROR = FailureDetailsSchema.shape.code.options;
@@ -49,7 +50,7 @@ const UNION_AND_MIRROR_AGREE: Same<Code, MirrorCode> = true;
 
 test("the closed union and the runtime mirror name exactly the same codes", () => {
   assert.equal(UNION_AND_MIRROR_AGREE, true);
-  assert.equal(MIRROR.length, TAXONOMY_SIZE, "the mirror must carry 17 existing + 8 added codes");
+  assert.equal(MIRROR.length, TAXONOMY_SIZE, "the mirror must carry 17 existing + 9 added codes");
   assert.equal(new Set(MIRROR).size, MIRROR.length, "no duplicate in the mirror");
   for (const code of ADDED) {
     assert.ok((MIRROR as readonly string[]).includes(code), code + " is missing from the mirror");

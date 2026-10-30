@@ -1,0 +1,57 @@
+{
+  "id": "research",
+  "version": 1,
+  "state": "published",
+  "gate": "section-requirements",
+  "goal": "establish what is true from sources and the code before anything is designed",
+  "capabilities": [
+    "artifact.write",
+    "emit"
+  ],
+  "produces": {
+    "schema": "praxis.artifact.research/v1"
+  },
+  "requires": [
+    {
+      "section": "contract",
+      "required": [
+        "task",
+        "scope",
+        "acceptance"
+      ]
+    },
+    {
+      "section": "question",
+      "required": [
+        "question",
+        "boundary"
+      ]
+    },
+    {
+      "section": "sources",
+      "minItems": 2,
+      "each": [
+        "source",
+        "location",
+        "establishes"
+      ]
+    },
+    {
+      "section": "findings",
+      "minItems": 1
+    },
+    {
+      "section": "affected",
+      "minItems": 1,
+      "each": [
+        "path",
+        "declaration",
+        "effect"
+      ]
+    },
+    {
+      "section": "uncertainty",
+      "minItems": 1
+    }
+  ]
+}

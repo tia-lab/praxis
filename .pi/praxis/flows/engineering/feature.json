@@ -1,0 +1,67 @@
+{
+  "schema": "praxis.flow/v2",
+  "flow": "flows/engineering/feature",
+  "nodes": [
+    {
+      "id": "research",
+      "task": "tasks/discovery/research"
+    },
+    {
+      "id": "spec",
+      "task": "tasks/design/spec"
+    },
+    {
+      "id": "plan",
+      "task": "tasks/design/plan"
+    },
+    {
+      "id": "implement",
+      "task": "tasks/build/implement"
+    },
+    {
+      "id": "verify",
+      "task": "tasks/verify/verify"
+    },
+    {
+      "id": "review",
+      "task": "tasks/verify/review"
+    }
+  ],
+  "edges": [
+    {
+      "kind": "data",
+      "from": "research",
+      "to": "spec"
+    },
+    {
+      "kind": "data",
+      "from": "spec",
+      "to": "plan"
+    },
+    {
+      "kind": "data",
+      "from": "plan",
+      "to": "implement"
+    },
+    {
+      "kind": "data",
+      "from": "implement",
+      "to": "verify"
+    },
+    {
+      "kind": "data",
+      "from": "verify",
+      "to": "review"
+    },
+    {
+      "kind": "refuse",
+      "from": "review",
+      "to": "plan"
+    }
+  ],
+  "result": "praxis.result/v1",
+  "issue": {
+    "active": true,
+    "path": "/media/Development/AI/praxis/.dev/issues"
+  }
+}

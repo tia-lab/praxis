@@ -1,0 +1,39 @@
+{
+  "id": "plan-lite",
+  "version": 1,
+  "state": "published",
+  "gate": "section-requirements",
+  "goal": "name the steps, the checks that prove them and the recovery path for a small, bounded change",
+  "capabilities": [
+    "artifact.read",
+    "artifact.write",
+    "emit"
+  ],
+  "produces": {
+    "schema": "praxis.artifact.plan/v1"
+  },
+  "requires": [
+    {
+      "section": "requirementBasis",
+      "minItems": 1
+    },
+    {
+      "section": "steps",
+      "minItems": 1
+    },
+    {
+      "section": "checks",
+      "minItems": 1,
+      "each": [
+        "command",
+        "expects"
+      ]
+    },
+    {
+      "section": "recovery",
+      "required": [
+        "recovery"
+      ]
+    }
+  ]
+}

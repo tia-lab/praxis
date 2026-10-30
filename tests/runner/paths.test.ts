@@ -149,7 +149,7 @@ test("a flow identity is a path under flows/, and an absent flow is FLOW_INVALID
 });
 
 test("the committed library names its task documents by path, flat and nested", () => {
-  const library = new URL("../../.pi/praxis/tasks/", import.meta.url);
+  const library = new URL("../praxis-schemas/tasks/", import.meta.url);
   assert.deepEqual(readdirSync(library).sort(), ["core", "implement.json", "plan.json", "research.json", "review.json", "spec.json"]);
   const nested = TaskConfigSchema.parse(
     JSON.parse(readFileSync(new URL("core/research.json", library), "utf8")) as unknown,

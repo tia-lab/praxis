@@ -1,0 +1,43 @@
+{
+  "id": "reproduce",
+  "version": 1,
+  "state": "published",
+  "gate": "section-requirements",
+  "goal": "reproduce the reported defect deterministically and capture the failing signal",
+  "capabilities": [
+    "artifact.write",
+    "emit"
+  ],
+  "produces": {
+    "schema": "praxis.artifact.reproduction/v1"
+  },
+  "requires": [
+    {
+      "section": "defect",
+      "required": [
+        "report",
+        "expected",
+        "actual"
+      ]
+    },
+    {
+      "section": "steps",
+      "minItems": 1
+    },
+    {
+      "section": "signal",
+      "required": [
+        "command",
+        "observed"
+      ]
+    },
+    {
+      "section": "affected",
+      "minItems": 1,
+      "each": [
+        "path",
+        "effect"
+      ]
+    }
+  ]
+}

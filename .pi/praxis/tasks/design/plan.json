@@ -1,0 +1,65 @@
+{
+  "id": "plan",
+  "version": 1,
+  "state": "published",
+  "gate": "section-requirements",
+  "goal": "name every declaration touched, every check that proves it, the budget and the recovery path",
+  "capabilities": [
+    "artifact.read",
+    "artifact.write",
+    "emit"
+  ],
+  "produces": {
+    "schema": "praxis.artifact.plan/v1"
+  },
+  "requires": [
+    {
+      "section": "requirementBasis",
+      "minItems": 1
+    },
+    {
+      "section": "declarations",
+      "minItems": 1,
+      "each": [
+        "path",
+        "declaration",
+        "before",
+        "effect",
+        "requirement",
+        "callers"
+      ]
+    },
+    {
+      "section": "budget",
+      "minItems": 1,
+      "each": [
+        "path",
+        "current",
+        "after"
+      ]
+    },
+    {
+      "section": "steps",
+      "minItems": 1
+    },
+    {
+      "section": "checks",
+      "minItems": 1,
+      "each": [
+        "command",
+        "scope",
+        "expects"
+      ]
+    },
+    {
+      "section": "recovery",
+      "required": [
+        "recovery"
+      ]
+    },
+    {
+      "section": "outOfScope",
+      "minItems": 1
+    }
+  ]
+}

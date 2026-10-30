@@ -1,0 +1,41 @@
+{
+  "id": "refactor",
+  "version": 1,
+  "state": "published",
+  "gate": "section-requirements",
+  "goal": "restructure without changing behaviour, and prove the behaviour was preserved",
+  "capabilities": [
+    "artifact.read",
+    "artifact.write",
+    "emit"
+  ],
+  "produces": {
+    "schema": "praxis.artifact.change/v1"
+  },
+  "requires": [
+    {
+      "section": "changes",
+      "minItems": 1,
+      "each": [
+        "path",
+        "what"
+      ]
+    },
+    {
+      "section": "preserved",
+      "minItems": 1,
+      "each": [
+        "aspect",
+        "check",
+        "observed"
+      ]
+    },
+    {
+      "section": "parity",
+      "required": [
+        "baseline",
+        "after"
+      ]
+    }
+  ]
+}

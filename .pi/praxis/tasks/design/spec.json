@@ -1,0 +1,61 @@
+{
+  "id": "spec",
+  "version": 1,
+  "state": "published",
+  "gate": "section-requirements",
+  "goal": "state requirements with failure behaviour and an oracle, and the model behind them",
+  "capabilities": [
+    "artifact.read",
+    "artifact.write",
+    "emit"
+  ],
+  "produces": {
+    "schema": "praxis.artifact.spec/v1"
+  },
+  "requires": [
+    {
+      "section": "outcome",
+      "note": "the single outcome this spec commits to",
+      "required": [
+        { "field": "outcome", "type": "string", "minLength": 20, "note": "one testable sentence" }
+      ]
+    },
+    {
+      "section": "requirements",
+      "minItems": 1,
+      "note": "each requirement with how it fails and how it is checked",
+      "each": [
+        { "field": "id", "type": "string", "pattern": "^R[0-9]+$", "note": "stable id like R1" },
+        { "field": "requirement", "type": "string", "minLength": 10 },
+        { "field": "failure", "type": "string", "note": "what happens when it is violated" },
+        { "field": "oracle", "type": "string", "note": "how it is checked" }
+      ]
+    },
+    {
+      "section": "model",
+      "minItems": 1,
+      "note": "the elements behind the requirements",
+      "each": [
+        { "field": "element", "type": "string" },
+        { "field": "owner", "type": "string" },
+        { "field": "states", "type": "string" },
+        { "field": "invariants", "type": "string" },
+        { "field": "requirement", "type": "string", "references": "requirements.id", "note": "an id declared in requirements" }
+      ]
+    },
+    {
+      "section": "exclusions",
+      "minItems": 1,
+      "note": "what this spec deliberately leaves out"
+    },
+    {
+      "section": "alternatives",
+      "minItems": 2,
+      "note": "real options weighed, not strawmen",
+      "each": [
+        { "field": "alternative", "type": "string", "note": "the option in one line" },
+        { "field": "rejected", "type": "string", "minLength": 40, "note": "why not chosen — name the concrete tradeoff" }
+      ]
+    }
+  ]
+}

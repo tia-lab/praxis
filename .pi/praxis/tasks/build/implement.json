@@ -1,0 +1,41 @@
+{
+  "id": "implement",
+  "version": 1,
+  "state": "published",
+  "gate": "section-requirements",
+  "goal": "make the change the plan declares, and record what actually ran",
+  "capabilities": [
+    "artifact.read",
+    "artifact.write",
+    "emit"
+  ],
+  "produces": {
+    "schema": "praxis.artifact.change/v1"
+  },
+  "requires": [
+    {
+      "section": "changes",
+      "minItems": 1,
+      "each": [
+        "path",
+        "line",
+        "what"
+      ]
+    },
+    {
+      "section": "checks",
+      "minItems": 1,
+      "each": [
+        "command",
+        "expects",
+        "observed"
+      ]
+    },
+    {
+      "section": "evidence",
+      "required": [
+        "evidence"
+      ]
+    }
+  ]
+}

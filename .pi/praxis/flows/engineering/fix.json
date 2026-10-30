@@ -1,0 +1,49 @@
+{
+  "schema": "praxis.flow/v2",
+  "flow": "flows/engineering/fix",
+  "nodes": [
+    {
+      "id": "reproduce",
+      "task": "tasks/discovery/reproduce"
+    },
+    {
+      "id": "plan",
+      "task": "tasks/design/plan-lite"
+    },
+    {
+      "id": "patch",
+      "task": "tasks/build/patch"
+    },
+    {
+      "id": "review",
+      "task": "tasks/verify/review-lite"
+    }
+  ],
+  "edges": [
+    {
+      "kind": "data",
+      "from": "reproduce",
+      "to": "plan"
+    },
+    {
+      "kind": "data",
+      "from": "plan",
+      "to": "patch"
+    },
+    {
+      "kind": "data",
+      "from": "patch",
+      "to": "review"
+    },
+    {
+      "kind": "refuse",
+      "from": "review",
+      "to": "plan"
+    }
+  ],
+  "result": "praxis.result/v1",
+  "issue": {
+    "active": true,
+    "path": "/media/Development/AI/praxis/.dev/issues"
+  }
+}

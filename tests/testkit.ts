@@ -31,6 +31,7 @@ export interface TaskFixture {
   goal?: string;
   requires?: unknown;
   bindsSubject?: boolean;
+  role?: string;
   version?: number;
   state?: "draft" | "published";
 }
@@ -79,6 +80,7 @@ export function writeTask(ws: Workspace, task: TaskFixture): void {
   };
   if (task.requires !== undefined) document.requires = task.requires;
   if (task.bindsSubject !== undefined) document.bindsSubject = task.bindsSubject;
+  if (task.role !== undefined) document.role = task.role;
   // The document owns its version; the reference names only the path (spec R1, R5).
   const path = join(ws.tasks, `${task.id}.json`);
   mkdirSync(dirname(path), { recursive: true });

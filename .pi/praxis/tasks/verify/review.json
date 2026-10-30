@@ -1,0 +1,30 @@
+{
+  "id": "review",
+  "version": 1,
+  "state": "published",
+  "gate": "section-requirements",
+  "goal": "judge every requirement id, challenge minimality and record the verdict",
+  "capabilities": [
+    "artifact.read",
+    "artifact.write",
+    "emit"
+  ],
+  "produces": {
+    "schema": "praxis.artifact.review/v1"
+  },
+  "bindsSubject": true,
+  "requires": [
+    {
+      "section": "review",
+      "required": [
+        "verdict",
+        "criteria",
+        "gaps",
+        "minimality"
+      ],
+      "equals": {
+        "verdict": "PASS"
+      }
+    }
+  ]
+}

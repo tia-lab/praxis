@@ -88,7 +88,7 @@ export interface TempStore {
 /** A throwaway project root with the default flow document, its task units and a store. */
 export function tempStore(overrides: { config?: unknown; raw?: string } = {}): TempStore {
   const cwd = mkdtempSync(join(tmpdir(), "praxis-pi-"));
-  const configPath = join(cwd, ".pi", "praxis", "flows", "workflow.json");
+  const configPath = join(cwd, ".pi", "praxis", "flows", "engineering", "feature.json");
   const storeDir = join(cwd, ".pi", "praxis", "state");
   const tasksDir = join(cwd, ".pi", "praxis", "tasks");
   mkdirSync(dirname(configPath), { recursive: true });

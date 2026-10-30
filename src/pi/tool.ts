@@ -27,7 +27,7 @@ import type { ArtifactSummary, FailureDetails, PraxisToolArgs, StepDescriptor } 
 import { CAPABILITY_NAMES, grantFor, requireGrant } from "../runner/capabilities.ts";
 import { digest } from "../runner/canonical.ts";
 import { advance, inspect, openFlow, readStepArtifact, start } from "../runner/engine.ts";
-import type { EngineOptions, OpenedFlow } from "../runner/engine.ts";
+import type { EngineOptions, HandoffRef, OpenedFlow } from "../runner/engine.ts";
 import { ISSUE_CATEGORIES, issueTemplate } from "../types/issue.ts";
 import { ISSUE_DISABLED, openIssue } from "../runner/issues.ts";
 import type { PiSessionContext, PiToolDefinition, PiToolResult } from "./host.ts";
@@ -115,7 +115,7 @@ export function engineOptions(
     configPath:
       typeof selected === "string" && selected !== ""
         ? resolve(ctx.cwd, selected)
-        : resolve(ctx.cwd, ".pi/praxis/flows/workflow.json"),
+        : resolve(ctx.cwd, ".pi/praxis/flows/engineering/feature.json"),
     storeDir: resolve(ctx.cwd, ".pi/praxis/state"),
     tasksDir: resolve(ctx.cwd, ".pi/praxis/tasks"),
   };
@@ -168,11 +168,16 @@ function currentStepOf(flow: OpenedFlow, instance: Instance): ResolvedNode {
 }
 
 /**
- * Derived `{id, capabilities, ops}` (R6): `submit` only while running under
- * `artifact.write`, `read` whenever the grant carries `artifact.read`, in that order.
+ * Derived `{id, capabilities, ops, steps, brief}` (R6): `submit` only while running
+ * under `artifact.write`, `read` whenever the grant carries `artifact.read`, in that
+ * order. `steps` is the pinned flow's ordered node ids, so the agent knows where it is;
+ * `brief` is the current task's goal, output schema and section contract, so the agent
+ * knows what to produce before its first submit instead of discovering it by rejection.
+ * Both are projected from state already loaded and pinned; nothing new is read or stored.
  */
-export function stepDescriptor(flow: OpenedFlow, instance: Instance): StepDescriptor {
+export function stepDescriptor(flow: OpenedFlow, instance: Instance, handoffs: readonly HandoffRef[] = []): StepDescriptor {
   const resolved = currentStepOf(flow, instance);
+  const single = handoffs.length === 1 ? handoffs[0].digest : undefined;
   const grant = grantFor({ id: resolved.node.id, capabilities: resolved.task.capabilities });
   const ops: ("submit" | "read")[] = [];
   if (instance.status === "running" && grant.capabilities.has("artifact.write")) ops.push("submit");
@@ -183,6 +188,16 @@ export function stepDescriptor(flow: OpenedFlow, instance: Instance): StepDescri
       id: grant.step,
       capabilities: CAPABILITY_NAMES.filter((name) => grant.capabilities.has(name)),
       ops,
+      steps: flow.config.nodes.map((node) => node.id),
+      brief: {
+        goal: resolved.task.goal,
+        produces: resolved.task.produces.schema,
+        ...(resolved.task.requires !== undefined ? { requires: resolved.task.requires } : {}),
+        ...(resolved.task.bindsSubject !== undefined ? { bindsSubject: resolved.task.bindsSubject } : {}),
+        ...(handoffs.length > 0 ? { consumes: handoffs.map((handoff) => ({ step: handoff.step, schema: handoff.schema, digest: handoff.digest })) } : {}),
+        ...(single !== undefined ? { derivedFrom: single } : {}),
+        ...(single !== undefined && resolved.task.bindsSubject === true ? { subject: single } : {}),
+      },
     },
     "RESULT_INVALID",
     "step descriptor",
@@ -249,11 +264,12 @@ function startOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResu
     flow: required(args.flow, "flow"),
     requestId: required(args.requestId, "requestId"),
     actor,
+    ...(args.roles !== undefined ? { roles: args.roles } : {}),
   });
-  const { instance, result, flow } = inspect({ ...options, instance: started.instance.id });
+  const { instance, result, flow, handoffs } = inspect({ ...options, instance: started.instance.id, actor });
   return ok(StartEnvelopeSchema, {
     result,
-    step: stepDescriptor(flow, instance),
+    step: stepDescriptor(flow, instance, handoffs),
     nonce: instance.nonce,
   });
 }
@@ -264,18 +280,20 @@ function submitOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolRes
     ...options,
     instance: required(args.instance, "instance"),
     artifact: args.artifact,
+    actor: actorFor(ctx),
   });
   return ok(StepEnvelopeSchema, {
     result: advanced.result,
-    step: stepDescriptor(advanced.flow, advanced.instance),
+    step: stepDescriptor(advanced.flow, advanced.instance, advanced.handoffs),
   });
 }
 
 function readOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResult {
   const options = engineOptions(ctx);
+  const actor = actorFor(ctx);
   // R5: the pinned definition rows are read and verified inside `inspect`, so the read
   // path never opens the library and a corrupted pin surfaces here as PIN_CORRUPT.
-  const { instance, flow } = inspect({ ...options, instance: required(args.instance, "instance") });
+  const { instance, flow } = inspect({ ...options, instance: required(args.instance, "instance"), actor });
   const resolved = currentStepOf(flow, instance);
   // R5: the current node's grant decides, before any artifact is opened.
   requireGrant(grantFor({ id: resolved.node.id, capabilities: resolved.task.capabilities }), "artifact.read");
@@ -283,6 +301,7 @@ function readOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResul
     ...options,
     instance: instance.id,
     step: required(args.step, "step"),
+    actor,
   });
   return ok(ReadEnvelopeSchema, { artifact: artifactSummary(read.artifact), value: read.value });
 }

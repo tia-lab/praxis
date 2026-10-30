@@ -322,7 +322,7 @@ test("blocked is not a declared instance status", (t) => {
 });
 
 test("the committed flow document parses and a malformed one is refused", () => {
-  const text = readFileSync(new URL("../../.pi/praxis/flows/workflow.json", import.meta.url), "utf8");
+  const text = readFileSync(new URL("../praxis-schemas/flows/workflow.json", import.meta.url), "utf8");
   const raw = JSON.parse(text) as Record<string, unknown>;
   const config = parseFlowConfig(raw);
   assert.equal(config.flow, "flows/workflow");

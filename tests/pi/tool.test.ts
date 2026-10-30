@@ -115,14 +115,24 @@ test("descriptor draft lists submit", () => {
     id: "draft",
     capabilities: ["artifact.write", "emit"],
     ops: ["submit"],
+    steps: ["draft", "derive"],
+    brief: { goal: "write the architecture draft", produces: "praxis.artifact.architecture/v1" },
   });
 });
 
 test("descriptor derive lists submit and read", () => {
-  assert.deepEqual(throughDraft(project()).step, {
+  const { step, digestA } = throughDraft(project());
+  assert.deepEqual(step, {
     id: "derive",
     capabilities: ["artifact.read", "artifact.write", "emit"],
     ops: ["submit", "read"],
+    steps: ["draft", "derive"],
+    brief: {
+      goal: "derive the next artifact from the draft",
+      produces: "praxis.artifact.derive/v1",
+      consumes: [{ step: "draft", schema: "praxis.artifact.architecture/v1", digest: digestA }],
+      derivedFrom: digestA,
+    },
   });
 });
 
@@ -134,6 +144,13 @@ test("descriptor completed lists read", () => {
     id: "derive",
     capabilities: ["artifact.read", "artifact.write", "emit"],
     ops: ["read"],
+    steps: ["draft", "derive"],
+    brief: {
+      goal: "derive the next artifact from the draft",
+      produces: "praxis.artifact.derive/v1",
+      consumes: [{ step: "draft", schema: "praxis.artifact.architecture/v1", digest: digestA }],
+      derivedFrom: digestA,
+    },
   });
 });
 
@@ -386,13 +403,13 @@ test("engine options use ctx.cwd", () => {
   assert.equal(existsSync(projectState), before);
 });
 
-test("submit and read are not actor bound", () => {
+test("submit and read are actor bound (unit F)", () => {
   const cwd = project();
   const { nonce, instance, digestA } = throughDraft(cwd);
   const read = call(cwd, { op: "read", instance, step: "draft" }, OTHER_SESSION);
-  assert.equal(read.isError, undefined);
-  assert.equal(bag(read).artifact.digest, digestA);
+  assert.equal(read.isError, true);
+  assert.equal(bag(read).code, "INSTANCE_FORBIDDEN");
   const submitted = call(cwd, { op: "submit", instance, artifact: artifacts.validB(nonce, digestA) }, OTHER_SESSION);
-  assert.equal(submitted.isError, undefined);
-  assert.equal(bag(submitted).result.status, "completed");
+  assert.equal(submitted.isError, true);
+  assert.equal(bag(submitted).code, "INSTANCE_FORBIDDEN");
 });

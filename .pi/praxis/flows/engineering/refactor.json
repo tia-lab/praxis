@@ -1,0 +1,49 @@
+{
+  "schema": "praxis.flow/v2",
+  "flow": "flows/engineering/refactor",
+  "nodes": [
+    {
+      "id": "assess",
+      "task": "tasks/discovery/assess"
+    },
+    {
+      "id": "plan",
+      "task": "tasks/design/plan-lite"
+    },
+    {
+      "id": "refactor",
+      "task": "tasks/build/refactor"
+    },
+    {
+      "id": "review",
+      "task": "tasks/verify/review"
+    }
+  ],
+  "edges": [
+    {
+      "kind": "data",
+      "from": "assess",
+      "to": "plan"
+    },
+    {
+      "kind": "data",
+      "from": "plan",
+      "to": "refactor"
+    },
+    {
+      "kind": "data",
+      "from": "refactor",
+      "to": "review"
+    },
+    {
+      "kind": "refuse",
+      "from": "review",
+      "to": "plan"
+    }
+  ],
+  "result": "praxis.result/v1",
+  "issue": {
+    "active": true,
+    "path": "/media/Development/AI/praxis/.dev/issues"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "verify",
+  "version": 1,
+  "state": "published",
+  "gate": "section-requirements",
+  "goal": "run the checks that prove the change does what was required, and record the observed result",
+  "capabilities": [
+    "artifact.read",
+    "artifact.write",
+    "emit"
+  ],
+  "produces": {
+    "schema": "praxis.artifact.verification/v1"
+  },
+  "requires": [
+    {
+      "section": "checks",
+      "minItems": 1,
+      "each": [
+        "command",
+        "expects",
+        "observed",
+        "pass"
+      ]
+    },
+    {
+      "section": "result",
+      "required": [
+        "outcome"
+      ]
+    }
+  ]
+}

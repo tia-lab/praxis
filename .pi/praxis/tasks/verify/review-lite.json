@@ -1,0 +1,28 @@
+{
+  "id": "review-lite",
+  "version": 1,
+  "state": "published",
+  "gate": "section-requirements",
+  "goal": "confirm the change meets its requirement and adds no regression, and record the verdict",
+  "capabilities": [
+    "artifact.read",
+    "artifact.write",
+    "emit"
+  ],
+  "produces": {
+    "schema": "praxis.artifact.review/v1"
+  },
+  "bindsSubject": true,
+  "requires": [
+    {
+      "section": "review",
+      "required": [
+        "verdict",
+        "gaps"
+      ],
+      "equals": {
+        "verdict": "PASS"
+      }
+    }
+  ]
+}

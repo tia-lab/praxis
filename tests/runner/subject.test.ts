@@ -312,9 +312,9 @@ test("a bindsSubject node over a join is CONFIG_INVALID", () => {
 test("a review of the shipped v2 flow without a subject is SUBJECT_MISSING", () => {
   const ws = workspace();
   try {
-    const text = readFileSync(new URL("../../.pi/praxis/flows/workflow.json", import.meta.url), "utf8");
+    const text = readFileSync(new URL("../praxis-schemas/flows/workflow.json", import.meta.url), "utf8");
     writeFileSync(ws.config, text);
-    cpSync(new URL("../../.pi/praxis/tasks", import.meta.url), ws.tasks, { recursive: true });
+    cpSync(new URL("../praxis-schemas/tasks", import.meta.url), ws.tasks, { recursive: true });
     const started = start({ ...options(ws), flow: flowRef("workflow"), requestId: "r-42" });
     const nonce = started.instance.nonce;
     const document = (sections: Record<string, unknown>, derivedFrom?: string) => ({

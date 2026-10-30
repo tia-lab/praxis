@@ -24,8 +24,8 @@ import {
 } from "../types/schema.ts";
 import { type Store, storeCall } from "./db.ts";
 
-/** `flow` pins the flow document; `task` pins one task version. */
-export const DefinitionKindSchema = z.enum(["flow", "task"]);
+/** `flow` pins the flow document; `task` pins one task version; `assignment` pins the role map. */
+export const DefinitionKindSchema = z.enum(["flow", "task", "assignment"]);
 export type DefinitionKind = z.infer<typeof DefinitionKindSchema>;
 
 /** One row to write: the flow document, or one task version's canonical bytes. */

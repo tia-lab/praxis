@@ -1,0 +1,44 @@
+{
+  "id": "assess",
+  "version": 1,
+  "state": "published",
+  "gate": "section-requirements",
+  "goal": "record the behaviour and structure a refactor must preserve; changing behaviour is out of scope",
+  "capabilities": [
+    "artifact.write",
+    "emit"
+  ],
+  "produces": {
+    "schema": "praxis.artifact.assessment/v1"
+  },
+  "requires": [
+    {
+      "section": "target",
+      "required": [
+        "subject",
+        "motivation"
+      ]
+    },
+    {
+      "section": "behaviour",
+      "minItems": 1,
+      "each": [
+        "aspect",
+        "observed",
+        "preservedBy"
+      ]
+    },
+    {
+      "section": "smells",
+      "minItems": 1
+    },
+    {
+      "section": "affected",
+      "minItems": 1,
+      "each": [
+        "path",
+        "declaration"
+      ]
+    }
+  ]
+}

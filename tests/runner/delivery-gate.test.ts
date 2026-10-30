@@ -10,11 +10,11 @@ import { artifactFile, cli, createInstance, dispose, instanceRow, workspace } fr
  * copies the emitted nodes/edges document and the task library it composes.
  */
 function writeDeliveryFlow(ws: ReturnType<typeof workspace>): void {
-  const text = readFileSync(new URL("../../.pi/praxis/flows/workflow.json", import.meta.url), "utf8");
+  const text = readFileSync(new URL("../praxis-schemas/flows/workflow.json", import.meta.url), "utf8");
   const document = JSON.parse(text) as { flow: string };
   document.flow = "flows/delivery";
   writeFileSync(ws.config, JSON.stringify(document, null, 2) + "\n");
-  cpSync(new URL("../../.pi/praxis/tasks", import.meta.url), ws.tasks, { recursive: true });
+  cpSync(new URL("../praxis-schemas/tasks", import.meta.url), ws.tasks, { recursive: true });
 }
 
 const SCHEMA = "praxis.artifact.delivery/v1";

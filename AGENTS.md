@@ -144,6 +144,58 @@ acceptance here before building.
   the lead's to lift. Owner-overridable; if the owner prefers engine.ts above 600, this line is the
   reversal and the file is not created.
 
+- **2026-10-29 — unit E authorized: P5 artifact templates (solo).** Owner GO in words:
+  full scope, implemented alone, exact plan first. Docs: `docs/p5-artifact-templates-99d43024/`.
+  Allowed paths: `src/types/schema.ts`, `src/runner/requirements.ts`, `src/types/pi.ts`,
+  `src/runner/engine.ts` (may pass the 600 cap; a refactor follows), `src/pi/tool.ts`,
+  `.pi/praxis/tasks/**` (data), `tests/`. Acceptance: the task `requires` vocabulary gains
+  opt-in `type`, `note`, `strict`, `minLength`/`maxLength`, `pattern`, `enum` and `references`,
+  enforced deterministically by the existing `section-requirements` gate with no new gate
+  value and no dependency; the step `brief` additionally carries `consumes` (accepted
+  predecessor refs), `derivedFrom` (one data source) and `subject` (when the step binds one),
+  so a consuming step passes on first submit; every existing test stays green and `tsc` is
+  clean. Not authorized: a template registry (the task's `requires` is the one owner of that
+  fact — no `.pi/praxis/templates/`), a model-in-the-loop gate, YAML/Markdown rendering,
+  store-schema changes, a field-scoped read tool, and any identity, isolation or exactly-once
+  claim — gates #1/#3 stay open.
+- **2026-10-29 — unit F authorized: instance ownership check (solo).** Owner GO in words:
+  "ok do that now", after estimating the work. Fixes a real authority gap — ownership was
+  enforced only at `start` (`engine.ts` actor conflict), never on `submit`/`read`/`inspect`,
+  so any actor knowing an instance id could operate another agent's task. Allowed paths:
+  `src/runner/engine.ts`, `src/pi/tool.ts`, `src/types/errors.ts`, `src/types/pi.ts`,
+  `tests/pi/ownership.test.ts`. Acceptance: `submit`/`read`/`inspect` refuse an instance whose
+  `actor` is not the caller's with a typed `INSTANCE_FORBIDDEN`; the closed `Code` union and its
+  `pi.ts` mirror both gain it without drift; a test proves actor-B is refused actor-A's instance
+  on both `submit` and `read` while the owner passes; every existing test stays green and `tsc`
+  is clean. Explicitly NOT in scope (restated frozen design direction): no tool is restricted —
+  Fabric/bash/web/edit stay fully usable (tools are the free means, the record is what Praxis
+  protects); the store is not yet protected from direct `bash`/`sqlite` access (that is the
+  host-seam / store-driver unit, design-first, later — the store stays behind one driver seam so
+  local SQLite ↔ remote Turso/D1 is an env change with a host-only credential); no store swap,
+  dependency, flow or schema change; SQLite as-is. Gates #1/#3 stay open; this is routed-path
+  authority only, not isolation.
+- **2026-10-29 — unit G authorized: team relay (per-step roles + SoD, Manifold-free).** Owner GO
+  in words: "proceed please implement it", after sizing it as a medium unit that crosses into
+  the store. Lets different actors own different steps of one instance. Allowed paths:
+  `src/types/schema.ts`, `src/store/definitions.ts`, `src/runner/identity.ts` (new seam),
+  `src/runner/engine.ts`, `src/types/pi.ts`, `src/pi/tool.ts`, `tests/testkit.ts`,
+  `tests/runner/relay.test.ts`. Acceptance: a task may declare a `role`; `start` accepts a
+  role→actor map pinned immutably in the instance's own `definition` row (kind `assignment`,
+  no DDL change); the holder of a step's role may submit it and no one else; a subject-binding
+  step refuses the author of what it judges (separation of duties) when roles are pinned; a
+  solo instance (no roles) keeps the shipped behaviour and reviews its own work; observe
+  (inspect/read) is open to the creator and every assigned actor, closed to a stranger;
+  `tsc` clean and the full suite green. Design seam recorded: `roleAssignment()` in
+  `identity.ts` is the ONLY reader of the role→actor source, so a Manifold-backed build swaps
+  that one body (static pinned map → live Manifold assignment) and the identity stays an
+  opaque actor string the engine compares, never a `pi-session:` assumption — Manifold becomes
+  a one-module swap, like SQLite→Turso for the store. Not authorized / still open: Manifold
+  wiring itself (gate #3), the host-seam / remote store that makes this real under
+  non-cooperating agents (local SQLite + bash still bypasses it), dynamic claim reassignment,
+  and any isolation or exactly-once claim. The role map is a trusted start-time input from the
+  instance creator; an agent assigning roles can only do so for an instance it creates and SoD
+  still blocks self-review, so a bad assignment cannot manufacture a self-approved review.
+
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a
 tool denies it, stop and correct host rooting rather than bypass the denial.

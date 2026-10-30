@@ -7,7 +7,7 @@ const ctx = { cwd: "/project", sessionManager: { getSessionId: () => "s" } } as 
 
 test("the tool reads the accepted flow by default", () => {
   delete process.env.PRAXIS_CONFIG;
-  assert.equal(engineOptions(ctx).configPath, "/project/.pi/praxis/flows/workflow.json");
+  assert.equal(engineOptions(ctx).configPath, "/project/.pi/praxis/flows/engineering/feature.json");
   assert.equal(engineOptions(ctx).tasksDir, "/project/.pi/praxis/tasks");
 });
 

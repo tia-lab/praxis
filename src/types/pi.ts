@@ -11,7 +11,7 @@
  */
 import { z } from "zod";
 import type { Code } from "./errors.ts";
-import { ArtifactStateSchema, CapabilitySchema, DigestSchema, FlowNameSchema, InstanceIdSchema, NonceSchema, ResultSchema, SchemaNameSchema, StepIdSchema } from "./schema.ts";
+import { ArtifactStateSchema, CapabilitySchema, DigestSchema, FlowNameSchema, InstanceIdSchema, NonceSchema, RequirementsSchema, ResultSchema, SchemaNameSchema, StepIdSchema } from "./schema.ts";
 
 /** The three operations the one tool exposes (R2). */
 export const PraxisToolOpSchema = z.enum(["start", "submit", "read"]);
@@ -32,6 +32,8 @@ export const PraxisToolArgsSchema = z
     instance: InstanceIdSchema.optional(),
     artifact: z.record(z.string(), z.unknown()).optional(),
     step: StepIdSchema.optional(),
+    /** Optional role -> actor map the creator pins at start; never the caller's own actor (R10). */
+    roles: z.record(z.string(), z.string()).optional(),
   })
   .superRefine((args, ctx) => {
     const require = (field: "flow" | "requestId" | "instance" | "artifact" | "step"): void => {
@@ -54,12 +56,27 @@ export type PraxisToolArgs = z.infer<typeof PraxisToolArgsSchema>;
 
 /**
  * The derived view of the current step (R6): its id, the capabilities the pinned
- * flow grants it, and the operations that grant makes usable. Never stored.
+ * flow grants it, the operations that grant makes usable, the flow's ordered step ids
+ * so an agent knows where it is, and the current task's brief so it knows what to
+ * produce. Never stored; every field is derived fresh from the pinned flow and task.
  */
 export const StepDescriptorSchema = z.strictObject({
   id: StepIdSchema,
   capabilities: z.array(CapabilitySchema),
   ops: z.array(z.enum(["submit", "read"])),
+  steps: z.array(StepIdSchema),
+  brief: z.strictObject({
+    goal: z.string().min(1),
+    produces: SchemaNameSchema,
+    requires: RequirementsSchema.optional(),
+    bindsSubject: z.boolean().optional(),
+    /** The accepted predecessor artifacts this step consumes, with their digests. */
+    consumes: z.array(z.strictObject({ step: StepIdSchema, schema: SchemaNameSchema, digest: DigestSchema })).optional(),
+    /** The digest this step must carry as `derivedFrom` (a single data source only). */
+    derivedFrom: DigestSchema.optional(),
+    /** When the step binds a subject, the digest to carry as `subject`. */
+    subject: DigestSchema.optional(),
+  }),
 });
 export type StepDescriptor = z.infer<typeof StepDescriptorSchema>;
 
@@ -108,6 +125,7 @@ const CODES = [
   "FLOW_INVALID",
   "REQUEST_CONFLICT",
   "INSTANCE_NOT_FOUND",
+  "INSTANCE_FORBIDDEN",
   "INSTANCE_STATE_INVALID",
   "REVISION_CONFLICT",
   "CANONICAL_INVALID",

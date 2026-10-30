@@ -61,6 +61,14 @@ export const NonceSchema = z.string().regex(/^[A-Za-z0-9_-]{8,64}$/);
 
 export const ActorSchema = z.string().min(1).max(128);
 
+/** A flow role an actor may be assigned to (team relay): a lower-case kebab name. */
+export const RoleNameSchema = z.string().regex(KEBAB, "expected a lower-case kebab role name");
+export type RoleName = z.infer<typeof RoleNameSchema>;
+
+/** The pinned role -> authorized-actor map an instance runs under (team relay). */
+export const RoleAssignmentSchema = z.record(RoleNameSchema, ActorSchema);
+export type RoleAssignment = z.infer<typeof RoleAssignmentSchema>;
+
 /** ISO-8601 instant. An explicit offset is accepted; the caller owns the value. */
 export const TimestampSchema = z.iso.datetime({ offset: true });
 
@@ -71,12 +79,42 @@ export const EventTypeSchema = z.string().regex(/^[a-z][a-z0-9]*(\.[a-z][a-z0-9-
  * One step of the flow. `consumes` names the step whose accepted artifact this
  * step receives; the first step consumes nothing.
  */
+/** The value types a field may be constrained to; absent means presence only. */
+export const FieldTypeSchema = z.enum(["string", "number", "boolean", "object", "array"]);
+export type FieldType = z.infer<typeof FieldTypeSchema>;
+
+/**
+ * One field of a section's contract. A bare string names a field that must be present and
+ * non-empty, the behaviour the slice shipped with. The object form adds, all optional and all
+ * deterministic: a `type`, a human `note` carried into the brief, string/array `minLength`/
+ * `maxLength`, a `pattern` the string must match, an `enum` of allowed values, and
+ * `references` ("section.field") naming the set this value must be drawn from.
+ */
+export const FieldSpecSchema = z.union([
+  z.string().min(1).max(64),
+  z.strictObject({
+    field: z.string().min(1).max(64),
+    type: FieldTypeSchema.optional(),
+    note: z.string().min(1).max(500).optional(),
+    minLength: z.number().int().min(0).max(100000).optional(),
+    maxLength: z.number().int().min(1).max(100000).optional(),
+    pattern: z.string().min(1).max(500).optional(),
+    enum: z.array(z.union([z.string(), z.number(), z.boolean()])).min(1).max(64).optional(),
+    references: z.string().regex(/^[a-z][a-z0-9-]{0,63}\.[a-z][a-z0-9-]{0,63}$/, "expected section.field").optional(),
+  }),
+]);
+export type FieldSpec = z.infer<typeof FieldSpecSchema>;
+
 /** What a stage's document section must contain to pass (spec: stage requirement). */
 export const RequirementSchema = z.strictObject({
   section: z.string().min(1).max(64),
+  /** Human guidance for this section, carried into the brief; never machine-graded. */
+  note: z.string().min(1).max(500).optional(),
+  /** Reject any field this clause does not name (an object section or each array entry). */
+  strict: z.boolean().optional(),
   minItems: z.number().int().min(0).max(1000).optional(),
-  required: z.array(z.string().min(1).max(64)).max(32).optional(),
-  each: z.array(z.string().min(1).max(64)).max(32).optional(),
+  required: z.array(FieldSpecSchema).max(32).optional(),
+  each: z.array(FieldSpecSchema).max(32).optional(),
   /** Exact values a section's fields must carry, e.g. verdict: "PASS". */
   equals: z
     .record(z.string().min(1).max(64), z.union([z.string(), z.number(), z.boolean()]))
@@ -111,6 +149,8 @@ export const TaskConfigSchema = z.strictObject({
   gate: GateSchema,
   /** What the document must contain before this stage may pass: one clause or many. */
   requires: RequirementsSchema.optional(),
+  /** The flow role authorized to submit this step; absent means the instance creator. */
+  role: RoleNameSchema.optional(),
   /** A review must carry the digest of the version it judged (spec R6). */
   bindsSubject: z.boolean().optional(),
 });

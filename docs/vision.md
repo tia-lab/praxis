@@ -265,6 +265,36 @@ Blocked/failed/aborted results return a stable typed reason, current step, and p
 7. **Maintenance:** what counts as a turn, who triggers it without an active Pi process, budgets and cooldown.
 8. **Nested execution:** maximum depth, cycle rules, shared budgets, cancellation propagation.
 
+## 13a. Build status reconciliation (2026-10-30, owner-directed)
+
+The north star in §1 and the §12/§13 ladder were sketched before implementation began; this note
+reconciles them with what was actually built, without erasing the open gates.
+
+**Built and exercised**
+
+- **P0 contracts, P2 durable engine, P3 step runner, P5 artifact engine, P6 Pi integration** —
+  shipped and in use; the engine was stress-run at 16× concurrency on one store with no corruption.
+- **P7 experience** — the deepest investment: a per-dimension + global quality ratchet, execution
+  notes, and recall steering. Judgment learns and tightens per dimension; mediocrity is refused,
+  near-misses are flagged into the notes, and recall steers the next run. This stays on the Praxis
+  side of the Occam seam: it judges acceptance of work artifacts and records execution lessons, not
+  reasoning quality.
+- **P4 adapters — closed at the current adapter set (owner decision).** The Pi tool broker and the
+  jev scorer validate I/O and block when unavailable; no further adapter is required for present
+  scope. Nested-budget enforcement is NOT part of this and remains gate #8.
+
+**Consciously deferred, NOT closed**
+
+- **P1 trusted identity (gate #3)** — the capability intersection and routed-call denial are built;
+  a trusted actor binding is deferred for the current single-owner context. Praxis makes no
+  trusted-identity claim it does not have.
+- **Gate #1 isolation, #4 flow expansion, #6 durability (retention/migration/backups), #7
+  maintenance (P8), #8 nested execution** — open as written.
+- **P9 live acceptance** — real Pi-hosted runs and negative checks are observed; the full §14
+  architect scenario (durable resume midway, deny-before-execute) is not yet run end to end.
+
+"Deferred" means a conscious owner choice not to build it now; it does not mean the gate is met.
+
 ## 14. First vertical slice — architect
 
 **Scenario:** an authorized architect runs `praxis.run` for a bounded architecture task.

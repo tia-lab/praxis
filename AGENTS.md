@@ -389,6 +389,13 @@ acceptance here before building.
   decisions (owner-overridable): default `continue`; terminal status `failed` not `blocked`; `continue`
   advances the best-scoring version. Lead scope record: `src/runner/step.ts` (+40/-4) is added to Unit A scope — because `continue` may accept a non-newest version, `buildHandoffs` resolves the highest ACCEPTED version and `runStep` re-reads the exact handed-off version (digest check intact); found via test failures and disclosed by the engineer.
 
+- **2026-10-30 — owner: reconcile the north star with built reality.** Owner directive in words:
+  the north star and §12/§13 ladder were sketched before implementation, so adapt them to what was
+  built. Scope: `STATUS.md`, a dated §13a reconciliation block in `docs/vision.md`, and this entry.
+  Acceptance: P4 is recorded closed at the current adapter set and P1 trusted identity recorded
+  consciously deferred, with every other §13 gate left visible and annotated deferred/open — no gate
+  is marked met that is not. Documentation only: no code, schema, store or flow change.
+
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a
 tool denies it, stop and correct host rooting rather than bypass the denial.

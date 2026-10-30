@@ -1,9 +1,18 @@
 # Where we are
 
-**Unit:** Slice 0 — ACCEPTED. Pi integration — shipped. Step brief + flow position — shipped.
-**Unit E (P5 artifact templates) — shipped (pending owner acceptance), 2026-10-29.**
-**Just landed:** a real engineering task/flow library (owner-directed, 2026-10-29), replacing the
-three placeholder flows and five flat tasks.
+**Molecule core built through P6; P7 experience is the deepest layer.** As of 2026-10-30:
+P0 contracts, P2 durable engine, P3 step runner, P5 artifacts, P6 Pi integration — shipped.
+P7 experience — the per-dimension + global quality ratchet, execution notes and recall steering —
+shipped and proven live at 16× concurrency on one store (24/24 clean; honest-uncertainty ratcheted
+0.60→0.775, grounded the laggard, 5 flagged, 2 compound refusals, all notes closed).
+**P4 adapters: closed at the current set (Pi broker + jev scorer) by owner decision (2026-10-30).**
+**P1 authority: capability intersection + routed-call denial built; trusted identity (gate #3)
+consciously deferred — no identity claim made.** Open: gate #1 isolation, #4 flow expansion,
+#6 durability retention/migration, #7/P8 maintenance, #8 nested budgets; P9 full architect
+scenario not yet run end to end. Deferred means a conscious choice not to build now, not a met gate.
+
+**Earlier milestones:** Slice 0 accepted; Pi integration + step brief/flow position shipped;
+P5 artifact templates (hash8 99d43024) shipped; engineering task/flow library landed (2026-10-29).
 
 ## P5 — artifact templates (unit E, hash8 99d43024)
 

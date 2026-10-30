@@ -36,6 +36,20 @@ export {
   type GenuinePass,
   type LogEvent,
 } from "./bar.ts";
+/** The bounded experience query (P7): solved cases ranked deterministically behind an injected port. */
+export {
+  applyBounds,
+  collectCases,
+  deterministicRanker,
+  recallExperience,
+  setRankerForTest,
+  type CaseSignals,
+  type ExperienceCase,
+  type QueryNeed,
+  type RankedCase,
+  type RankerPort,
+  type RecallPayload,
+} from "./ranker.ts";
 /** Execution learning, task-level (O1): the ranked, bounded recall set and its targeted lesson. */
 export {
   RECALL_MAX,
@@ -46,4 +60,7 @@ export {
   recallFor,
   weakSetFor,
   type TargetedLesson,
+  scoreCandidate,
+  type CandidateRelevance,
+  type CandidateSignals,
 } from "./recall.ts";

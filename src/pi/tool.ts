@@ -23,7 +23,7 @@ import { z } from "zod";
 import { asAppError, fail, isAppError } from "../types/errors.ts";
 import { ActorSchema, QualityVerdictSchema, parseWith } from "../types/schema.ts";
 import type { Artifact, Instance, ResolvedNode } from "../types/schema.ts";
-import { ArtifactSummarySchema, CheckEnvelopeSchema, FailureDetailsSchema, PraxisToolArgsSchema, PraxisToolOpSchema, ReadEnvelopeSchema, StartEnvelopeSchema, StepDescriptorSchema, StepEnvelopeSchema } from "../types/pi.ts";
+import { ArtifactSummarySchema, CheckEnvelopeSchema, FailureDetailsSchema, PraxisToolArgsSchema, PraxisToolOpSchema, ReadEnvelopeSchema, RecallEnvelopeSchema, StartEnvelopeSchema, StepDescriptorSchema, StepEnvelopeSchema } from "../types/pi.ts";
 import { NoteEnvelopeSchema } from "../types/pi.ts";
 import { missingFor } from "../runner/requirements.ts";
 import type { ArtifactSummary, FailureDetails, PraxisToolArgs, StepDescriptor } from "../types/pi.ts";
@@ -34,7 +34,7 @@ import { digest } from "../runner/canonical.ts";
 import { inspect, openFlow, qualityHistory, readStepArtifact, start } from "../runner/engine/index.ts";
 import { withStore } from "../runner/engine/support.ts";
 import type { EngineOptions, HandoffRef, OpenedFlow } from "../runner/engine/index.ts";
-import { advanceEvaluated, briefRecall, compoundDecision, effectiveBarsFor, escalatedLesson, jevScorer, type Scorer } from "../quality/index.ts";
+import { advanceEvaluated, briefRecall, compoundDecision, effectiveBarsFor, escalatedLesson, jevScorer, recallExperience, type Scorer } from "../quality/index.ts";
 import { noteStanding, recordNote } from "../runner/note-gate.ts";
 import { projectConfig, projectMaxAttempts } from "../runner/engine/support.ts";
 import { anchorOf, jevAlignJudge, judgeOrder, orderDigestOf, uncheckedClause, type AlignJudge } from "../quality/jev-align.ts";
@@ -627,6 +627,23 @@ async function checkOperation(args: PraxisToolArgs, ctx: PiSessionContext): Prom
   return ok(CheckEnvelopeSchema, { ok: clean, missing, step: resolved.node.id });
 }
 
+/**
+ * `op=recall`: the bounded experience query. The ranking, the case assembly and the bounds live in
+ * `src/quality/ranker.ts`; this handler is the wiring and nothing else. Read-only: no event, no row.
+ */
+async function recallOperation(args: PraxisToolArgs, ctx: PiSessionContext): Promise<PiToolResult> {
+  const options = engineOptions(ctx);
+  const payload = recallExperience(
+    { ...options, instance: required(args.instance, "instance"), actor: actorFor(ctx) },
+    {
+      need: required(args.need, "need"),
+      ...(args.tags === undefined ? {} : { tags: args.tags }),
+      ...(args.max === undefined ? {} : { max: args.max }),
+    },
+  );
+  return ok(RecallEnvelopeSchema, payload);
+}
+
 function readOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResult {
   const options = engineOptions(ctx);
   const actor = actorFor(ctx);
@@ -694,6 +711,7 @@ export async function executePraxisTool(args: unknown, ctx: PiSessionContext): P
     if (parsed.op === "submit") return await submitOperation(parsed, ctx);
     if (parsed.op === "note") return await noteOperation(parsed, ctx);
     if (parsed.op === "check") return await checkOperation(parsed, ctx);
+    if (parsed.op === "recall") return await recallOperation(parsed, ctx);
     return readOperation(parsed, ctx);
   } catch (error) {
     return failure(error);

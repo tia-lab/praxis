@@ -11,14 +11,14 @@
  */
 import { z } from "zod";
 import type { Code } from "./errors.ts";
-import { ArtifactStateSchema, CapabilitySchema, DigestSchema, FlowNameSchema, InstanceIdSchema, NonceSchema, QualityDimensionSchema, RequirementsSchema, ResultSchema, SchemaNameSchema, StepIdSchema } from "./schema.ts";
+import { ActorSchema, ArtifactStateSchema, CapabilitySchema, DigestSchema, FlowNameSchema, InstanceIdSchema, NonceSchema, QualityDimensionSchema, RequirementsSchema, ResultSchema, SchemaNameSchema, StepIdSchema, TaskRefSchema, TimestampSchema } from "./schema.ts";
 import { LearningNoteSubjectiveSchema, RecallSetSchema } from "./learning.ts";
 
 /**
  * The operations the one tool exposes (R2). `note` is the execution-learning closing reflection
  * (F2/O4): the agent's subjective lesson for a step that already reached its terminal outcome.
  */
-export const PraxisToolOpSchema = z.enum(["start", "submit", "read", "note", "check"]);
+export const PraxisToolOpSchema = z.enum(["start", "submit", "read", "note", "check", "recall"]);
 export type PraxisToolOp = z.infer<typeof PraxisToolOpSchema>;
 
 /**
@@ -46,9 +46,18 @@ export const PraxisToolArgsSchema = z
     roles: z.record(z.string(), z.string()).optional(),
     /** The subjective half of a learning note (`op=note`); the objective half is derived. */
     subjective: LearningNoteSubjectiveSchema.optional(),
+    /**
+     * `op=recall`: what the agent is stuck on, in its own words. Searched against THIS project's
+     * store only; nothing is written.
+     */
+    need: z.string().min(1).max(500).optional(),
+    /** `op=recall`: the rubric dimensions to cover; defaults to the current step's. */
+    tags: z.array(z.string().min(1).max(64)).max(8).optional(),
+    /** `op=recall`: how many cases to return (1..10, default 5). */
+    max: z.int().min(1).max(10).optional(),
   })
   .superRefine((args, ctx) => {
-    const require = (field: "flow" | "requestId" | "instance" | "artifact" | "step" | "order"): void => {
+    const require = (field: "flow" | "requestId" | "instance" | "artifact" | "step" | "order" | "need"): void => {
       if (args[field] === undefined) {
         ctx.addIssue({ code: "custom", path: [field], message: `${args.op} requires ${field}` });
       }
@@ -65,6 +74,9 @@ export const PraxisToolArgsSchema = z
     } else if (args.op === "check") {
       require("instance");
       require("artifact");
+    } else if (args.op === "recall") {
+      require("instance");
+      require("need");
     } else {
       require("instance");
       require("step");
@@ -188,13 +200,56 @@ export const CheckEnvelopeSchema = z.strictObject({
 });
 export type CheckEnvelope = z.infer<typeof CheckEnvelopeSchema>;
 
+/**
+ * One solved case as `op=recall` returns it: the ranking score, the signal breakdown that produced it,
+ * the provenance read from the record, and the lesson. No bytes, no transcript, no event log.
+ */
+export const RecallCaseSchema = z.strictObject({
+  score: z.number().min(0).max(1),
+  relevance: z.strictObject({
+    need: z.number().min(0).max(1),
+    outcome: z.number().min(0).max(1),
+    corroboration: z.number().min(0).max(1),
+    recency: z.number().min(0).max(1),
+    margin: z.number().min(0).max(1),
+  }),
+  provenance: z.strictObject({
+    instance: InstanceIdSchema,
+    task: TaskRefSchema,
+    taskVersion: z.int().min(1),
+    step: StepIdSchema,
+    version: z.int().min(1),
+    digest: DigestSchema,
+    writtenBy: ActorSchema,
+    at: TimestampSchema,
+  }),
+  outcome: z.literal("pass"),
+  lesson: z.strictObject({
+    whatWrong: z.string().max(400),
+    whatRight: z.string().max(400),
+    whatBetter: z.string().max(400),
+    tags: z.array(z.strictObject({ dimension: z.string().min(1).max(64), lesson: z.string().min(1).max(240) })).max(8),
+  }),
+});
+export type RecallCase = z.infer<typeof RecallCaseSchema>;
+
+/** `recall`: the need echoed back, how many cases survived the bounds, and the ranked cases. */
+export const RecallEnvelopeSchema = z.strictObject({
+  need: z.string().min(1).max(500),
+  count: z.int().min(0).max(10),
+  truncated: z.boolean(),
+  cases: z.array(RecallCaseSchema).max(10),
+});
+export type RecallEnvelope = z.infer<typeof RecallEnvelopeSchema>;
+
 /** The successful envelopes, one per operation. Exactly one is returned. */
 export type PraxisToolEnvelope =
   | z.infer<typeof StartEnvelopeSchema>
   | z.infer<typeof StepEnvelopeSchema>
   | z.infer<typeof ReadEnvelopeSchema>
   | z.infer<typeof NoteEnvelopeSchema>
-  | z.infer<typeof CheckEnvelopeSchema>;
+  | z.infer<typeof CheckEnvelopeSchema>
+  | z.infer<typeof RecallEnvelopeSchema>;
 
 /**
  * The runtime mirror of the `Code` union in `errors.ts`. The annotation makes a

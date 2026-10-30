@@ -104,6 +104,66 @@ interface Candidate {
   tags: { dimension: string; lesson: string }[];
 }
 
+/** What one candidate's relevance is computed from: numbers and lookups only, so any caller can supply them. */
+export interface CandidateSignals {
+  /** What this candidate should COVER: the task's weak-set for the brief, the caller's need tags for a query. */
+  cover: readonly string[];
+  /** The candidate's own dimension tags. */
+  tags: readonly { dimension: string; lesson: string }[];
+  outcome: RecallNote["outcome"];
+  /** Did the case carry a concrete improvement (an empty lesson teaches less)? */
+  hasBetter: boolean;
+  /** The score the case achieved. */
+  score: number;
+  /** The bar in force when it was judged. */
+  barThen: number;
+  /** How many bar levels have been raised since. */
+  levels: number;
+  /** The author, so corroboration can exclude them from their own count. */
+  author: string;
+  /** Independent agents (other than the author) who tagged this dimension. */
+  corroborationAgents: (dimension: string) => number;
+}
+
+/** The relevance of one candidate, with the signals that produced it (the breakdown is auditable). */
+export interface CandidateRelevance {
+  relevance: number;
+  breakdown: { coverage: number; outcome: number; corroboration: number; recency: number; margin: number };
+}
+
+/**
+ * THE scorer: one weighted sum over five normalized signals (O1's frozen weights), used by the
+ * brief's recall (cover = the weak-set) and by the experience query (cover = the caller's need
+ * tags). Kept in one place so a query can never rank by a second, drifting formula.
+ */
+export function scoreCandidate(signals: CandidateSignals): CandidateRelevance {
+  const coverage =
+    signals.cover.length === 0
+      ? 0
+      : signals.cover.filter((dimension) => signals.tags.some((tag) => tag.dimension === dimension)).length / signals.cover.length;
+  // Corroboration is the mean over the candidate's own lessons: an independent agent recording a
+  // similar lesson, saturating as 1 - 1/(1+k). Averaged so one well-known tag cannot carry a
+  // candidate whose other lesson nobody else found.
+  const corroborations = signals.tags.map((tag) => {
+    const agents = signals.corroborationAgents(tag.dimension);
+    return 1 - 1 / (1 + agents);
+  });
+  const corroboration = mean(corroborations);
+  const recency = RECENCY_DECAY ** signals.levels;
+  const margin = signals.barThen >= 1 ? 1 : Math.max(0, Math.min(1, (signals.score - signals.barThen) / (1 - signals.barThen)));
+  const outcome = outcomeValue(signals.outcome, signals.hasBetter);
+  const relevance =
+    RECALL_WEIGHTS.weakness * coverage +
+    RECALL_WEIGHTS.outcome * outcome +
+    RECALL_WEIGHTS.corroboration * corroboration +
+    RECALL_WEIGHTS.recency * recency +
+    RECALL_WEIGHTS.margin * margin;
+  return {
+    relevance: round4(relevance),
+    breakdown: { coverage: round4(coverage), outcome: round4(outcome), corroboration: round4(corroboration), recency: round4(recency), margin: round4(margin) },
+  };
+}
+
 /** The outcome value of a note: a pass teaches most, an empty/escalated note least (O1). */
 function outcomeValue(outcome: RecallNote["outcome"], hasBetter: boolean): number {
   if (outcome === "pass") return 1;
@@ -139,42 +199,30 @@ function candidates(store: Store, task: string, quality: Quality, weakSet: reado
     const outcome = objective?.outcome ?? "pass";
     const score = objective?.bestScore ?? 0;
     const barThen = barAt(raises, quality.threshold, at);
-    const coverage =
-      weakSet.length === 0
-        ? 0
-        : weakSet.filter((dimension) => subjective.tags.some((tag) => tag.dimension === dimension)).length / weakSet.length;
-    // Corroboration is the mean over the note's own lessons: an independent agent recording a
-    // similar lesson, saturating as 1 - 1/(1+k). Averaged so one well-known tag cannot carry a
-    // note whose other lesson nobody else found.
-    const corroborations = subjective.tags.map((tag) => {
-      const set = authorities.get(tag.dimension) ?? new Set<string>();
-      const agents = [...set].filter((agent) => agent !== note.provenance.agent).length;
-      return 1 - 1 / (1 + agents);
+    const { relevance } = scoreCandidate({
+      cover: weakSet,
+      tags: subjective.tags,
+      outcome,
+      hasBetter: subjective.whatBetter.trim() !== "",
+      score,
+      barThen,
+      levels: raises.filter((raise) => raise.at > at).length,
+      author: note.provenance.agent,
+      corroborationAgents: (dimension) => [...(authorities.get(dimension) ?? new Set<string>())].filter((agent) => agent !== note.provenance.agent).length,
     });
-    const corroboration = mean(corroborations);
-    const levels = raises.filter((raise) => raise.at > at).length;
-    const recency = RECENCY_DECAY ** levels;
-    const margin = barThen >= 1 ? 1 : Math.max(0, Math.min(1, (score - barThen) / (1 - barThen)));
-    const outcomeScore = outcomeValue(outcome, subjective.whatBetter.trim() !== "");
-    const relevance =
-      RECALL_WEIGHTS.weakness * coverage +
-      RECALL_WEIGHTS.outcome * outcomeScore +
-      RECALL_WEIGHTS.corroboration * corroboration +
-      RECALL_WEIGHTS.recency * recency +
-      RECALL_WEIGHTS.margin * margin;
     out.push({
       note: {
         id: note.instance + ":" + note.step,
         step: note.step,
         outcome,
         score,
-        relevance: round4(relevance),
+        relevance,
         whatWrong: clip(subjective.whatWrong, 400),
         whatRight: clip(subjective.whatRight, 400),
         whatBetter: clip(subjective.whatBetter, 400),
         tags: subjective.tags.map((tag) => ({ dimension: tag.dimension, lesson: clip(tag.lesson, 240) })),
       },
-      relevance: round4(relevance),
+      relevance,
       tags: subjective.tags.map((tag) => ({ dimension: tag.dimension, lesson: tag.lesson })),
     });
   }

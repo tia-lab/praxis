@@ -38,6 +38,7 @@ One tool, `praxis`, with these operations. Every call is a single JSON argument 
 | `submit` | `instance`, `artifact` | `{ result, step }` — advances exactly one step, or refuses |
 | `note` | `instance`, `subjective` | `{ result, step, note{step, noteVersion, stub, missing?} }` |
 | `read` | `instance`, `step` | `{ artifact, value }` — one recorded artifact, only if this step grants it |
+| `recall` | `instance`, `need` (+`tags?`, `max?`) | `{ need, count, truncated, cases[] }` — solved cases in **this project's** store, ranked, with provenance |
 
 A refusal is not an exception: it comes back with `code`, `message` and a `detail` object,
 and nothing in the flow has advanced. Read the code, not the prose.
@@ -129,6 +130,15 @@ check that failed. Fix and resubmit. Identical bytes will be judged once, not tw
 
 Once a step is accepted you may read its recorded bytes with `op=read` **if** `read` is in
 `ops`; otherwise the step has no read grant and you work from what you already have.
+
+**When you are stuck, ask the store.** `op=recall` searches *this project's* solved cases for what
+you are stuck on: pass your need in your own words (`need`), optionally the rubric dimensions to
+cover (`tags`, defaulting to this step's) and how many cases (`max`, 1..10, default 5). Each case
+comes back with a score, the signal breakdown that produced it, the lesson, and its provenance —
+task, step, version, artifact digest and the agent that wrote it — so you can follow it back into the
+record. It is read-only and bounded: it never returns artifact bytes, the event log or another
+instance's transcript, and it reads only this project's store. Cross-project or federated similarity
+does not exist here.
 
 ### 4. If the judgment refuses you
 

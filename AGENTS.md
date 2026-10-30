@@ -506,6 +506,47 @@ acceptance here before building.
   unchanged; (2) the engineer inverted plan-before-code this turn, disclosed, plan content accurate (G2 spec
   had passed before code). Nothing committed. Four of five roadmap units done; Unit 5 (experience-query) next.
 
+- **2026-10-30 — Unit 5 GO (bounded experience-query), SPEC-FIRST.** Owner GO in words: deterministic at
+  first, with a ranker port so a jev-relevance ranker can slot in later. An agent searches THIS project's
+  store for similar solved cases, ranked highest-first, returning only the pertinent top-N with provenance.
+  Contract-bearing (a new query op on the one tool), so NOT a §4 waiver: G1 research + G2 spec, STOP for
+  review before any code. Scope (research/spec now; code only after spec PASS): `docs/<unit5-slug>-<hash8>/`,
+  later `src/quality/` (extend `recall.ts` or a new `experience.ts`, reusing the existing deterministic
+  candidate ranking — weak-set/tag overlap, recency, outcome — behind a RANKER PORT), `src/pi/tool.ts` (the
+  new op), `src/types/` (the query-result type; a new Code only if a new refusal is needed), `tests/`, and
+  the `.pi/skills/praxis/SKILL.md` update in the same acceptance. Boundaries: **within-store only, with
+  provenance — NO cross-project / federated similarity (that is Jung); Praxis must not become a federated
+  memory authority.** Deterministic baseline now; jev-relevance is a later opt-in through the port, not this
+  unit. Not authorized: store-schema change, new dependency (jev-search stays .dev reference), expanding the
+  six result keys, or any isolation/identity/exactly-once claim.
+
+- **2026-10-30 — Unit 5 G4 GO (bounded experience-query).** After G1+G2 PASS, owner confirmed the new tool
+  op **`op=recall`** and GO to plan + implement. The engineer writes `plan.md` (G3) then implements per
+  `docs/experience-query-05d58a5d/spec.md` R1–R10. Paths: `src/quality/ranker.ts` (new: QueryNeed/
+  ExperienceCase/RankedCase/RankerPort + deterministicRanker), `src/quality/recall.ts` (EXTRACT the private
+  per-candidate scoring into one shared function, cover-set as a parameter — recall's own result unchanged),
+  `src/quality/index.ts` (barrel), `src/pi/tool.ts` (op enum + route + a THIN handler), `src/types/pi.ts`
+  (op, args, the RecallEnvelope), `tests/`, and `.pi/skills/praxis/SKILL.md`. Binding: ONE scorer (extraction,
+  not a second impl); read-only (writes nothing); within-store only by construction (no path to another
+  store — Jung's line); bounded result (<=max, ~1200 lesson tokens, provenance, no artifact bytes/event
+  log/transcript); stub/continued-FAILED/note-less cases excluded; no store-schema, dependency, result key
+  or new Code; jev-relevance stays a future drop-in through the port. tool.ts cap stays waived — handler thin,
+  ranking in ranker.ts. Not authorized: cross-project/federated read, jev-search dependency, store-schema
+  change, or any isolation/identity/exactly-once claim.
+
+- **2026-10-30 — Unit 5 ACCEPTED (bounded experience-query) — ROADMAP COMPLETE (5/5).** Passed independent
+  G5 review on R1–R10: `recall.ts`'s per-candidate scoring was EXTRACTED into one shared `scoreCandidate`
+  (cover-set a parameter) and the brief's own ranking is unchanged (the 250 prior tests + an equivalence
+  test are the oracle); `op=recall` returns a bounded, provenance-carrying, deterministically ranked list
+  through a PURE `RankerPort` (store read in `collectCases`, authority via `assertObserver`); within-store
+  by construction (two-store test: no cross-project leak); read-only (store-file digest + five row counts
+  unchanged); stub/continued-FAILED/note-less cases excluded; no store-schema, dependency, result key or
+  new Code; tsc 0; 258/258 no-network; scope confined to `src/quality/ranker.ts` (new), `src/quality/recall.ts`,
+  `src/quality/index.ts`, `src/pi/tool.ts` (721->739, under the waiver), `src/types/pi.ts`, `tests/`, the skill.
+  One non-blocking finding: spec D2's "ranker takes the store" is a one-line amendment (the port is pure, the
+  store context is attached at collection). Nothing committed. The deferred `tool.ts` split (739 lines) is now
+  DUE and needs its own owner GO; husky/commitlint restore is the owner's; then one consolidation commit.
+
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a
 tool denies it, stop and correct host rooting rather than bypass the denial.

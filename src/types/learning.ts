@@ -56,7 +56,10 @@ export const LearningNoteSchema = z.strictObject({
 });
 export type LearningNote = z.infer<typeof LearningNoteSchema>;
 
-/** The window inputs an adaptive-bar raise was computed from, recorded so it is reproducible. */
+/**
+ * The window inputs around an adaptive-bar raise, recorded so the evidence is reproducible. Since the
+ * EMA ratchet these are disclosure on every scope (the quartile and the stdev no longer decide a raise).
+ */
 export const BarWindowSchema = z.strictObject({
   passes: z.array(z.number().min(0).max(1)).min(1).max(16),
   lowerQuartile: z.number().min(0).max(1),
@@ -66,7 +69,10 @@ export const BarWindowSchema = z.strictObject({
 });
 export type BarWindow = z.infer<typeof BarWindowSchema>;
 
-/** One raise of a task's effective floor, with the formula id that produced it (O2, audit). */
+/**
+ * One raise of a task's effective floor, with the formula id and the evidence that produced it (O2,
+ * audit). Since the EMA ratchet the decision input is `ema`; `window` is disclosure.
+ */
 export const BarRaisedSchema = z.strictObject({
   task: TaskRefSchema,
   taskVersion: z.int().min(1),
@@ -84,6 +90,23 @@ export const BarRaisedSchema = z.strictObject({
   from: z.number().min(0).max(1),
   to: z.number().min(0).max(1),
   window: BarWindowSchema,
+  /**
+   * The exponential moving average that decided this raise: the smoothed level of the scope's genuine
+   * passes (see `emaOf` in `src/quality/bar.ts`). Optional because records written before the EMA
+   * ratchet carry no `ema` and must still parse and fold.
+   */
+  ema: z
+    .strictObject({
+      /** The EMA period count the recurrence used (9). */
+      periods: z.int().min(1).max(64),
+      /** `2 / (periods + 1)`. */
+      alpha: z.number().min(0).max(1),
+      /** The EMA at the moment of the raise. */
+      value: z.number().min(0).max(1),
+      /** How many genuine passes of this scope the EMA was computed from. */
+      samples: z.int().min(1),
+    })
+    .optional(),
   formulaId: z.string().min(1).max(64),
   at: TimestampSchema,
 });

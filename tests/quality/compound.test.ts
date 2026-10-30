@@ -86,34 +86,38 @@ test("warmup: fewer than ten observations never raise any scope", async () => {
   }
 });
 
-test("a per-dimension bar ratchets on its own, without lifting the global MEAN bar", async () => {
+test("each bar ratchets on its own series: a strong dimension rises, two flat ones stay put", async () => {
   const ws = workspace();
   try {
     compoundFlow(ws);
     const tick = clock().next;
     const runs: JudgedRun[] = [];
-    // One strong dimension, two that sit exactly on their floor: the MEAN headroom is only ~0.117,
-    // under the 0.12 gate, while solves has ~0.35.
+    // One strong dimension, two that sit exactly on their floor. Every scope reads its OWN series:
+    // solves (0.95) has a 0.35 gap, evidence and trace (0.60) have none, and the global scope reads the
+    // per-pass MEAN (0.7167) — its own level, not any dimension's.
     for (let index = 1; index <= WARMUP_MIN; index += 1) {
       const run = startJudged(ws, "split-" + index, tick());
       runs.push(run);
       await submitJudged(ws, run, tick(), 1, dimensionScorer([{ solves: 0.95, evidence: 0.6, trace: 0.6 }]));
     }
     const raised = raisedScopes(ws, runs);
-    assert.deepEqual(raised.map((payload) => payload.scope), ["solves"], "only the strong dimension moves");
-    assert.equal(raised[0].from, 0.6);
-    assert.equal(raised[0].to, 0.65);
+    assert.deepEqual(raised.map((payload) => payload.scope), ["global", "solves"], "the strong scope and the global MEAN move");
+    for (const payload of raised) {
+      assert.equal(payload.from, 0.6);
+      assert.equal(payload.to, 0.65, "each moves by the capped step toward its own level");
+    }
 
     const bars = effectiveBarsFor(learningOptions(ws, tick()), TASK, QUALITY);
     assert.equal(bars.perDimension.get("solves"), 0.65, "solves earned its own bar");
-    assert.equal(bars.perDimension.get("evidence"), 0.6, "evidence is untouched");
-    assert.equal(bars.global, 0.6, "the MEAN bar did not move");
+    assert.equal(bars.perDimension.get("evidence"), 0.6, "evidence is untouched: no gap over its floor");
+    assert.equal(bars.perDimension.get("trace"), 0.6, "trace is untouched");
+    assert.equal(bars.global, 0.65, "the global bar tracks the mean level, independently");
   } finally {
     dispose(ws);
   }
 });
 
-/** Seed the state the compound cases need: solves' own bar ratcheted to 0.65, global still 0.60. */
+/** Seed the state the compound cases need: solves' and the global bar ratcheted to 0.65, evidence and trace still at 0.60. */
 async function seedSplit(ws: Workspace, tick: () => string): Promise<void> {
   compoundFlow(ws);
   for (let index = 1; index <= WARMUP_MIN; index += 1) {

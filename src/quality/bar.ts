@@ -13,11 +13,15 @@
  *
  * All inputs are derived from the append-only event log — passes from \`artifact.accepted\` paired
  * with their \`quality.verdict\`, raises from \`bar.raised\` — so the bars are engine-computed,
- * auditable and never set by the agent. Frozen ratchet defaults per scope: window W = 5 genuine
- * passes; raise only after WARMUP_MIN = 10 observations of that scope and when lower-quartile
- * headroom is >= 0.12 AND stdev <= 0.08 AND mean attempts <= 2 AND the cooldown has elapsed; step is
- * \`min(0.05, 0.5 * (margin - 0.12))\`, clamped to \`[seed, 0.9]\`. Never auto-lowers: a full window under
- * a raised bar with no pass emits \`bar.contested\` for that scope.
+ * auditable and never set by the agent. Every scope ratchets by ONE rule under one formula id
+ * (`praxis.bar.ema/v3`): the **nine-period EMA of that scope's own genuine-pass values**
+ * (`alpha = 2/(N+1) = 0.2`, seeded with the first value) is the earned level, and the bar moves toward
+ * it by at most 0.05 when the gap is at least 0.01 -
+ * `to = min(0.9, current + min(0.05, max(0, ema - current)))`. A raise is still gated by
+ * WARMUP_MIN = 10 observations of that scope, by the cooldown (a raise only once BAR_WINDOW = 5 new
+ * genuine passes have accumulated) and by mean attempts <= 2. Never auto-lowers: the effective bar is
+ * `max(current, EMA)`, so a dip records nothing, and a full window under a raised bar with no pass
+ * emits `bar.contested` for that scope (owner authority lowers a contested bar; the code never does).
  */
 import { z } from "zod";
 import { BarContestedSchema, BarRaisedSchema } from "../types/learning.ts";
@@ -30,21 +34,23 @@ import type { EngineOptions } from "../runner/engine/types.ts";
 import { digest } from "../runner/canonical.ts";
 
 /** The frozen formula identity, recorded on every raise so the record is reproducible. */
-export const BAR_FORMULA_ID = "praxis.bar/v2";
-/** How many genuine passes the window judges. */
+export const BAR_FORMULA_ID = "praxis.bar.ema/v3";
+/** The cooldown: how many genuine passes must accumulate after a raise before the next one. */
 export const BAR_WINDOW = 5;
 /** How many observations of a scope must accumulate before it may raise at all. */
 export const WARMUP_MIN = 10;
-/** Minimum lower-quartile headroom above the floor. */
-export const BAR_MARGIN_MIN = 0.12;
-/** Maximum score spread the window may carry. */
-export const BAR_STDEV_MAX = 0.08;
 /** Maximum mean attempts: when agents pass easily, the bar is too low. */
 export const BAR_MEAN_ATTEMPTS_MAX = 2;
 /** Above this, model-judge noise dominates. */
 export const BAR_CEILING = 0.9;
 /** The largest single raise. */
 export const BAR_MAX_STEP = 0.05;
+/** How many genuine passes the EMA remembers: N = 9. */
+export const BAR_EMA_PERIODS = 9;
+/** `2 / (BAR_EMA_PERIODS + 1)`: the weight the newest pass carries. */
+export const BAR_EMA_ALPHA = 0.2;
+/** Below this gap the EMA sits too close to the bar to be worth recording. */
+export const BAR_MIN_STEP = 0.01;
 /** The scope name of the global (MEAN) bar. */
 export const GLOBAL_SCOPE = "global";
 /** Acceptance tolerance on a single dimension: it may sit this far under its bar and still pass. */
@@ -277,6 +283,20 @@ export function lowerQuartile(sorted: readonly number[]): number {
 }
 
 /**
+ * The exponential moving average of a series of genuine-pass values: `alpha = 2/(periods+1)`, seeded
+ * with the first value, so the result is a property of the evidence rather than of an authored floor.
+ * It is the earned level the ratchet moves toward - a dip drags it, but `max(current, EMA)` means a
+ * drag can never lower a bar. An empty series has no EMA.
+ */
+export function emaOf(values: readonly number[], periods: number = BAR_EMA_PERIODS): number | undefined {
+  if (values.length === 0) return undefined;
+  const alpha = 2 / (periods + 1);
+  let ema = values[0];
+  for (let index = 1; index < values.length; index += 1) ema = alpha * values[index] + (1 - alpha) * ema;
+  return ema;
+}
+
+/**
  * The compound acceptance test, in ONE place so the scorer path, the gate and the audit cannot
  * drift: every dimension must sit at or above \`bar - DIMENSION_TOLERANCE\` (a dimension inside
  * \`[bar - tolerance, bar)\` PASSES but is FLAGGED, and below the band is a hard refuse), and the MEAN
@@ -401,7 +421,11 @@ function evaluateScope(store: Store, task: string, taskVersion: number, scope: S
   return { scope: scope.name, kind: "held", reason: window.length < BAR_WINDOW ? "no full window" : "gates not met" };
 }
 
-/** The raise itself: all four frozen gates must hold over a full window of that scope's passes. */
+/**
+ * The raise itself, under the EMA rule that every scope shares: the bar moves TOWARD the smoothed level
+ * of that scope's genuine passes, by at most BAR_MAX_STEP, and only when the gap is worth recording. The
+ * caller has already checked warmup; the cooldown is the window itself.
+ */
 function decideRaise(
   task: string,
   taskVersion: number,
@@ -412,16 +436,20 @@ function decideRaise(
   window: readonly { value: number; attempts: number; instance: string }[],
 ): { raised: z.infer<typeof BarRaisedSchema>; instance: string } | undefined {
   if (window.length < BAR_WINDOW) return undefined;
-  // Four decimals: the recorded window is an audit value, not a place for float noise.
-  const scores = window.map((pass) => round4(pass.value));
-  const quartile = lowerQuartile([...scores].sort((left, right) => left - right));
-  const margin = quartile - current;
-  const spread = stdev(scores);
+  // The EMA runs over the whole series of this identity; the window is the cooldown, not the statistic.
+  const values = scope.passes.map((pass) => round4(pass.value));
+  const ema = emaOf(values);
+  if (ema === undefined) return undefined;
+  const margin = ema - current;
   const meanAttempts = window.reduce((sum, pass) => sum + pass.attempts, 0) / window.length;
-  if (margin < BAR_MARGIN_MIN || spread > BAR_STDEV_MAX || meanAttempts > BAR_MEAN_ATTEMPTS_MAX) return undefined;
-  const step = Math.min(BAR_MAX_STEP, 0.5 * (margin - BAR_MARGIN_MIN));
+  if (meanAttempts > BAR_MEAN_ATTEMPTS_MAX) return undefined;
+  if (margin < BAR_MIN_STEP) return undefined;
+  const step = Math.min(BAR_MAX_STEP, margin);
   const to = round4(Math.min(BAR_CEILING, Math.max(scope.seed, current + step)));
   if (!(to > current)) return undefined;
+  // Four decimals: the record is an audit value, not a place for float noise.
+  const scores = window.map((pass) => round4(pass.value));
+  const quartile = lowerQuartile([...scores].sort((left, right) => left - right));
   const raised = parseWith(
     BarRaisedSchema,
     {
@@ -435,9 +463,10 @@ function decideRaise(
         passes: scores,
         lowerQuartile: quartile,
         margin: round4(margin),
-        stdev: round4(spread),
+        stdev: round4(stdev(scores)),
         meanAttempts: round4(meanAttempts),
       },
+      ema: { periods: BAR_EMA_PERIODS, alpha: BAR_EMA_ALPHA, value: round4(ema), samples: values.length },
       formulaId: BAR_FORMULA_ID,
       at,
     },

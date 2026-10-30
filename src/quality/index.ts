@@ -4,11 +4,12 @@ export { jevScorer, type JevScorerOptions } from "./jev-scorer.ts";
 /** Execution learning, task-level (O2): the per-scope adaptive bars and the compound acceptance. */
 export {
   BAR_CEILING,
+  BAR_EMA_ALPHA,
+  BAR_EMA_PERIODS,
   BAR_FORMULA_ID,
-  BAR_MARGIN_MIN,
   BAR_MAX_STEP,
   BAR_MEAN_ATTEMPTS_MAX,
-  BAR_STDEV_MAX,
+  BAR_MIN_STEP,
   BAR_WINDOW,
   DIMENSION_TOLERANCE,
   GLOBAL_SCOPE,
@@ -22,6 +23,7 @@ export {
   effectiveBarFor,
   effectiveBars,
   effectiveBarsFor,
+  emaOf,
   genuinePasses,
   lowerQuartile,
   ofTask,

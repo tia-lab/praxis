@@ -606,6 +606,32 @@ acceptance here before building.
   `src/quality/bar.ts` + `tests/quality/bar.test.ts`. Not authorized yet: code before the spec passes, any
   store/flow-schema change, or lowering an earned bar. After acceptance: a final 16-window live test, then the
   tasks part closes.
+- **2026-10-30 — EMA scope decision: ALL SCOPES; README acceptance logic made exact.** Owner, after I
+  confirmed the real passing rule against `src/quality/bar.ts:294-307`: the EMA ratchet applies to EVERY scope,
+  not global only. Rationale the owner surfaced and I verified: acceptance is `compoundDecision` — each
+  dimension must satisfy `score_d >= bar_d - DIMENSION_TOLERANCE` (0.05) AND `mean >= global` — so the
+  per-dimension bars are load-bearing gates, and an EMA on every scope makes each dimension bar track the
+  smoothed mean level of that dimension's own scores (the owner's model). This OVERRIDES the spec's D3/O2
+  "global only" recommendation; the spec and its G2 review PASS are amended accordingly (D3 → all scopes;
+  R7 → every scope uses one EMA formula id, no mixed model; O1 retire of quartile+stdev now applies to all
+  scopes; O3 `BAR_MIN_STEP=0.01` stands). Implement paths unchanged: `src/quality/bar.ts`,
+  `tests/quality/bar.test.ts` (ALL cases re-tuned now, global and per-dimension), one optional `ema` field in
+  `src/types/learning.ts`, and the README `Quality bars and learning` section (which I rewrote with the exact
+  compoundDecision table and the exact EMA recurrence so it no longer handwaves). No store or flow document
+  changes; never-auto-lower, warmup(10), cooldown(5), ceiling(0.9), seeds and `compoundDecision` itself
+  untouched. After acceptance: the final 16-window live test, then the tasks part closes.
+- **2026-10-30 — EMA ratchet (all scopes) ACCEPTED.** G3 PASS, verified independently: tsc 0; full suite
+  274/274 (was 271, +3 EMA/scope/min-step cases, none weakened); retired constants (`praxis.bar/v2`,
+  `BAR_MARGIN_MIN`, `BAR_STDEV_MAX`) absent from src/tests/README/.pi; `emaOf` is a true EMA over the whole
+  per-scope series (`α=0.2`), not a last-9 window; `decideRaise` is ONE rule for every scope over
+  `scope.passes`/`scope.seed` and the never-lower guard holds (`margin<0.01` or `!(to>current)` → no raise,
+  so a dip never lowers a bar); `BarRaisedSchema.ema` is additive-optional so pre-EMA records still parse/fold;
+  README `Quality bars and learning` now states the exact compoundDecision table and the exact EMA recurrence,
+  gate list completed with the mean-attempts ≤ 2 effort gate. compoundDecision, warmup(10), cooldown(5),
+  contested, ceiling(0.9) and seeds untouched. No store or flow document changed. Behavioural delta (arithmetic):
+  a sustained level L pulls the bar to L in ≤0.05 steps per cooldown instead of creeping, and a volatile series
+  reaches only its smoothed level, never its best single pass. Committed by the engineer through the husky hook.
+  REMAINING: the final 16-window live test (to observe the ratchet reach level faster), then the tasks part closes.
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a
 tool denies it, stop and correct host rooting rather than bypass the denial.

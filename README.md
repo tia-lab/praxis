@@ -121,17 +121,68 @@ well-defined.
 
 ## Quality bars and learning
 
-Acceptance is **compound**: every dimension must clear its own bar (with a small tolerance band
-that marks a near-miss _flagged_), **and** the mean of the dimensions must clear a global bar.
-Each bar is a **ratchet**: after a warmup of ten genuine observations it rises with proven,
-stable competence and never auto-lowers, so standards tighten per dimension as a task's history
-grows. Bars are keyed by dimension **identity**, so adding a rubric dimension warms it from its
-floor while the others keep what they earned, and rewording one resets only that dimension.
+Every step's artifact is scored on the task's rubric **dimensions** (e.g. `grounded`,
+`covers-question`, `honest-uncertainty`), each in `[0, 1]`. Acceptance combines those scores
+against learned **bars** by one rule in one place (`compoundDecision`, `src/quality/bar.ts`), so
+the scorer, the gate and the audit cannot drift.
 
-When a step passes, the agent owes a **learning note**; the gate requires a lesson for every
-flagged dimension. The next instance's **recall** surfaces the weak set and the prior lessons, so
-a shortfall on one run steers the next. This is Praxis's execution experience (P7), not Occam's
-cognition: it judges whether work meets the standard and records the lesson, it does not reason.
+**The acceptance test — exact.** Let `score_d` be a dimension's score, `bar_d` its bar (its own
+per-dimension bar, or the global bar if it has none yet), `mean` the arithmetic mean of all the
+dimension scores, and `global` the global bar. With `DIMENSION_TOLERANCE = 0.05`:
+
+| dimension outcome | condition |
+| --- | --- |
+| **refused** (hard fail) | `score_d < bar_d − 0.05` |
+| **flagged** (passes, owes a lesson) | `bar_d − 0.05 ≤ score_d < bar_d` |
+| **clean** | `score_d ≥ bar_d` |
+
+```
+PASS  ⇺  (no dimension refused)  AND  (mean ≥ global)
+```
+
+So **each dimension is gated against its own bar within a 5% band**, *and* the **mean must clear
+the global bar with no tolerance**. The reported headline score is the MIN dimension; it is not
+part of the pass rule.
+
+**What each bar tracks.** Bars are engine-computed folds of `bar.raised` events over the
+append-only log — never set by the agent. There is one **global** scope (keyed by the rubric's
+composition) and one scope **per dimension** (keyed by dimension id + statement). Per **genuine
+pass** (an `artifact.accepted` whose verdict at that version was `pass`) each scope records one
+value:
+
+- **global** ← the **mean** of that pass's dimension scores;
+- **a dimension** ← **that dimension's own** score.
+
+Seeds: the global bar starts at the task's `quality.threshold`, each dimension at its
+`dimension.floor`.
+
+**The ratchet — exact (9-period EMA of the earned level, every scope).** For each scope, over its
+genuine-pass values in log order, with `N = 9` and `α = 2/(N+1) = 0.2`:
+
+```
+ema₁ = v₁
+emaₜ = 0.2·vₜ + 0.8·emaₜ₋₁
+to   = round4( min(0.9, current + min(0.05, max(0, ema − current))) )
+```
+
+A raise is recorded only when `to > current` **and** `ema − current ≥ 0.01`. Equivalently the
+effective bar is **`max(current, EMA)`**, approached in steps of at most **0.05** and ignored when
+the gap is under **0.01**. A dip (`ema < current`) records nothing — the bar **never auto-lowers**.
+A raise is still gated by **warmup** (≥ 10 observations of the scope), **cooldown** (≥ 5 genuine
+passes since that scope's last raise), an **effort gate** (mean attempts ≤ 2) and the **ceiling**
+`0.9`; each raise records the EMA that
+decided it under formula id `praxis.bar.ema/v3`, so replaying the log yields the same bars.
+
+So each dimension's bar tracks the **smoothed mean level of that dimension's own passing scores**
+(gated ±5%), and the global bar tracks the smoothed mean of the dimension means — standards
+tighten per dimension as a task's history grows, adding a rubric dimension warms only it, and
+rewording one resets only that dimension.
+
+**Learning.** When a step passes, the agent owes a **learning note**, and the gate requires a
+lesson for every flagged dimension. The next instance's **recall** surfaces the weak set and the
+prior lessons, so a shortfall on one run steers the next. This is Praxis's execution experience
+(P7), not Occam's cognition: it judges whether work meets the standard and records the lesson, it
+does not reason.
 
 ## Configuration
 

@@ -52,7 +52,12 @@ test("start shows the quality rubric in the step descriptor", async () => {
     assert.equal(quality.dimensions[0].statement, "the draft answers the stated goal");
     assert.equal(quality.threshold, 0.6);
     assert.equal(quality.policy, "required");
-    assert.equal(Object.keys(quality).sort().join(","), "dimensions,policy,threshold");
+    // The disclosure names the aggregation rule and the judging stance too, so the agent learns
+    // the standard from the brief and never from the source (F1).
+    assert.equal(quality.aggregation, "min");
+    assert.match(quality.judging, /MINIMUM/);
+    assert.deepEqual(quality.recall, { bar: 0.6, weakSet: [], notes: [] }, "cold start: an empty recall set");
+    assert.equal(Object.keys(quality).sort().join(","), "aggregation,dimensions,judging,policy,recall,threshold");
   } finally {
     ws.dispose();
   }

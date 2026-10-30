@@ -24,12 +24,16 @@ import { asAppError, fail, isAppError } from "../types/errors.ts";
 import { ActorSchema, QualityVerdictSchema, parseWith } from "../types/schema.ts";
 import type { Artifact, Instance, ResolvedNode } from "../types/schema.ts";
 import { ArtifactSummarySchema, FailureDetailsSchema, PraxisToolArgsSchema, PraxisToolOpSchema, ReadEnvelopeSchema, StartEnvelopeSchema, StepDescriptorSchema, StepEnvelopeSchema } from "../types/pi.ts";
+import { NoteEnvelopeSchema } from "../types/pi.ts";
 import type { ArtifactSummary, FailureDetails, PraxisToolArgs, StepDescriptor } from "../types/pi.ts";
+import type { Quality, RecallSet } from "../types/schema.ts";
 import { CAPABILITY_NAMES, grantFor, requireGrant } from "../runner/capabilities.ts";
 import { digest } from "../runner/canonical.ts";
 import { inspect, openFlow, readStepArtifact, start } from "../runner/engine/index.ts";
 import type { EngineOptions, HandoffRef, OpenedFlow } from "../runner/engine/index.ts";
-import { advanceEvaluated, jevScorer, type Scorer } from "../quality/index.ts";
+import { advanceEvaluated, briefRecall, effectiveBarFor, escalatedLesson, jevScorer, type Scorer } from "../quality/index.ts";
+import { noteStanding, recordNote } from "../runner/note-gate.ts";
+import { projectMaxAttempts } from "../runner/engine/support.ts";
 import { ISSUE_CATEGORIES, issueTemplate } from "../types/issue.ts";
 import { ISSUE_DISABLED, openIssue } from "../runner/issues.ts";
 import type { PiSessionContext, PiToolDefinition, PiToolResult } from "./host.ts";
@@ -41,6 +45,7 @@ export const PRAXIS_TOOL_DESCRIPTION = [
   "op=start opens or re-opens a flow instance and returns the six-key result, the current step descriptor and the nonce.",
   "op=submit advances exactly one step with the artifact JSON for that step.",
   "op=read returns one recorded artifact when the current step grants artifact.read.",
+  "op=note submits the subjective lesson a step owes once its artifact was accepted (whatWrong, whatRight, whatBetter, dimension-keyed tags): the engine derives the objective half itself, and the step's work does not advance until the note is recorded.",
   "op=issue.template returns the field spec a report for one category must answer; op=issue.open files that report through the project's configured issue block.",
   "Only calls routed through this tool are gated by the step grant: other tools are not blocked and no isolation is claimed.",
 ].join(" ");
@@ -105,7 +110,7 @@ const IssueReportEnvelopeSchema = z.strictObject({ issue: z.strictObject({ file:
  */
 export function engineOptions(
   ctx: PiSessionContext,
-): Required<Pick<EngineOptions, "configPath" | "storeDir" | "tasksDir">> {
+): Required<Pick<EngineOptions, "configPath" | "storeDir" | "tasksDir">> & Pick<EngineOptions, "defaultMaxAttempts"> {
   if (typeof ctx.cwd !== "string" || ctx.cwd === "") {
     throw fail("CONFIG_INVALID", "the host context carries no working directory");
   }
@@ -113,7 +118,7 @@ export function engineOptions(
   // delivery flow that mirrors docs/WORKFLOW.md). The selector is the environment,
   // never a tool argument: an agent may not choose its own gates (R1, R10).
   const selected = process.env.PRAXIS_CONFIG;
-  return {
+  const options: Required<Pick<EngineOptions, "configPath" | "storeDir" | "tasksDir">> & Pick<EngineOptions, "defaultMaxAttempts"> = {
     configPath:
       typeof selected === "string" && selected !== ""
         ? resolve(ctx.cwd, selected)
@@ -121,6 +126,11 @@ export function engineOptions(
     storeDir: resolve(ctx.cwd, ".pi/praxis/state"),
     tasksDir: resolve(ctx.cwd, ".pi/praxis/tasks"),
   };
+  // The project's own defaults are loaded HERE, once, and threaded into the engine as a value: the
+  // engine never reads configuration, and a broken project config falls back to the code default.
+  const defaultMaxAttempts = projectMaxAttempts(ctx.cwd);
+  if (defaultMaxAttempts !== undefined) options.defaultMaxAttempts = defaultMaxAttempts;
+  return options;
 }
 
 /** First 32 hex of sha256 over `session:` + id, with the `sha256:` prefix removed. */
@@ -169,6 +179,48 @@ function currentStepOf(flow: OpenedFlow, instance: Instance): ResolvedNode {
   return refuse === undefined ? { node, task, sources } : { node, task, sources, refuse };
 }
 
+/** The judging stance, in the agent's own terms (F1/O1): how a score is produced and combined. */
+export const JUDGING_STANCE =
+  "an independent judge scores each dimension from 0 to 1 for how fully the artifact meets its statement, given the task goal; the overall score is the MINIMUM of those dimension scores, so every dimension must clear the floor on its own; the floor is this task's current bar and may rise as its history proves stable competence";
+
+/** What the brief discloses about the standard plus what the past teaches (F1, F3, F7). */
+interface LearningView {
+  bar: number | undefined;
+  recall: RecallSet | undefined;
+  /** The step that already reached its terminal outcome and still owes a note. */
+  pending: string | undefined;
+  attempts: number;
+  budget: number;
+}
+
+/**
+ * The learning disclosure for the current step, derived from the store on every call: the effective
+ * bar (O2), the ranked recall set (O1) and whether a note is owed (O3). Nothing here is stored on
+ * the descriptor, and the same store state yields the same disclosure byte for byte.
+ */
+function learningView(options: EngineOptions, flow: OpenedFlow, instance: Instance): LearningView {
+  const resolved = currentStepOf(flow, instance);
+  const quality: Quality | undefined = resolved.task.quality ?? flow.config.quality;
+  const standing = noteStanding(options, instance, flow);
+  const recall =
+    quality === undefined
+      ? undefined
+      : briefRecall(options, {
+          instance: instance.id,
+          step: resolved.node.id,
+          task: resolved.node.task,
+          taskVersion: resolved.task.version,
+          quality,
+        });
+  return {
+    bar: recall?.bar,
+    recall,
+    pending: standing.pending?.step,
+    attempts: standing.attempts,
+    budget: standing.budget,
+  };
+}
+
 /**
  * Derived `{id, capabilities, ops, steps, brief}` (R6): `submit` only while running
  * under `artifact.write`, `read` whenever the grant carries `artifact.read`, in that
@@ -177,13 +229,21 @@ function currentStepOf(flow: OpenedFlow, instance: Instance): ResolvedNode {
  * knows what to produce before its first submit instead of discovering it by rejection.
  * Both are projected from state already loaded and pinned; nothing new is read or stored.
  */
-export function stepDescriptor(flow: OpenedFlow, instance: Instance, handoffs: readonly HandoffRef[] = []): StepDescriptor {
+export function stepDescriptor(
+  flow: OpenedFlow,
+  instance: Instance,
+  handoffs: readonly HandoffRef[] = [],
+  learning?: LearningView,
+): StepDescriptor {
   const resolved = currentStepOf(flow, instance);
   const single = handoffs.length === 1 ? handoffs[0].digest : undefined;
   const grant = grantFor({ id: resolved.node.id, capabilities: resolved.task.capabilities });
   const quality = resolved.task.quality ?? flow.config.quality;
-  const ops: ("submit" | "read")[] = [];
-  if (instance.status === "running" && grant.capabilities.has("artifact.write")) ops.push("submit");
+  const ops: ("submit" | "read" | "note")[] = [];
+  // A step that owes a note cannot submit: the reflection comes first (O3). The engine refuses the
+  // submit anyway; saying so here means the agent learns it from the brief, not from a rejection.
+  if (learning?.pending !== undefined) ops.push("note");
+  else if (instance.status === "running" && grant.capabilities.has("artifact.write")) ops.push("submit");
   if (grant.capabilities.has("artifact.read")) ops.push("read");
   return parseWith(
     StepDescriptorSchema,
@@ -200,10 +260,21 @@ export function stepDescriptor(flow: OpenedFlow, instance: Instance, handoffs: r
         ...(handoffs.length > 0 ? { consumes: handoffs.map((handoff) => ({ step: handoff.step, schema: handoff.schema, digest: handoff.digest })) } : {}),
         ...(single !== undefined ? { derivedFrom: single } : {}),
         ...(single !== undefined && resolved.task.bindsSubject === true ? { subject: single } : {}),
-        // The standard this step is judged against, before it submits rather than only on refusal.
+        // The standard this step is judged against, before it submits rather than only on refusal:
+        // the rubric, the floor IN FORCE (the adaptive bar, not the authored one), how the judgments
+        // aggregate, how the judge works, and the lessons previous agents on this task recorded.
         ...(quality === undefined
           ? {}
-          : { quality: { dimensions: quality.dimensions, threshold: quality.threshold, policy: quality.policy } }),
+          : {
+              quality: {
+                dimensions: quality.dimensions,
+                threshold: learning?.bar ?? quality.threshold,
+                policy: quality.policy,
+                aggregation: "min" as const,
+                judging: JUDGING_STANCE,
+                ...(learning?.recall === undefined ? {} : { recall: learning.recall }),
+              },
+            }),
       },
     },
     "RESULT_INVALID",
@@ -276,7 +347,7 @@ function startOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResu
   const { instance, result, flow, handoffs } = inspect({ ...options, instance: started.instance.id, actor });
   return ok(StartEnvelopeSchema, {
     result,
-    step: stepDescriptor(flow, instance, handoffs),
+    step: stepDescriptor(flow, instance, handoffs, learningView(options, flow, instance)),
     nonce: instance.nonce,
   });
 }
@@ -320,25 +391,43 @@ function qualityFeedback(error: unknown, options: EngineOptions & { instance: st
     const task = node === undefined ? undefined : view.flow.tasks.get(node.task);
     const effective = task?.quality ?? view.flow.config.quality;
     if (effective === undefined) return error;
+    // The floor this attempt was judged against is the adaptive bar, not the authored threshold.
+    const bar = node === undefined || task === undefined ? effective.threshold : effectiveBarFor(options, node.task, task.version, effective);
     const statements = new Map(effective.dimensions.map((dimension) => [dimension.id, dimension.statement]));
     const dimensions = verdict.dimensions.map((dimension) => ({
       id: dimension.id,
       score: dimension.score,
       statement: statements.get(dimension.id) ?? "",
-      belowThreshold: dimension.score < effective.threshold,
+      belowThreshold: dimension.score < bar,
     }));
     const weakest = dimensions.length === 0 ? undefined : dimensions.reduce((low, current) => (current.score < low.score ? current : low));
+    // Escalating re-injection (O1): the refusal points at the single best-recorded lesson for the
+    // dimension that cost the most, instead of repeating the same flat feedback.
+    const lesson =
+      weakest === undefined || node === undefined || task === undefined
+        ? undefined
+        : escalatedLesson(
+            briefRecall(options, {
+              instance: view.instance.id,
+              step,
+              task: node.task,
+              taskVersion: task.version,
+              quality: effective,
+            }),
+            weakest.id,
+          );
     return fail(error.code, error.message, {
       ...(detail as Record<string, unknown>),
       quality: {
         overall: verdict.score,
-        threshold: effective.threshold,
+        threshold: bar,
         policy: effective.policy,
         dimensions,
         weakest,
         rationale: verdict.rationale,
         source: verdict.source,
         scorer: verdict.scorer,
+        ...(lesson === undefined ? {} : { lesson }),
       },
     });
   } catch {
@@ -366,11 +455,41 @@ async function submitOperation(args: PraxisToolArgs, ctx: PiSessionContext): Pro
     });
     return ok(StepEnvelopeSchema, {
       result: advanced.result,
-      step: stepDescriptor(advanced.flow, advanced.instance, advanced.handoffs),
+      step: stepDescriptor(advanced.flow, advanced.instance, advanced.handoffs, learningView(options, advanced.flow, advanced.instance)),
     });
   } catch (error) {
     throw qualityFeedback(error, { ...options, instance });
   }
+}
+
+/**
+ * Record the reflection a step owes (O3/O4). The agent supplies the subjective half only; the
+ * objective half is derived from the verdicts, acceptances and failures the log already holds, and
+ * the provenance is stamped from this session's binding. An inadequate note is refused with typed
+ * gaps while the attempt budget lasts; once it is spent the engine records a stub and the flow
+ * proceeds, so the reflection is mandatory but never a deadlock.
+ */
+function noteOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResult {
+  const options = engineOptions(ctx);
+  const actor = actorFor(ctx);
+  const instance = required(args.instance, "instance");
+  const outcome = recordNote({
+    options: { ...options, instance },
+    actor,
+    subjective: args.subjective,
+    at: new Date().toISOString(),
+  });
+  const view = inspect({ ...options, instance, actor });
+  return ok(NoteEnvelopeSchema, {
+    result: view.result,
+    step: stepDescriptor(view.flow, view.instance, view.handoffs, learningView(options, view.flow, view.instance)),
+    note: {
+      step: outcome.step,
+      noteVersion: outcome.noteVersion,
+      stub: outcome.stub,
+      ...(outcome.missing === undefined ? {} : { missing: outcome.missing }),
+    },
+  });
 }
 
 function readOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResult {
@@ -437,6 +556,7 @@ export async function executePraxisTool(args: unknown, ctx: PiSessionContext): P
     if (parsed.op === "start") return startOperation(parsed, ctx);
     // `await`, not `return`: an async rejection must reach the catch below (R8: never reject).
     if (parsed.op === "submit") return await submitOperation(parsed, ctx);
+    if (parsed.op === "note") return noteOperation(parsed, ctx);
     return readOperation(parsed, ctx);
   } catch (error) {
     return failure(error);

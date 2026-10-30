@@ -11,10 +11,13 @@
  */
 import { z } from "zod";
 import type { Code } from "./errors.ts";
-import { ArtifactStateSchema, CapabilitySchema, DigestSchema, FlowNameSchema, InstanceIdSchema, NonceSchema, RequirementsSchema, ResultSchema, SchemaNameSchema, StepIdSchema } from "./schema.ts";
+import { ArtifactStateSchema, CapabilitySchema, DigestSchema, FlowNameSchema, InstanceIdSchema, LearningNoteSubjectiveSchema, NonceSchema, QualityDimensionSchema, RecallSetSchema, RequirementsSchema, ResultSchema, SchemaNameSchema, StepIdSchema } from "./schema.ts";
 
-/** The three operations the one tool exposes (R2). */
-export const PraxisToolOpSchema = z.enum(["start", "submit", "read"]);
+/**
+ * The operations the one tool exposes (R2). `note` is the execution-learning closing reflection
+ * (F2/O4): the agent's subjective lesson for a step that already reached its terminal outcome.
+ */
+export const PraxisToolOpSchema = z.enum(["start", "submit", "read", "note"]);
 export type PraxisToolOp = z.infer<typeof PraxisToolOpSchema>;
 
 /**
@@ -34,6 +37,8 @@ export const PraxisToolArgsSchema = z
     step: StepIdSchema.optional(),
     /** Optional role -> actor map the creator pins at start; never the caller's own actor (R10). */
     roles: z.record(z.string(), z.string()).optional(),
+    /** The subjective half of a learning note (`op=note`); the objective half is derived. */
+    subjective: LearningNoteSubjectiveSchema.optional(),
   })
   .superRefine((args, ctx) => {
     const require = (field: "flow" | "requestId" | "instance" | "artifact" | "step"): void => {
@@ -47,6 +52,8 @@ export const PraxisToolArgsSchema = z
     } else if (args.op === "submit") {
       require("instance");
       require("artifact");
+    } else if (args.op === "note") {
+      require("instance");
     } else {
       require("instance");
       require("step");
@@ -63,7 +70,7 @@ export type PraxisToolArgs = z.infer<typeof PraxisToolArgsSchema>;
 export const StepDescriptorSchema = z.strictObject({
   id: StepIdSchema,
   capabilities: z.array(CapabilitySchema),
-  ops: z.array(z.enum(["submit", "read"])),
+  ops: z.array(z.enum(["submit", "read", "note"])),
   steps: z.array(StepIdSchema),
   brief: z.strictObject({
     goal: z.string().min(1),
@@ -83,12 +90,19 @@ export const StepDescriptorSchema = z.strictObject({
      */
     quality: z
       .strictObject({
-        dimensions: z
-          .array(z.strictObject({ id: z.string().min(1).max(64), statement: z.string().min(1).max(500) }))
-          .min(1)
-          .max(8),
+        dimensions: z.array(QualityDimensionSchema).min(1).max(8),
+        /**
+         * The threshold IN FORCE: the task's authored min_floor, or the higher bar the engine has
+         * ratcheted to from stable history (O2). The agent never sets it and cannot see the code.
+         */
         threshold: z.number().min(0).max(1),
         policy: z.enum(["required", "advisory"]),
+        /** How the per-dimension judgments become one score: the MINIMUM (MIN-011). */
+        aggregation: z.literal("min"),
+        /** The judging stance: what the judge does, in the agent's own terms (F1). */
+        judging: z.string().min(1).max(400),
+        /** The lessons selected for this step, ranked from recorded notes (F3, F7). */
+        recall: RecallSetSchema.optional(),
       })
       .optional(),
   }),
@@ -124,11 +138,26 @@ export const ReadEnvelopeSchema = z.strictObject({
   value: z.unknown(),
 });
 
+/** `note`: the six-key result, the descriptor, and what the reflection did (real or stub). */
+export const NoteEnvelopeSchema = z.strictObject({
+  result: ResultSchema,
+  step: StepDescriptorSchema,
+  note: z.strictObject({
+    step: StepIdSchema,
+    noteVersion: z.int().min(1),
+    /** True when the engine wrote the "no lesson provided" stub after the bounded attempts. */
+    stub: z.boolean(),
+    /** What the adequacy gate still found missing, when the stub was forced. */
+    missing: z.array(z.string().min(1)).optional(),
+  }),
+});
+
 /** The successful envelopes, one per operation. Exactly one is returned. */
 export type PraxisToolEnvelope =
   | z.infer<typeof StartEnvelopeSchema>
   | z.infer<typeof StepEnvelopeSchema>
-  | z.infer<typeof ReadEnvelopeSchema>;
+  | z.infer<typeof ReadEnvelopeSchema>
+  | z.infer<typeof NoteEnvelopeSchema>;
 
 /**
  * The runtime mirror of the `Code` union in `errors.ts`. The annotation makes a

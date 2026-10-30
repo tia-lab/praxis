@@ -11,6 +11,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+import { start } from "../src/runner/engine/index.ts";
+import { advanceEvaluated, type Scorer } from "../src/quality/index.ts";
+import { recordNote } from "../src/runner/note-gate.ts";
+
 /** A fixed instant, so an assertion never depends on the wall clock. */
 export const NOW = "2026-10-29T12:00:00.000Z";
 
@@ -264,3 +268,122 @@ export function eventsOf(ws: Workspace, instance: string): Array<Record<string, 
 export function instanceRow(ws: Workspace, instance: string): Record<string, unknown> | undefined {
   return query(ws, "SELECT * FROM instance WHERE id = ?", [instance])[0];
 }
+
+/* ---------------------------------------------------------------------------------------------
+ * Execution-learning helpers (O1/O2/O3): a judged single-step flow, a monotonic clock (the bar and
+ * recall fold the log in time order, so one fixed instant would not exercise them), fake scorers
+ * that can vary per dimension, and the note a judged step owes.
+ * ------------------------------------------------------------------------------------------- */
+
+/** The rubric every learning fixture uses; `solves` is weakest on a tie (it is listed first). */
+export const LEARNING_RUBRIC = [
+  { id: "solves", statement: "it solves the stated goal" },
+  { id: "evidence", statement: "every claim carries evidence" },
+  { id: "trace", statement: "the reasoning traces back to its sources" },
+];
+
+export const JUDGED_SCHEMA = "praxis.artifact.make/v1";
+
+/** A monotonic clock: each call is one second later, so log order is the order of the calls. */
+export function clock(from: string = NOW): { next: () => string } {
+  let tick = 0;
+  const base = Date.parse(from);
+  return {
+    next() {
+      tick += 1;
+      return new Date(base + tick * 1000).toISOString();
+    },
+  };
+}
+
+/** One judged step whose task carries the learning rubric; `extra` sets policy/budget. */
+export function judgedFlow(ws: Workspace, extra: Record<string, unknown> = {}): void {
+  writeFlow(ws, "learn", [
+    {
+      id: "make",
+      capabilities: ["artifact.write", "emit", "evaluate"],
+      schema: JUDGED_SCHEMA,
+      quality: { dimensions: LEARNING_RUBRIC, threshold: 0.6, policy: "required", ...extra },
+    },
+  ]);
+}
+
+/** The engine options every learning call uses, stamped with the call's own instant. */
+export function learningOptions(ws: Workspace, at: string) {
+  return { configPath: ws.config, storeDir: ws.store, tasksDir: ws.tasks, now: at };
+}
+
+/** A started instance of the learning flow. */
+export interface JudgedRun {
+  instance: string;
+  nonce: string;
+}
+
+export function startJudged(ws: Workspace, requestId: string, at: string, actor = "a"): JudgedRun {
+  const started = start({ ...learningOptions(ws, at), flow: flowRef("learn"), requestId, actor });
+  return { instance: started.instance.id, nonce: started.instance.nonce };
+}
+
+/** One judged submit of a distinct payload, so every attempt is different bytes. */
+export function submitJudged(ws: Workspace, run: JudgedRun, at: string, attempt: number, scorer: Scorer, actor = "a") {
+  return advanceEvaluated({
+    ...learningOptions(ws, at),
+    instance: run.instance,
+    actor,
+    artifact: { schema: JUDGED_SCHEMA, nonce: run.nonce, attempt },
+    scorer,
+  });
+}
+
+/** A fake scorer returning one score for every dimension, one entry per call. */
+export function sequenceScorer(scores: readonly number[]): Scorer & { calls: number } {
+  const scorer: { calls: number; score: (input: { rubric: readonly { id: string }[] }) => Promise<unknown> } = {
+    calls: 0,
+    async score(input) {
+      const index = Math.min(scorer.calls, scores.length - 1);
+      const score = scores[index];
+      scorer.calls += 1;
+      return {
+        dimensions: input.rubric.map((dimension) => ({ id: dimension.id, score })),
+        rationale: "fake scorer",
+        scorer: "fake/v1",
+      };
+    },
+  };
+  return scorer as unknown as Scorer & { calls: number };
+}
+
+/** A fake scorer whose per-dimension scores are declared frame by frame. */
+export function dimensionScorer(frames: ReadonlyArray<Record<string, number>>): Scorer & { calls: number } {
+  const scorer: { calls: number; score: (input: { rubric: readonly { id: string }[] }) => Promise<unknown> } = {
+    calls: 0,
+    async score(input) {
+      const index = Math.min(scorer.calls, frames.length - 1);
+      const frame = frames[index];
+      scorer.calls += 1;
+      return {
+        dimensions: input.rubric.map((dimension) => ({ id: dimension.id, score: frame[dimension.id] ?? 0 })),
+        rationale: "fake scorer",
+        scorer: "fake/v1",
+      };
+    },
+  };
+  return scorer as unknown as Scorer & { calls: number };
+}
+
+/** The subjective half a judged step owes; `overrides` targets another dimension or a defect. */
+export function noteBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    whatWrong: "the first attempt did not clear the floor",
+    whatRight: "the artifact carried the nonce and its declared schema",
+    whatBetter: "answer the goal before the supporting detail",
+    tags: [{ dimension: "solves", lesson: "state the answer to the goal first" }],
+    ...overrides,
+  };
+}
+
+/** Record the note a judged step owes, as this session's actor. */
+export function recordNoteFor(ws: Workspace, instance: string, at: string, body: unknown = noteBody(), actor = "a") {
+  return recordNote({ options: { ...learningOptions(ws, at), instance }, actor, subjective: body, at });
+}
+

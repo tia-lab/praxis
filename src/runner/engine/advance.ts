@@ -3,7 +3,7 @@
  * either accept, refuse, retry, or apply the onFailure policy. Exactly one node per call.
  */
 import { fail, isAppError } from "../../types/errors.ts";
-import { type Instance, type ResolvedNode, type Result, type TaskConfig } from "../../types/schema.ts";
+import { type Instance, type QualityVerdict, type ResolvedNode, type Result, type TaskConfig } from "../../types/schema.ts";
 import { loadInstance, setStatus } from "../../store/instance.ts";
 import { appendEvent } from "../../store/events.ts";
 import { readArtifact } from "../../store/artifacts.ts";
@@ -13,8 +13,29 @@ import { buildHandoffs, gate, runStep, successorOf } from "../step.ts";
 import { assertObserver, assertStepActor } from "./authority.ts";
 import { acceptedRefs, currentHandoffs, loadPinnedFlow } from "./flow.ts";
 import { qualityRefusal, failureOutcome, recordAcceptance } from "./quality-loop.ts";
+import { effectiveBar, recomputeBar } from "../../quality/bar.ts";
+import {
+  finishInstance,
+  maxNoteAttempts,
+  noteAttempts,
+  pendingNote,
+  recordNoteRefusal,
+  writeStubNote,
+} from "../note-gate.ts";
 import { stamp, withStore } from "./support.ts";
 import { EVENT, type AdvanceOptions, type HandoffRef, type OpenedFlow } from "./types.ts";
+
+/**
+ * The engine never trusts a pass the floor in force does not support (O2). A verdict is computed
+ * outside the store against the bar as it stood then; if a raise landed in between, a pass below
+ * the current bar is downgraded here rather than carried by its old decision. Fail-closed, and the
+ * recorded verdict is left otherwise untouched.
+ */
+function gatedVerdict(verdict: QualityVerdict | undefined, bar: number): QualityVerdict | undefined {
+  if (verdict === undefined) return undefined;
+  if (verdict.decision !== "pass" || verdict.score >= bar) return verdict;
+  return { ...verdict, decision: "below" };
+}
 
 /**
  * Advance the instance by exactly one node.
@@ -66,7 +87,41 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
     const resolved: ResolvedNode =
       refuse === undefined ? { node, task, sources } : { node, task, sources, refuse };
     assertStepActor(store, instance, task, sources, options.actor);
+    // Closure gate (O3): a step that reached its terminal outcome owes a learning note, and the
+    // next advance waits for it. The budget is bounded and the engine writes the stub itself once
+    // it is spent, so a silently-noting agent can delay the flow but can never deadlock it.
+    const awaiting = pendingNote(store, instance, flow);
+    if (awaiting !== undefined) {
+      const budget = maxNoteAttempts(awaiting.quality, options.defaultMaxAttempts);
+      const spent = noteAttempts(store, instance.id, awaiting.step);
+      if (spent < budget) {
+        const attempts = recordNoteRefusal(store, instance.id, awaiting.step, at, "note-pending", [
+          "note: required before advancing",
+        ]);
+        throw fail("INSTANCE_STATE_INVALID", "step " + JSON.stringify(awaiting.step) + " is awaiting its learning note", {
+          instance: instance.id,
+          step: awaiting.step,
+          currentStep: instance.currentStep,
+          attempts,
+          maxAttempts: budget,
+        });
+      }
+      writeStubNote(store, instance, awaiting, at);
+      const closed = finishInstance(store, instance, flow, at);
+      if (closed !== undefined) {
+        const acceptedNow = acceptedRefs(store, instance.id);
+        return {
+          instance: closed,
+          result: buildResult(closed, acceptedNow),
+          flow,
+          handoffs: currentHandoffs(flow, closed, acceptedNow),
+        };
+      }
+    }
     const effectiveQuality = task.quality ?? flow.config.quality;
+    // The floor enforced is the ADAPTIVE bar (O2), never the static authored threshold: the same
+    // deterministic fold of `bar.raised` the scorer used, read here from the same store.
+    const bar = effectiveQuality === undefined ? undefined : effectiveBar(store, node.task, task.version, effectiveQuality);
     const grant = grantFor({ id: node.id, capabilities: task.capabilities });
     const handoffs = buildHandoffs(store, instance, resolved, grant);
     const artifact = runStep({ store, storeDir, instance, node, task, grant, handoffs, payload: options.artifact, at });
@@ -82,7 +137,9 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
       ...(handoffs.length === 1 ? { derivedFrom: handoffs[0].digest } : {}),
       ...(task.requires === undefined ? {} : { requires: task.requires }),
       ...(task.bindsSubject === true ? { subject: true } : {}),
-      ...(effectiveQuality === undefined ? {} : { quality: { policy: effectiveQuality.policy, threshold: effectiveQuality.threshold, verdict: options.qualityVerdict } }),
+      ...(effectiveQuality === undefined || bar === undefined
+        ? {}
+        : { quality: { policy: effectiveQuality.policy, threshold: bar, verdict: gatedVerdict(options.qualityVerdict, bar) } }),
     });
 
     if (alreadyAccepted && verdict.decision !== "accept") {
@@ -128,7 +185,8 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
       if (verdict.quality !== undefined) {
         appendEvent(store, instance.id, {
           type: EVENT.qualityVerdict,
-          payload: { step: node.id, version: artifact.version, artifactDigest: artifact.digest, ...verdict.quality },
+          // `task`/`taskVersion` are additive: the learning scans are task-scoped, not instance-scoped.
+          payload: { step: node.id, version: artifact.version, artifactDigest: artifact.digest, task: node.task, taskVersion: task.version, ...verdict.quality },
           at,
         });
       }
@@ -138,6 +196,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
           instance,
           step: node.id,
           task,
+          taskRef: node.task,
           grant,
           version: artifact.version,
           digest: artifact.digest,
@@ -146,6 +205,8 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
           at,
           ...(options.actor === undefined ? {} : { actor: options.actor }),
         });
+        // A genuine terminal outcome: re-evaluate the ratchet from the pass just recorded.
+        if (effectiveQuality !== undefined) recomputeBar(store, node.task, task.version, effectiveQuality, at);
       } else {
         // A refusal is evidence, not instance death. A refuse edge sends the work back to
         // the node that must be amended; without one the node stays current and is retried.
@@ -153,8 +214,19 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
         // escalate halts the instance here, while continue accepts the best-scoring attempt
         // (marked FAILED) and falls through to the same successor move an accepted step makes.
         let carried = false;
-        if (qualityRefusal(verdict)) {
-          const outcome = failureOutcome(store, instance, node.id, effectiveQuality, verdict.quality, at);
+        if (qualityRefusal(verdict) && bar !== undefined) {
+          const outcome = failureOutcome({
+            store,
+            instance,
+            step: node.id,
+            taskRef: node.task,
+            taskVersion: task.version,
+            quality: effectiveQuality,
+            threshold: bar,
+            ...(options.defaultMaxAttempts === undefined ? {} : { defaultMaxAttempts: options.defaultMaxAttempts }),
+            verdict: verdict.quality,
+            at,
+          });
           if (outcome.kind === "escalate") throw outcome.failure;
           if (outcome.kind === "continue") {
             // Re-read the chosen version: its bytes are verified against the recorded digest
@@ -165,6 +237,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
               instance,
               step: node.id,
               task,
+              taskRef: node.task,
               grant,
               version: chosen.version,
               digest: chosen.digest,
@@ -195,16 +268,13 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
     }
 
     const successor = successorOf(flow.config, node.id);
-    const finished = successor === undefined;
-    const updated = setStatus(
-      store,
-      instance.id,
-      { status: finished ? "completed" : "running", currentStep: finished ? node.id : successor },
-      instance.revision,
-    );
-    if (finished) {
-      appendEvent(store, instance.id, { type: EVENT.instanceCompleted, payload: { step: node.id }, at });
-    }
+    // Acceptance is the artifact; closure is the lesson (O3). `finishInstance` is the one writer of
+    // the completed transition, so the advance path and the note path cannot disagree about it.
+    const updated =
+      successor !== undefined
+        ? setStatus(store, instance.id, { status: "running", currentStep: successor }, instance.revision)
+        : (finishInstance(store, instance, flow, at) ??
+          setStatus(store, instance.id, { status: "running", currentStep: node.id }, instance.revision));
     const acceptedNow = acceptedRefs(store, instance.id);
     return { instance: updated, result: buildResult(updated, acceptedNow), flow, handoffs: currentHandoffs(flow, updated, acceptedNow) };
   });

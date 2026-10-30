@@ -10,6 +10,7 @@ import { test } from "node:test";
 import { isAppError } from "../../src/types/errors.ts";
 import { start } from "../../src/runner/engine/index.ts";
 import { advanceEvaluated, type Scorer } from "../../src/quality/index.ts";
+import { recordNote } from "../../src/runner/note-gate.ts";
 import { NOW, dispose, eventsOf, flowRef, workspace, writeFlow, type Workspace } from "../testkit.ts";
 
 const SCHEMA = "praxis.artifact.make/v1";
@@ -32,6 +33,25 @@ function makeFlow(ws: Workspace, policy: "required" | "advisory", withCap = true
       quality: { dimensions: [{ id: "solves", statement: "does it solve the task" }], threshold: 0.6, policy },
     },
   ]);
+}
+
+
+/**
+ * The reflection a judged step owes before the flow may close (O3): acceptance is the artifact,
+ * closure is the lesson. These cases record the note rather than expect an instant completion.
+ */
+function noteFor(ws: Workspace, id: string) {
+  return recordNote({
+    options: { ...options(ws), instance: id },
+    actor: "a",
+    subjective: {
+      whatWrong: "the first attempt did not clear the floor",
+      whatRight: "the artifact carried the instance nonce and its declared schema",
+      whatBetter: "answer the goal in the first attempt instead of the second",
+      tags: [{ dimension: "solves", lesson: "state the answer to the goal before the supporting detail" }],
+    },
+    at: NOW,
+  });
 }
 
 function startQ(ws: Workspace, req: string): { id: string; nonce: string } {
@@ -66,7 +86,9 @@ test("a required floor at or above threshold passes and records a pass verdict",
     makeFlow(ws, "required");
     const { id, nonce } = startQ(ws, "q2");
     const r = await advanceEvaluated({ ...options(ws), instance: id, actor: "a", artifact: { schema: SCHEMA, nonce }, scorer: fakeScorer(0.9) });
-    assert.equal(r.result.status, "completed");
+    // Acceptance is the artifact; closure is the lesson (O3): the instance waits for its note.
+    assert.equal(r.result.status, "running");
+    assert.equal(noteFor(ws, id).instance.status, "completed");
     const q = eventsOf(ws, id).find((e) => e.type === "quality.verdict");
     assert.equal((q!.payload as { decision: string; source: string }).decision, "pass");
     assert.equal((q!.payload as { source: string }).source, "jev");
@@ -81,7 +103,9 @@ test("an advisory floor below threshold is recorded but does not block", async (
     makeFlow(ws, "advisory");
     const { id, nonce } = startQ(ws, "q3");
     const r = await advanceEvaluated({ ...options(ws), instance: id, actor: "a", artifact: { schema: SCHEMA, nonce }, scorer: fakeScorer(0.1) });
-    assert.equal(r.result.status, "completed");
+    // Acceptance is the artifact; closure is the lesson (O3): the instance waits for its note.
+    assert.equal(r.result.status, "running");
+    assert.equal(noteFor(ws, id).instance.status, "completed");
     const q = eventsOf(ws, id).find((e) => e.type === "quality.verdict");
     assert.equal((q!.payload as { decision: string }).decision, "below");
   } finally {
@@ -123,6 +147,7 @@ test("a task without a quality block advances unchanged through advanceEvaluated
     writeFlow(ws, "q", [{ id: "make", capabilities: ["artifact.write", "emit"], schema: SCHEMA }]);
     const { id, nonce } = startQ(ws, "q6");
     const r = await advanceEvaluated({ ...options(ws), instance: id, actor: "a", artifact: { schema: SCHEMA, nonce }, scorer: fakeScorer(0.0) });
+    // No rubric, no note obligation: an unjudged task completes exactly as it always did.
     assert.equal(r.result.status, "completed");
     assert.equal(eventsOf(ws, id).find((e) => e.type === "quality.verdict"), undefined);
   } finally {
@@ -170,7 +195,9 @@ test("a task's own quality overrides the flow default", async () => {
     const { id, nonce } = startQ(ws, "qd2");
     // The task's own threshold (0.1) governs, not the flow default (0.9): a 0.3 score passes.
     const r = await advanceEvaluated({ ...options(ws), instance: id, actor: "a", artifact: { schema: SCHEMA, nonce }, scorer: fakeScorer(0.3) });
-    assert.equal(r.result.status, "completed");
+    // Acceptance is the artifact; closure is the lesson (O3): the instance waits for its note.
+    assert.equal(r.result.status, "running");
+    assert.equal(noteFor(ws, id).instance.status, "completed");
   } finally {
     dispose(ws);
   }

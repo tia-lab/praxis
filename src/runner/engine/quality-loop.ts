@@ -18,6 +18,8 @@ import { appendEvent, listEvents } from "../../store/events.ts";
 import { setStatus } from "../../store/instance.ts";
 import { traceOf, type Grant } from "../capabilities.ts";
 import type { Handoff, Verdict } from "../step.ts";
+import { recomputeBar } from "../../quality/bar.ts";
+import { writeNote } from "../note-gate.ts";
 import { payloadOf } from "./support.ts";
 import { DEFAULT_MAX_ATTEMPTS, DEFAULT_ON_FAILURE, EVENT, type QualityAttempt } from "./types.ts";
 
@@ -156,15 +158,23 @@ export type FailureOutcome =
  * the instance in `failed`; `continue` records the failure and hands the best-scoring attempt on,
  * marked FAILED, so the flow keeps moving.
  */
-export function failureOutcome(
-  store: Store,
-  instance: Instance,
-  step: string,
-  quality: Quality | undefined,
-  verdict: QualityVerdict,
-  at: string,
-): FailureOutcome {
-  const maxAttempts = quality?.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+export function failureOutcome(args: {
+  store: Store;
+  instance: Instance;
+  step: string;
+  /** The task the step runs, so the ratchet can be re-evaluated for the right unit. */
+  taskRef: string;
+  taskVersion: number;
+  quality: Quality | undefined;
+  /** The effective floor (adaptive bar) this attempt was judged against. */
+  threshold: number;
+  /** The project's default budget, threaded in by the caller; the task's own still wins. */
+  defaultMaxAttempts?: number;
+  verdict: QualityVerdict;
+  at: string;
+}): FailureOutcome {
+  const { store, instance, step, taskRef, taskVersion, quality, threshold, verdict, at } = args;
+  const maxAttempts = quality?.maxAttempts ?? args.defaultMaxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   // The verdict for this attempt was appended above, so it is the last element here.
   const history = qualityHistory(store, instance.id, step);
   const attempts = history.length;
@@ -177,7 +187,7 @@ export function failureOutcome(
     step,
     attempts,
     maxAttempts,
-    threshold: quality?.threshold ?? 0,
+    threshold,
     verdict,
     ...(previous === undefined ? {} : { previous }),
   });
@@ -199,6 +209,9 @@ export function failureOutcome(
       },
       at,
     });
+    // A terminal outcome either way, so the ratchet is re-evaluated on it: a carried failure is
+    // not a pass and cannot lift the bar, but it does count toward a `bar.contested` window.
+    recomputeBar(store, taskRef, taskVersion, quality as Quality, at);
     return { kind: "continue", best, attempts, reason };
   }
 
@@ -212,7 +225,21 @@ export function failureOutcome(
     payload: { step, attempts, maxAttempts, policy, reason, verdict, history: tail },
     at,
   });
+  // F2: even an escalated terminal outcome leaves a note. The agent cannot act on a failed
+  // instance, so the engine records the omission itself, with provenance, rather than losing it.
+  writeNote({
+    store,
+    instance,
+    step,
+    task: taskRef,
+    taskVersion,
+    subjective: null,
+    stub: true,
+    agent: instance.actor,
+    at,
+  });
   setStatus(store, instance.id, { status: "failed", currentStep: instance.currentStep }, instance.revision);
+  recomputeBar(store, taskRef, taskVersion, quality as Quality, at);
   return {
     kind: "escalate",
     failure: fail("QUALITY_BLOCKED", "step " + JSON.stringify(step) + " could not reach its floor: " + reason, {
@@ -241,6 +268,8 @@ export function recordAcceptance(args: {
   instance: Instance;
   step: string;
   task: TaskConfig;
+  /** The library path the task was pinned from, so the learning scans are task-scoped. */
+  taskRef: string;
   grant: Grant;
   version: number;
   digest: string;
@@ -260,6 +289,8 @@ export function recordAcceptance(args: {
       path: args.path,
       digest: args.digest,
       schema: task.produces.schema,
+      task: args.taskRef,
+      taskVersion: task.version,
       derivedFrom: handoffs.length === 1 ? handoffs[0].digest : null,
       ...(handoffs.length > 1 ? { sources: handoffs.map((handoff) => handoff.artifactRef) } : {}),
       ...(args.actor === undefined ? {} : { actor: args.actor }),

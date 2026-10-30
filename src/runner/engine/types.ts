@@ -14,6 +14,11 @@ export const EVENT = {
   artifactAccepted: "artifact.accepted",
   stepTrace: "step.trace",
   instanceCompleted: "instance.completed",
+  /** Execution learning (task-level loop): the four additive learning facts, all append-only. */
+  learningNote: "learning.note",
+  barRaised: "bar.raised",
+  barContested: "bar.contested",
+  recallSelected: "recall.selected",
 } as const;
 
 /**
@@ -44,6 +49,11 @@ export interface EngineOptions {
   now?: string;
   /** Actor pinned at creation; default PRAXIS_ACTOR or "cli". */
   actor?: string;
+  /**
+   * The project's default attempt budget (`.pi/praxis/config.json`), threaded in by the boundary so
+   * the engine never reads configuration itself. A task's or flow's own `maxAttempts` still wins.
+   */
+  defaultMaxAttempts?: number;
 }
 
 export interface StartOptions extends EngineOptions {

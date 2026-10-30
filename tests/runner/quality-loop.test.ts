@@ -14,6 +14,7 @@ import { test } from "node:test";
 import { isAppError, type AppError } from "../../src/types/errors.ts";
 import { advance, inspect, start } from "../../src/runner/engine/index.ts";
 import { advanceEvaluated, type Scorer } from "../../src/quality/index.ts";
+import { recordNote } from "../../src/runner/note-gate.ts";
 import { NOW, artifactsOf, dispose, eventsOf, flowRef, instanceRow, workspace, writeFlow, type Workspace } from "../testkit.ts";
 
 const SCHEMA = "praxis.artifact.make/v1";
@@ -81,6 +82,25 @@ function pipelineFlow(ws: Workspace, extra: Record<string, unknown> = {}): void 
 function startQ(ws: Workspace, requestId: string): { id: string; nonce: string } {
   const started = start({ ...options(ws), flow: flowRef("q"), requestId, actor: "a" });
   return { id: started.instance.id, nonce: started.instance.nonce };
+}
+
+
+/**
+ * The reflection a judged step owes before the flow may close (O3): acceptance is the artifact,
+ * closure is the lesson. These cases record the note instead of expecting an instant completion.
+ */
+function noteFor(ws: Workspace, id: string) {
+  return recordNote({
+    options: { ...options(ws), instance: id },
+    actor: "a",
+    subjective: {
+      whatWrong: "the step did not clear its floor on the first attempt",
+      whatRight: "the artifact was well formed and carried the nonce",
+      whatBetter: "target the floor on the first attempt instead of the third",
+      tags: [{ dimension: "solves", lesson: "answer the goal before the supporting detail" }],
+    },
+    at: NOW,
+  });
 }
 
 /** One submit of a distinct payload, so each attempt is different bytes. */
@@ -254,7 +274,9 @@ test("the default onFailure continues carrying the best-scoring version, marked 
     assert.equal(eventsOfType(ws, id, "instance.failed").length, 0, "continue never halts the instance");
     assert.equal(eventsOfType(ws, id, "needs.guidance").length, 0);
 
-    // The next step really can consume the carried version: the handoff resolved to v1.
+    // The next step really can consume the carried version: the handoff resolved to v1. The
+    // accepted-FAILED step owes its reflection first (O3), so record it before advancing.
+    noteFor(ws, id);
     const finished = await advance({
       ...options(ws),
       instance: id,
@@ -276,8 +298,10 @@ test("continue at the terminal node completes the flow", async () => {
     makeFlow(ws, { maxAttempts: 1 });
     const { id, nonce } = startQ(ws, "con-2");
     const advanced = (await submit(ws, id, nonce, 1, countingScorer(0.3))) as { result: { status: string; artifacts: unknown[] } };
-    assert.equal(advanced.result.status, "completed");
+    // The artifact is accepted at the gate; the flow closes once the reflection is recorded (O3).
+    assert.equal(advanced.result.status, "running");
     assert.equal(advanced.result.artifacts.length, 1);
+    assert.equal(noteFor(ws, id).instance.status, "completed");
     const rows = artifactsOf(ws, id);
     assert.equal(rows[0].state, "accepted");
     assert.equal(eventsOfType(ws, id, "quality.continued").length, 1);
@@ -324,7 +348,8 @@ test("an improving attempt that crosses the floor advances the flow", async () =
     assert.equal(firstDetail.quality.score, 0.2, "the refusal carries the typed verdict");
 
     const advanced = (await submit(ws, id, nonce, 2, scorer)) as { result: { status: string } };
-    assert.equal(advanced.result.status, "completed");
+    assert.equal(advanced.result.status, "running", "accepted; closure awaits the reflection");
+    assert.equal(noteFor(ws, id).instance.status, "completed");
     assert.deepEqual(
       eventsOfType(ws, id, "quality.verdict").map((event) => (event.payload as { decision: string }).decision),
       ["below", "pass"],

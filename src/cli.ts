@@ -14,6 +14,7 @@
 import { readFileSync } from "node:fs";
 import { asAppError, fail } from "./types/errors.ts";
 import { advance, inspect, readStepArtifact, start, type EngineOptions } from "./runner/engine/index.ts";
+import { projectMaxAttempts } from "./runner/engine/support.ts";
 
 interface Parsed {
   positionals: string[];
@@ -50,6 +51,10 @@ function optionsOf(flags: Record<string, string>): EngineOptions {
   if (flags.config !== undefined) options.configPath = flags.config;
   if (flags.now !== undefined) options.now = flags.now;
   if (flags.actor !== undefined) options.actor = flags.actor;
+  // The project's own defaults are loaded at this boundary and threaded in as a value; a task or
+  // flow that declares its own bound still wins over it, and a broken config falls back to code.
+  const defaultMaxAttempts = projectMaxAttempts(process.cwd());
+  if (defaultMaxAttempts !== undefined) options.defaultMaxAttempts = defaultMaxAttempts;
   return options;
 }
 

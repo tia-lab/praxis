@@ -143,6 +143,42 @@ acceptance here before building.
   rewrite. Recorded rather than assumed so the engineer is not asked to work around a cap that is
   the lead's to lift. Owner-overridable; if the owner prefers engine.ts above 600, this line is the
   reversal and the file is not created.
+- **2026-10-30 — execution-learning task-level loop (owner GO).** Owner authorized directly
+  (“proceed with the exact plan … pass to engineer”) after freezing the design in
+  `docs/execution-learning/DESIGN.md` (F1–F8, O1–O7). Plan: `docs/execution-learning/PLAN.md`
+  (five ordered slices). Scope: `src/types/schema.ts`, `src/types/pi.ts`,
+  `src/runner/engine/{types.ts,advance.ts,quality-loop.ts}`,
+  `src/quality/{evaluate.ts,index.ts,bar.ts (new),recall.ts (new)}`, `src/runner/note-gate.ts (new)`,
+  `src/pi/tool.ts`, `tests/`. Acceptance: effective bar derived from `bar.raised` and ratchets only
+  on a stable W=5 window (margin>=0.12, stdev<=0.08, mean-attempts<=2, cooldown, lower-quartile,
+  step +0.01–0.05, clamp [min_floor,0.9]), with `bar.contested` on a zero-pass window and never an
+  auto-lower; a learning note is required at each task terminal with the objective part DERIVED
+  from existing events and the subjective part gated (whatBetter!=whatWrong, tags cover the weakest
+  dimension) with a bounded-attempt stub fallback so it never deadlocks; recall is a pure
+  event-scan ranked 0.35/0.25/0.20/0.10/0.10 with MMR, N=3–5, ~1k tokens and >=1 exemplar, injected
+  into the brief and escalated on refusal; the brief discloses aggregation+judging+effective bar;
+  `tsc` clean; full suite green (183 + new) under the no-network stub; every file <600 lines. Not
+  authorized: the flow-level loop (O7 — task-level first), any isolation/identity/exactly-once claim
+  (F1 stays a conduct norm, no toolset restriction — vision gate #1 open), cross-project or
+  semantic synthesis (deferred to Occam; corroboration is the deterministic per-dimension proxy),
+  and any store migration or retention policy beyond additive events + keep-all. Sits at P7/P8.
+- **2026-10-30 — global default maxAttempts via project config (owner GO).** Owner authorized
+  (“instruct the engineer”). Scope: `.pi/praxis/config.json` (repurposed from the dead legacy
+  Slice-0 flow — nothing in `src/` loads it — into `praxis.project/v1` `{defaults:{maxAttempts:10}}`),
+  `src/types/schema.ts` (`ProjectConfigSchema`), a cached loader (support.ts or a new module),
+  `src/runner/engine/types.ts` (`EngineOptions.defaultMaxAttempts?`),
+  `src/runner/engine/quality-loop.ts:175` + `src/runner/note-gate.ts:132` (the two read sites),
+  `src/pi/tool.ts` + `src/cli.ts` (load the project config at the boundary, set the option),
+  `.pi/praxis/tasks/discovery/research.json` (revert the `maxAttempts:10` live-test hack), `tests/`.
+  Precedence: task/flow `quality.maxAttempts` > project `defaults.maxAttempts` >
+  `DEFAULT_MAX_ATTEMPTS` (3). Acceptance: existing tests build options without a project config so
+  they still see 3 and the suite stays green (211) under the no-network stub; new tests prove the
+  project default applies when the resolved quality has no maxAttempts, a task override still wins,
+  and an absent/invalid config falls through to 3; `config.json` parses as `praxis.project/v1`;
+  `tsc` clean; files <600. This explicitly **supersedes the earlier “config.json byte-identical”
+  constraint** by owner decision — the file was orphaned. Not authorized: `FlowConfigSchema`
+  changes, changing the default flow path (stays `feature.json`), any engine logic beyond the one
+  fallback layer, or identity/isolation/exactly-once claims.
 
 - **2026-10-29 — unit E authorized: P5 artifact templates (solo).** Owner GO in words:
   full scope, implemented alone, exact plan first. Docs: `docs/p5-artifact-templates-99d43024/`.

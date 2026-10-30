@@ -9,6 +9,7 @@ import { canonicalBytes, digest, digestOf } from "../runner/canonical.ts";
 import { advance, inspect, type AdvanceOptions } from "../runner/engine/index.ts";
 import { parseWith, QualityVerdictSchema, type Quality, type QualityVerdict } from "../types/schema.ts";
 import type { QualityAttempt } from "../runner/engine/index.ts";
+import { effectiveBarFor } from "./bar.ts";
 
 /** The injected typed-judgment port. Returns a per-dimension score in [0,1] and its own id. */
 export interface Scorer {
@@ -100,12 +101,16 @@ export async function advanceEvaluated(
     const node = view.flow.config.nodes.find((candidate) => candidate.id === view.instance.currentStep);
     const task = node === undefined ? undefined : view.flow.tasks.get(node.task);
     const effective = task?.quality ?? view.flow.config.quality;
-    if (effective !== undefined && task !== undefined && task.capabilities.includes("evaluate")) {
+    if (effective !== undefined && task !== undefined && node !== undefined && task.capabilities.includes("evaluate")) {
+      // The threshold the judge scores against is the ADAPTIVE bar (O2), folded from `bar.raised`
+      // exactly as the engine's gate will fold it: a raised bar is a different ruler, so it also
+      // changes the rubric digest the score-cache keys on.
+      const ruler = { ...effective, threshold: effectiveBarFor(options, node.task, task.version, effective) };
       const subjectDigest = view.handoffs.length === 1 ? view.handoffs[0].digest : undefined;
       const artifactDigest = digest(canonicalBytes(options.artifact === undefined ? {} : options.artifact));
-      const cached = cachedVerdict(view.qualityHistory, artifactDigest, digestOf(effective));
+      const cached = cachedVerdict(view.qualityHistory, artifactDigest, digestOf(ruler));
       if (cached !== undefined) return advance({ ...options, qualityVerdict: cached });
-      const verdict = await evaluateArtifact(options.scorer, effective, {
+      const verdict = await evaluateArtifact(options.scorer, ruler, {
         goal: task.goal,
         artifact: options.artifact,
         subjectDigest,

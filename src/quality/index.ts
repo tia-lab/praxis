@@ -1,3 +1,37 @@
 /** The quality-evaluation surface (quality eval): the scorer port, the two entry points, the pi-jev adapter. */
 export { advanceEvaluated, evaluateArtifact, type Scorer } from "./evaluate.ts";
 export { jevScorer, type JevScorerOptions } from "./jev-scorer.ts";
+/** Execution learning, task-level (O2): the adaptive bar and the ratchet that raises it. */
+export {
+  BAR_CEILING,
+  BAR_FORMULA_ID,
+  BAR_MARGIN_MIN,
+  BAR_MAX_STEP,
+  BAR_MEAN_ATTEMPTS_MAX,
+  BAR_STDEV_MAX,
+  BAR_WINDOW,
+  barAt,
+  effectiveBar,
+  effectiveBarFor,
+  genuinePasses,
+  lowerQuartile,
+  ofTask,
+  raisesOf,
+  recomputeBar,
+  scanEvents,
+  stdev,
+  type BarDecision,
+  type GenuinePass,
+  type LogEvent,
+} from "./bar.ts";
+/** Execution learning, task-level (O1): the ranked, bounded recall set and its targeted lesson. */
+export {
+  RECALL_MAX,
+  RECALL_TOKEN_BUDGET,
+  RECALL_WEIGHTS,
+  briefRecall,
+  escalatedLesson,
+  recallFor,
+  weakSetFor,
+  type TargetedLesson,
+} from "./recall.ts";

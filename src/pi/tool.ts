@@ -23,17 +23,19 @@ import { z } from "zod";
 import { asAppError, fail, isAppError } from "../types/errors.ts";
 import { ActorSchema, QualityVerdictSchema, parseWith } from "../types/schema.ts";
 import type { Artifact, Instance, ResolvedNode } from "../types/schema.ts";
-import { ArtifactSummarySchema, FailureDetailsSchema, PraxisToolArgsSchema, PraxisToolOpSchema, ReadEnvelopeSchema, StartEnvelopeSchema, StepDescriptorSchema, StepEnvelopeSchema } from "../types/pi.ts";
+import { ArtifactSummarySchema, CheckEnvelopeSchema, FailureDetailsSchema, PraxisToolArgsSchema, PraxisToolOpSchema, ReadEnvelopeSchema, StartEnvelopeSchema, StepDescriptorSchema, StepEnvelopeSchema } from "../types/pi.ts";
 import { NoteEnvelopeSchema } from "../types/pi.ts";
+import { missingFor } from "../runner/requirements.ts";
 import type { ArtifactSummary, FailureDetails, PraxisToolArgs, StepDescriptor } from "../types/pi.ts";
-import type { Quality, RecallSet } from "../types/schema.ts";
+import type { RecallSet } from "../types/learning.ts";
+import type { Quality } from "../types/schema.ts";
 import { CAPABILITY_NAMES, grantFor, requireGrant } from "../runner/capabilities.ts";
 import { digest } from "../runner/canonical.ts";
 import { inspect, openFlow, readStepArtifact, start } from "../runner/engine/index.ts";
 import type { EngineOptions, HandoffRef, OpenedFlow } from "../runner/engine/index.ts";
-import { advanceEvaluated, briefRecall, effectiveBarFor, escalatedLesson, jevScorer, type Scorer } from "../quality/index.ts";
+import { advanceEvaluated, briefRecall, effectiveBarsFor, escalatedLesson, jevScorer, type Scorer } from "../quality/index.ts";
 import { noteStanding, recordNote } from "../runner/note-gate.ts";
-import { projectMaxAttempts } from "../runner/engine/support.ts";
+import { projectConfig, projectMaxAttempts } from "../runner/engine/support.ts";
 import { ISSUE_CATEGORIES, issueTemplate } from "../types/issue.ts";
 import { ISSUE_DISABLED, openIssue } from "../runner/issues.ts";
 import type { PiSessionContext, PiToolDefinition, PiToolResult } from "./host.ts";
@@ -44,6 +46,7 @@ export const PRAXIS_TOOL_DESCRIPTION = [
   "Run one step of a Praxis flow in this session.",
   "op=start opens or re-opens a flow instance and returns the six-key result, the current step descriptor and the nonce.",
   "op=submit advances exactly one step with the artifact JSON for that step.",
+  "op=check dry-runs an artifact against the current step's section requirements and returns {ok, missing, step} without recording anything: no event, no attempt, no nonce or schema check.",
   "op=read returns one recorded artifact when the current step grants artifact.read.",
   "op=note submits the subjective lesson a step owes once its artifact was accepted (whatWrong, whatRight, whatBetter, dimension-keyed tags): the engine derives the objective half itself, and the step's work does not advance until the note is recorded.",
   "op=issue.template returns the field spec a report for one category must answer; op=issue.open files that report through the project's configured issue block.",
@@ -123,7 +126,9 @@ export function engineOptions(
       typeof selected === "string" && selected !== ""
         ? resolve(ctx.cwd, selected)
         : resolve(ctx.cwd, ".pi/praxis/flows/engineering/feature.json"),
-    storeDir: resolve(ctx.cwd, ".pi/praxis/state"),
+    // The Pi path used to hardcode the default and so SHADOWED the environment: env first, then the
+    // project's declared default, then the built-in one, all resolved against the host's cwd.
+    storeDir: resolve(ctx.cwd, process.env.PRAXIS_STORE_DIR ?? projectConfig(ctx.cwd)?.defaults?.storeDir ?? ".pi/praxis/state"),
     tasksDir: resolve(ctx.cwd, ".pi/praxis/tasks"),
   };
   // The project's own defaults are loaded HERE, once, and threaded into the engine as a value: the
@@ -239,11 +244,15 @@ export function stepDescriptor(
   const single = handoffs.length === 1 ? handoffs[0].digest : undefined;
   const grant = grantFor({ id: resolved.node.id, capabilities: resolved.task.capabilities });
   const quality = resolved.task.quality ?? flow.config.quality;
-  const ops: ("submit" | "read" | "note")[] = [];
+  const ops: ("submit" | "read" | "note" | "check")[] = [];
   // A step that owes a note cannot submit: the reflection comes first (O3). The engine refuses the
   // submit anyway; saying so here means the agent learns it from the brief, not from a rejection.
   if (learning?.pending !== undefined) ops.push("note");
-  else if (instance.status === "running" && grant.capabilities.has("artifact.write")) ops.push("submit");
+  else if (instance.status === "running" && grant.capabilities.has("artifact.write")) {
+    ops.push("submit");
+    // The dry run is offered wherever a submit is: check first, submit when it comes back clean.
+    ops.push("check");
+  }
   if (grant.capabilities.has("artifact.read")) ops.push("read");
   return parseWith(
     StepDescriptorSchema,
@@ -392,7 +401,7 @@ function qualityFeedback(error: unknown, options: EngineOptions & { instance: st
     const effective = task?.quality ?? view.flow.config.quality;
     if (effective === undefined) return error;
     // The floor this attempt was judged against is the adaptive bar, not the authored threshold.
-    const bar = node === undefined || task === undefined ? effective.threshold : effectiveBarFor(options, node.task, task.version, effective);
+    const bar = node === undefined || task === undefined ? effective.threshold : effectiveBarsFor(options, node.task, effective).global;
     const statements = new Map(effective.dimensions.map((dimension) => [dimension.id, dimension.statement]));
     const dimensions = verdict.dimensions.map((dimension) => ({
       id: dimension.id,
@@ -492,6 +501,22 @@ function noteOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResul
   });
 }
 
+/**
+ * The dry run (`op=check`): validate an artifact's SECTIONS against the current step's declared
+ * `requires` before spending a submit. Stateless and read-only on purpose — it records nothing, so
+ * it writes no event, advances nothing, scores nothing, consumes no quality attempt and does not
+ * enforce the nonce or the schema. It reports exactly what the synchronous section gate would say.
+ */
+function checkOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResult {
+  const options = engineOptions(ctx);
+  // Observer-level, like reading the descriptor: the pin is verified and the actor is observed,
+  // but no step grant is consulted and no capability is gained.
+  const { instance, flow } = inspect({ ...options, instance: required(args.instance, "instance"), actor: actorFor(ctx) });
+  const resolved = currentStepOf(flow, instance);
+  const missing = resolved.task.requires === undefined ? [] : missingFor(args.artifact ?? {}, resolved.task.requires);
+  return ok(CheckEnvelopeSchema, { ok: missing.length === 0, missing, step: resolved.node.id });
+}
+
 function readOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResult {
   const options = engineOptions(ctx);
   const actor = actorFor(ctx);
@@ -557,6 +582,7 @@ export async function executePraxisTool(args: unknown, ctx: PiSessionContext): P
     // `await`, not `return`: an async rejection must reach the catch below (R8: never reject).
     if (parsed.op === "submit") return await submitOperation(parsed, ctx);
     if (parsed.op === "note") return noteOperation(parsed, ctx);
+    if (parsed.op === "check") return checkOperation(parsed, ctx);
     return readOperation(parsed, ctx);
   } catch (error) {
     return failure(error);

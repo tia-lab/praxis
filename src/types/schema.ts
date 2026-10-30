@@ -142,6 +142,12 @@ export type TaskState = z.infer<typeof TaskStateSchema>;
 export const QualityDimensionSchema = z.strictObject({
   id: z.string().min(1).max(64),
   statement: z.string().min(1).max(500),
+  /**
+   * This dimension's own floor. Omitted means it seeds from the task's `threshold`, so an existing
+   * rubric keeps working unchanged. Each floor ratchets independently of the others and of the
+   * global MEAN bar built from `threshold`.
+   */
+  floor: z.number().min(0).max(1).optional(),
 });
 export const QualitySchema = z.strictObject({
   dimensions: z.array(QualityDimensionSchema).min(1).max(8),
@@ -165,8 +171,20 @@ export type Quality = z.infer<typeof QualitySchema>;
 /** A recorded typed judgment over one artifact: the pinned ruler and the score (quality eval). */
 export const QualityVerdictSchema = z.strictObject({
   decision: z.enum(["pass", "below", "unavailable"]),
+  /** MIN over the dimensions: the reported headline score, unchanged by the compound gate. */
   score: z.number().min(0).max(1),
-  dimensions: z.array(z.strictObject({ id: z.string().min(1).max(64), score: z.number().min(0).max(1) })),
+  dimensions: z.array(
+    z.strictObject({
+      id: z.string().min(1).max(64),
+      score: z.number().min(0).max(1),
+      /** The dimension's identity key (id + statement) in force when it was judged (per-scope bars). */
+      key: z.string().min(1).max(64).optional(),
+    }),
+  ),
+  /** MEAN over the dimensions: the value the global bar gates on (stamped by the engine). */
+  mean: z.number().min(0).max(1).optional(),
+  /** Dimensions inside the tolerance band [b_i - 0.05, b_i): they passed but underperformed. */
+  flagged: z.array(z.string().min(1).max(64)).max(8).optional(),
   rationale: z.string().max(2000),
   rubricDigest: DigestSchema,
   scorer: z.string().min(1).max(200),
@@ -201,106 +219,6 @@ export type TaskConfig = z.infer<typeof TaskConfigSchema>;
  */
 export const TaskRefSchema = pathUnder("tasks");
 export type TaskRef = z.infer<typeof TaskRefSchema>;
-
-/* --------------------------------------------------------------------------------------------
- * Execution learning (task-level loop, O4/O6). Every fact here is an append-only event type on
- * the existing log; the note's OBJECTIVE half is deliberately absent from the stored form because
- * it is derived from the events that already own it (verdicts, acceptances, failures).
- * ------------------------------------------------------------------------------------------ */
-
-/** One lesson keyed by a rubric dimension id, so weakness and corroboration stay lookups (O5). */
-export const LearningTagSchema = z.strictObject({
-  dimension: z.string().min(1).max(64),
-  lesson: z.string().min(1).max(500),
-});
-export type LearningTag = z.infer<typeof LearningTagSchema>;
-
-/** The agent's half of a note: the only text an agent authors, advisory and provenance-stamped. */
-export const LearningNoteSubjectiveSchema = z.strictObject({
-  whatWrong: z.string().min(1).max(1000),
-  whatRight: z.string().min(1).max(1000),
-  whatBetter: z.string().min(1).max(1000),
-  tags: z.array(LearningTagSchema).min(1).max(8),
-});
-export type LearningNoteSubjective = z.infer<typeof LearningNoteSubjectiveSchema>;
-
-/** Engine-stamped provenance: the session binding's actor, never a field a caller supplies. */
-export const ProvenanceSchema = z.strictObject({
-  agent: ActorSchema,
-  model: z.string().min(1).max(200).optional(),
-});
-export type Provenance = z.infer<typeof ProvenanceSchema>;
-
-/**
- * The STORED learning note (O4): one immutable note per (instance, step) terminal outcome.
- * `subjective` is null exactly when the engine wrote a `stub` after the bounded note attempts were
- * spent — the omission is recorded, never hidden and never a hang.
- */
-export const LearningNoteSchema = z.strictObject({
-  task: TaskRefSchema,
-  taskVersion: z.int().min(1),
-  instance: InstanceIdSchema,
-  step: StepIdSchema,
-  noteVersion: z.int().min(1),
-  subjective: LearningNoteSubjectiveSchema.nullable(),
-  stub: z.boolean(),
-  provenance: ProvenanceSchema,
-});
-export type LearningNote = z.infer<typeof LearningNoteSchema>;
-
-/** The window inputs an adaptive-bar raise was computed from, recorded so it is reproducible. */
-export const BarWindowSchema = z.strictObject({
-  passes: z.array(z.number().min(0).max(1)).min(1).max(16),
-  lowerQuartile: z.number().min(0).max(1),
-  margin: z.number().min(-1).max(1),
-  stdev: z.number().min(0).max(1),
-  meanAttempts: z.number().min(0).max(50),
-});
-export type BarWindow = z.infer<typeof BarWindowSchema>;
-
-/** One raise of a task's effective floor, with the formula id that produced it (O2, audit). */
-export const BarRaisedSchema = z.strictObject({
-  task: TaskRefSchema,
-  taskVersion: z.int().min(1),
-  from: z.number().min(0).max(1),
-  to: z.number().min(0).max(1),
-  window: BarWindowSchema,
-  formulaId: z.string().min(1).max(64),
-  at: TimestampSchema,
-});
-export type BarRaised = z.infer<typeof BarRaisedSchema>;
-
-/** A full window under the raised bar with no pass at all: a loud signal, never an auto-lower. */
-export const BarContestedSchema = z.strictObject({
-  task: TaskRefSchema,
-  taskVersion: z.int().min(1),
-  bar: z.number().min(0).max(1),
-  attempts: z.int().min(0),
-  reason: z.string().min(1).max(500),
-});
-export type BarContested = z.infer<typeof BarContestedSchema>;
-
-/** One selected lesson, trimmed to its subjective core plus the score it hit (O1 bounds). */
-export const RecallNoteSchema = z.strictObject({
-  id: z.string().min(1).max(200),
-  step: StepIdSchema,
-  outcome: z.enum(["pass", "continued-failed", "escalated"]),
-  score: z.number().min(0).max(1),
-  relevance: z.number().min(0).max(1),
-  whatWrong: z.string().max(1000),
-  whatRight: z.string().max(1000),
-  whatBetter: z.string().max(1000),
-  tags: z.array(LearningTagSchema).max(8),
-});
-export type RecallNote = z.infer<typeof RecallNoteSchema>;
-
-/** The recorded RecallSet: the selected lessons, the weak-set they were ranked against (O1, audit). */
-export const RecallSetSchema = z.strictObject({
-  bar: z.number().min(0).max(1),
-  weakSet: z.array(z.string().min(1).max(64)).max(8),
-  notes: z.array(RecallNoteSchema).max(5),
-});
-export type RecallSet = z.infer<typeof RecallSetSchema>;
 
 /**
  * One node of the flow: an id and the task unit it runs. The flow owns the wiring, so

@@ -15,10 +15,17 @@ export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** Store root resolution: explicit, then env, then the project default. */
+/**
+ * Store root resolution: the explicit option (the CLI's `--store`), then the environment, then the
+ * project config, then the built-in default. The project config sits BELOW the environment on
+ * purpose: a checkout can be pointed elsewhere without editing a committed file.
+ */
 export function storeDirOf(options: EngineOptions): string {
   return resolve(
-    options.storeDir ?? process.env.PRAXIS_STORE_DIR ?? join(process.cwd(), ".pi/praxis/state"),
+    options.storeDir ??
+      process.env.PRAXIS_STORE_DIR ??
+      projectStoreDir(process.cwd()) ??
+      join(process.cwd(), ".pi/praxis/state"),
   );
 }
 
@@ -58,6 +65,11 @@ export function projectConfig(cwd: string): ProjectConfig | undefined {
 /** The project-wide attempt budget, when it declares one: the last fallback before the constant. */
 export function projectMaxAttempts(cwd: string): number | undefined {
   return projectConfig(cwd)?.defaults?.maxAttempts;
+}
+
+/** The project's declared store root, when it declares one (never the default, never the env). */
+export function projectStoreDir(cwd: string): string | undefined {
+  return projectConfig(cwd)?.defaults?.storeDir;
 }
 
 export function withStore<T>(options: EngineOptions, body: (store: Store, storeDir: string) => T): T {

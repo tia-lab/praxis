@@ -8,21 +8,15 @@
  * 0.10 recency-by-bar-version + 0.10 score-margin; N <= 5; ~1000 tokens; >= 1 passing exemplar when
  * one exists; empty store -> empty recall (no fabrication).
  */
-import {
-  LearningNoteSchema,
-  RecallSetSchema,
-  parseWith,
-  type Quality,
-  type RecallNote,
-  type RecallSet,
-} from "../types/schema.ts";
+import { LearningNoteSchema, RecallSetSchema, type RecallNote, type RecallSet } from "../types/learning.ts";
+import { parseWith, type Quality } from "../types/schema.ts";
 import type { Store } from "../store/db.ts";
 import { appendEvent } from "../store/events.ts";
 import { withStore } from "../runner/engine/support.ts";
 import { EVENT } from "../runner/engine/types.ts";
 import type { EngineOptions } from "../runner/engine/types.ts";
 import { noteObjective } from "../runner/note-gate.ts";
-import { barAt, effectiveBar, ofTask, raisesOf, scanEvents } from "./bar.ts";
+import { barAt, effectiveBars, ofTask, raisesOf, scanEvents } from "./bar.ts";
 
 /** The frozen signal weights (O1). They sum to 1 and are never chosen by the agent. */
 export const RECALL_WEIGHTS = {
@@ -43,6 +37,8 @@ const RECENT_NOTES = 40;
 const RECENT_VERDICTS = 20;
 /** Recency decay per bar level between a note and now. */
 const RECENCY_DECAY = 0.7;
+/** Recency decay applied per verdict going back in time when the weak-set is scored (steering). */
+const VERDICT_RECENCY_DECAY = 0.7;
 
 const clip = (text: string, limit: number): string => (text.length <= limit ? text : text.slice(0, limit - 1) + "\u2026");
 const normalize = (text: string): string => text.trim().replace(/\s+/g, " ").toLowerCase();
@@ -51,14 +47,34 @@ const mean = (values: readonly number[]): number =>
   values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
 
 /**
- * The weak-set: the dimensions currently costing the most, from the mean score of the task's recent
- * verdicts (bounded window, spanning bar versions — the bottleneck carries across levels). The
+ * A RECENCY-WEIGHTED mean over a chronological list (oldest first): the newest value weighs 1 and
+ * each step back multiplies by `decay`. The weak-set is steering, not an audit, so a dimension whose
+ * early scores were low and which has since recovered must stop being flagged — a plain mean keeps
+ * that early dip in the average long after the fix, which is the regression this replaces.
+ */
+const recencyWeightedMean = (values: readonly number[], decay: number): number => {
+  if (values.length === 0) return 0;
+  let weighted = 0;
+  let weights = 0;
+  values.forEach((value, index) => {
+    const weight = decay ** (values.length - 1 - index);
+    weighted += weight * value;
+    weights += weight;
+  });
+  return weighted / weights;
+};
+
+/**
+ * The weak-set: the dimensions currently costing the most, from the RECENCY-WEIGHTED mean score of
+ * the task's recent verdicts (bounded window, spanning bar versions — the bottleneck carries across
+ * levels). The newest verdict dominates, so a dimension that has recovered stops being flagged. The
  * bottom three below the bar, or the single lowest when everything clears it.
  */
 export function weakSetFor(store: Store, task: string, taskVersion: number, quality: Quality): string[] {
   const verdicts = scanEvents(store, [EVENT.qualityVerdict])
-    .filter((event) => ofTask(event, task, taskVersion))
+    .filter((event) => ofTask(event, task))
     .slice(-RECENT_VERDICTS);
+  void taskVersion;
   const sums = new Map<string, number[]>();
   for (const event of verdicts) {
     const dimensions = Array.isArray(event.payload.dimensions) ? event.payload.dimensions : [];
@@ -70,11 +86,14 @@ export function weakSetFor(store: Store, task: string, taskVersion: number, qual
       sums.set(id, list);
     }
   }
-  const bar = effectiveBar(store, task, taskVersion, quality);
+  // The per-dimension bars are what "below bar" means now, so the weak-set follows each dimension
+  // to its own floor instead of comparing everything against the global MEAN bar.
+  const bars = effectiveBars(store, task, quality);
+  void taskVersion;
   const ranked = [...sums.entries()]
-    .map(([id, scores]) => ({ id, mean: mean(scores) }))
+    .map(([id, scores]) => ({ id, mean: recencyWeightedMean(scores, VERDICT_RECENCY_DECAY) }))
     .sort((left, right) => left.mean - right.mean || left.id.localeCompare(right.id));
-  const below = ranked.filter((entry) => entry.mean < bar);
+  const below = ranked.filter((entry) => entry.mean < (bars.perDimension.get(entry.id) ?? bars.global));
   return (below.length > 0 ? below : ranked.slice(0, 1)).slice(0, 3).map((entry) => entry.id);
 }
 
@@ -97,14 +116,11 @@ function outcomeValue(outcome: RecallNote["outcome"], hasBetter: boolean): numbe
  * is a pure function of the store, and the tie-break is the note id, so the same store always
  * yields the same order.
  */
-function candidates(store: Store, task: string, taskVersion: number, quality: Quality, weakSet: readonly string[]): Candidate[] {
+function candidates(store: Store, task: string, quality: Quality, weakSet: readonly string[]): Candidate[] {
   const notes = scanEvents(store, [EVENT.learningNote])
-    .filter((event) => ofTask(event, task, taskVersion))
+    .filter((event) => ofTask(event, task))
     .slice(-RECENT_NOTES)
-    .map((event) => {
-      const note = parseWith(LearningNoteSchema, event.payload, "STORE_INVALID", "learning note");
-      return { note, at: event.at };
-    })
+    .map((event) => ({ note: parseWith(LearningNoteSchema, event.payload, "STORE_INVALID", "learning note"), at: event.at }))
     .filter((entry) => entry.note.subjective !== null);
   const authorities = new Map<string, Set<string>>();
   for (const { note } of notes) {
@@ -114,7 +130,7 @@ function candidates(store: Store, task: string, taskVersion: number, quality: Qu
       authorities.set(tag.dimension, agents);
     }
   }
-  const raises = raisesOf(store, task, taskVersion);
+  const raises = raisesOf(store, task);
   const out: Candidate[] = [];
   for (const { note, at } of notes) {
     const subjective = note.subjective;
@@ -221,13 +237,13 @@ function withExemplar(chosen: readonly Candidate[], ranked: readonly Candidate[]
  */
 export function recallFor(store: Store, task: string, taskVersion: number, quality: Quality): RecallSet {
   const weakSet = weakSetFor(store, task, taskVersion, quality);
-  const ranked = candidates(store, task, taskVersion, quality, weakSet);
+  const ranked = candidates(store, task, quality, weakSet);
   const selected = ranked.length === 0 ? [] : withExemplar(select(ranked), ranked);
   const clipped = selected.slice(0, RECALL_MAX);
   return parseWith(
     RecallSetSchema,
     {
-      bar: effectiveBar(store, task, taskVersion, quality),
+      bar: effectiveBars(store, task, quality).global,
       weakSet,
       notes: clipped.map((candidate) => candidate.note),
     },

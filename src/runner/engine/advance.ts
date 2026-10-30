@@ -13,7 +13,7 @@ import { buildHandoffs, gate, runStep, successorOf } from "../step.ts";
 import { assertObserver, assertStepActor } from "./authority.ts";
 import { acceptedRefs, currentHandoffs, loadPinnedFlow } from "./flow.ts";
 import { qualityRefusal, failureOutcome, recordAcceptance } from "./quality-loop.ts";
-import { effectiveBar, recomputeBar } from "../../quality/bar.ts";
+import { compoundDecision, effectiveBars, recomputeBar, type Bars } from "../../quality/bar.ts";
 import {
   finishInstance,
   maxNoteAttempts,
@@ -31,9 +31,9 @@ import { EVENT, type AdvanceOptions, type HandoffRef, type OpenedFlow } from "./
  * the current bar is downgraded here rather than carried by its old decision. Fail-closed, and the
  * recorded verdict is left otherwise untouched.
  */
-function gatedVerdict(verdict: QualityVerdict | undefined, bar: number): QualityVerdict | undefined {
+function gatedVerdict(verdict: QualityVerdict | undefined, bars: Bars): QualityVerdict | undefined {
   if (verdict === undefined) return undefined;
-  if (verdict.decision !== "pass" || verdict.score >= bar) return verdict;
+  if (verdict.decision !== "pass" || compoundDecision(verdict.dimensions, bars).pass) return verdict;
   return { ...verdict, decision: "below" };
 }
 
@@ -121,7 +121,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
     const effectiveQuality = task.quality ?? flow.config.quality;
     // The floor enforced is the ADAPTIVE bar (O2), never the static authored threshold: the same
     // deterministic fold of `bar.raised` the scorer used, read here from the same store.
-    const bar = effectiveQuality === undefined ? undefined : effectiveBar(store, node.task, task.version, effectiveQuality);
+    const bars = effectiveQuality === undefined ? undefined : effectiveBars(store, node.task, effectiveQuality);
     const grant = grantFor({ id: node.id, capabilities: task.capabilities });
     const handoffs = buildHandoffs(store, instance, resolved, grant);
     const artifact = runStep({ store, storeDir, instance, node, task, grant, handoffs, payload: options.artifact, at });
@@ -137,9 +137,16 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
       ...(handoffs.length === 1 ? { derivedFrom: handoffs[0].digest } : {}),
       ...(task.requires === undefined ? {} : { requires: task.requires }),
       ...(task.bindsSubject === true ? { subject: true } : {}),
-      ...(effectiveQuality === undefined || bar === undefined
+      ...(effectiveQuality === undefined || bars === undefined
         ? {}
-        : { quality: { policy: effectiveQuality.policy, threshold: bar, verdict: gatedVerdict(options.qualityVerdict, bar) } }),
+        : {
+            quality: {
+              policy: effectiveQuality.policy,
+              threshold: bars.global,
+              floors: Object.fromEntries(bars.perDimension),
+              verdict: gatedVerdict(options.qualityVerdict, bars),
+            },
+          }),
     });
 
     if (alreadyAccepted && verdict.decision !== "accept") {
@@ -166,6 +173,11 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
         replayed: true,
         ...(resolved.refuse === undefined ? {} : { reworkTo: resolved.refuse }),
         ...(verdict.quality === undefined ? {} : { quality: verdict.quality }),
+        // The compound diagnostic: which dimensions fell past their band and what the MEAN was, in
+        // numbers, so every refusal says exactly what failed — not only the one at the bound.
+        ...(verdict.quality === undefined || bars === undefined
+          ? {}
+          : { compound: compoundDecision(verdict.quality.dimensions, bars) }),
       });
     }
 
@@ -214,7 +226,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
         // escalate halts the instance here, while continue accepts the best-scoring attempt
         // (marked FAILED) and falls through to the same successor move an accepted step makes.
         let carried = false;
-        if (qualityRefusal(verdict) && bar !== undefined) {
+        if (qualityRefusal(verdict) && bars !== undefined) {
           const outcome = failureOutcome({
             store,
             instance,
@@ -222,7 +234,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
             taskRef: node.task,
             taskVersion: task.version,
             quality: effectiveQuality,
-            threshold: bar,
+            bars,
             ...(options.defaultMaxAttempts === undefined ? {} : { defaultMaxAttempts: options.defaultMaxAttempts }),
             verdict: verdict.quality,
             at,
@@ -262,6 +274,11 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
             ...(verdict.missing === undefined ? {} : { missing: verdict.missing }),
             ...(resolved.refuse === undefined ? {} : { reworkTo: resolved.refuse }),
             ...(verdict.quality === undefined ? {} : { quality: verdict.quality }),
+            // The compound diagnostic: which dimensions fell past their band and what the MEAN was,
+            // in numbers, on every refusal — not only on the one at the bound.
+            ...(verdict.quality === undefined || bars === undefined
+              ? {}
+              : { compound: compoundDecision(verdict.quality.dimensions, bars) }),
           });
         }
       }

@@ -16,11 +16,9 @@ import {
   LearningNoteSchema,
   LearningNoteSubjectiveSchema,
   ProvenanceSchema,
-  parseWith,
-  type Instance,
   type LearningNoteSubjective,
-  type Quality,
-} from "../types/schema.ts";
+} from "../types/learning.ts";
+import { parseWith, type Instance, type Quality } from "../types/schema.ts";
 import type { Store } from "../store/db.ts";
 import { appendEvent, listEvents } from "../store/events.ts";
 import { loadInstance, setStatus } from "../store/instance.ts";
@@ -39,6 +37,11 @@ export interface NoteObjective {
   bestScore: number;
   dimensions: { id: string; score: number }[];
   weakest: string;
+  /**
+   * Dimensions that passed only because of the 5-point tolerance band: they are under their own bar,
+   * so the reflection MUST address each of them before the step closes (the learning chain).
+   */
+  flagged: string[];
   attempts: number;
   artifactDigest: string | undefined;
   scorer: string | undefined;
@@ -62,6 +65,7 @@ export function noteObjective(store: Store, instance: string, step: string, at?:
   });
   if (dimensions.length === 0) return undefined;
   const weakest = dimensions.reduce((low, current) => (current.score < low.score ? current : low)).id;
+  const flagged = (Array.isArray(best.flagged) ? best.flagged : []).map(String);
   const accepted = events.find(
     (event) => event.type === EVENT.artifactAccepted && payloadOf(event.payload).step === step,
   );
@@ -73,13 +77,14 @@ export function noteObjective(store: Store, instance: string, step: string, at?:
       : acceptedPayload.failed !== undefined
         ? "continued-failed"
         : "pass";
-  const barLevel = barAt(raisesOf(store, String(acceptedPayload.task ?? ""), Number(acceptedPayload.taskVersion ?? 0)), Number(best.threshold ?? 0), at);
+  const barLevel = barAt(raisesOf(store, String(acceptedPayload.task ?? "")), Number(best.threshold ?? 0), at);
   return {
     outcome,
     barLevel: Number.isFinite(barLevel) && barLevel > 0 ? barLevel : Number(best.score),
     bestScore: Number(best.score),
     dimensions,
     weakest,
+    flagged,
     attempts: verdicts.length,
     artifactDigest: typeof best.artifactDigest === "string" ? best.artifactDigest : undefined,
     scorer: typeof best.scorer === "string" ? best.scorer : undefined,
@@ -97,6 +102,8 @@ export function noteGate(
   subjective: LearningNoteSubjective,
   rubric: readonly { id: string }[],
   weakest: string,
+  /** Dimensions that only passed inside the tolerance band: each one needs its own lesson. */
+  flagged: readonly string[] = [],
 ): string[] {
   const missing: string[] = [];
   if (subjective.whatWrong.trim() === "") missing.push("whatWrong: expected what went wrong");
@@ -112,8 +119,16 @@ export function noteGate(
       missing.push("tags: " + JSON.stringify(tag.dimension) + " is not a rubric dimension");
     }
   }
-  if (!subjective.tags.some((tag) => tag.dimension === weakest)) {
-    missing.push("tags: expected at least one lesson on the weakest dimension " + JSON.stringify(weakest));
+  // The weakest dimension always needs a lesson; so does every dimension that passed only by
+  // riding the 5-point band. A flagged dimension is under its own bar — silence about it is exactly
+  // the mediocrity the compound gate exists to catch, so the note cannot close the step without it.
+  for (const dimension of [weakest, ...flagged.filter((id) => id !== weakest)]) {
+    if (subjective.tags.some((tag) => tag.dimension === dimension)) continue;
+    missing.push(
+      dimension === weakest
+        ? "tags: expected at least one lesson on the weakest dimension " + JSON.stringify(dimension)
+        : "tags: " + JSON.stringify(dimension) + " passed only inside the tolerance band, so it needs a lesson of its own",
+    );
   }
   return missing;
 }
@@ -300,7 +315,7 @@ export function recordNote(args: {
     }
     const parsed = LearningNoteSubjectiveSchema.safeParse(args.subjective);
     const missing = parsed.success
-      ? noteGate(parsed.data, pending.rubric, objective.weakest)
+      ? noteGate(parsed.data, pending.rubric, objective.weakest, objective.flagged)
       : ["subjective: expected whatWrong, whatRight, whatBetter and tags"];
     if (missing.length > 0) {
       const attempts = recordNoteRefusal(store, instance.id, pending.step, args.at, "note", missing);

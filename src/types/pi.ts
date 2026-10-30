@@ -11,13 +11,14 @@
  */
 import { z } from "zod";
 import type { Code } from "./errors.ts";
-import { ArtifactStateSchema, CapabilitySchema, DigestSchema, FlowNameSchema, InstanceIdSchema, LearningNoteSubjectiveSchema, NonceSchema, QualityDimensionSchema, RecallSetSchema, RequirementsSchema, ResultSchema, SchemaNameSchema, StepIdSchema } from "./schema.ts";
+import { ArtifactStateSchema, CapabilitySchema, DigestSchema, FlowNameSchema, InstanceIdSchema, NonceSchema, QualityDimensionSchema, RequirementsSchema, ResultSchema, SchemaNameSchema, StepIdSchema } from "./schema.ts";
+import { LearningNoteSubjectiveSchema, RecallSetSchema } from "./learning.ts";
 
 /**
  * The operations the one tool exposes (R2). `note` is the execution-learning closing reflection
  * (F2/O4): the agent's subjective lesson for a step that already reached its terminal outcome.
  */
-export const PraxisToolOpSchema = z.enum(["start", "submit", "read", "note"]);
+export const PraxisToolOpSchema = z.enum(["start", "submit", "read", "note", "check"]);
 export type PraxisToolOp = z.infer<typeof PraxisToolOpSchema>;
 
 /**
@@ -54,6 +55,9 @@ export const PraxisToolArgsSchema = z
       require("artifact");
     } else if (args.op === "note") {
       require("instance");
+    } else if (args.op === "check") {
+      require("instance");
+      require("artifact");
     } else {
       require("instance");
       require("step");
@@ -70,7 +74,7 @@ export type PraxisToolArgs = z.infer<typeof PraxisToolArgsSchema>;
 export const StepDescriptorSchema = z.strictObject({
   id: StepIdSchema,
   capabilities: z.array(CapabilitySchema),
-  ops: z.array(z.enum(["submit", "read", "note"])),
+  ops: z.array(z.enum(["submit", "read", "note", "check"])),
   steps: z.array(StepIdSchema),
   brief: z.strictObject({
     goal: z.string().min(1),
@@ -152,12 +156,26 @@ export const NoteEnvelopeSchema = z.strictObject({
   }),
 });
 
+/**
+ * `check`: the dry run (stateless). `ok` says whether the artifact's sections satisfy the current
+ * step's declared `requires`, and `missing` carries the same path-addressable gaps a refusal would,
+ * so an agent can fix structure before spending a submit. Nothing is recorded: no event, no attempt,
+ * no nonce or schema check here — only the deterministic section requirements.
+ */
+export const CheckEnvelopeSchema = z.strictObject({
+  ok: z.boolean(),
+  missing: z.array(z.string().min(1)),
+  step: StepIdSchema,
+});
+export type CheckEnvelope = z.infer<typeof CheckEnvelopeSchema>;
+
 /** The successful envelopes, one per operation. Exactly one is returned. */
 export type PraxisToolEnvelope =
   | z.infer<typeof StartEnvelopeSchema>
   | z.infer<typeof StepEnvelopeSchema>
   | z.infer<typeof ReadEnvelopeSchema>
-  | z.infer<typeof NoteEnvelopeSchema>;
+  | z.infer<typeof NoteEnvelopeSchema>
+  | z.infer<typeof CheckEnvelopeSchema>;
 
 /**
  * The runtime mirror of the `Code` union in `errors.ts`. The annotation makes a

@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BAR_FORMULA_ID, BAR_WINDOW, effectiveBarFor } from "../../src/quality/index.ts";
+import { BAR_FORMULA_ID, BAR_WINDOW, WARMUP_MIN, effectiveBarFor } from "../../src/quality/index.ts";
 import { advance } from "../../src/runner/engine/index.ts";
 import { isAppError } from "../../src/types/errors.ts";
 import type { Quality } from "../../src/types/schema.ts";
@@ -59,12 +59,17 @@ function raisesFrom(ws: Workspace, runs: readonly JudgedRun[]): Array<Record<str
   return runs.flatMap((run) => eventsOf(ws, run.instance).filter((event) => event.type === "bar.raised").map((event) => event.payload as Record<string, unknown>));
 }
 
+/** Every raise of ONE scope (the ratchet is per scope now: global + each dimension). */
+function raisesOfScope(ws: Workspace, runs: readonly JudgedRun[], scope: string): Array<Record<string, unknown>> {
+  return raisesFrom(ws, runs).filter((payload) => (payload.scope ?? "global") === scope);
+}
+
 function contestedFrom(ws: Workspace, runs: readonly JudgedRun[]): Array<Record<string, unknown>> {
   return runs.flatMap((run) => eventsOf(ws, run.instance).filter((event) => event.type === "bar.contested").map((event) => event.payload as Record<string, unknown>));
 }
 
 const barNow = (ws: Workspace, quality: Quality = QUALITY): number =>
-  effectiveBarFor(learningOptions(ws, "2026-10-29T23:00:00.000Z"), TASK, 1, quality);
+  effectiveBarFor(learningOptions(ws, "2026-10-29T23:00:00.000Z"), TASK, quality);
 
 test("a stable high window raises the bar by a small, earned step", async () => {
   const ws = workspace();
@@ -72,12 +77,17 @@ test("a stable high window raises the bar by a small, earned step", async () => 
     judgedFlow(ws);
     const tick = clock().next;
     const runs: JudgedRun[] = [];
-    for (let index = 1; index <= BAR_WINDOW; index += 1) {
+    // WARMUP_MIN observations of the scope must accumulate before any scope may raise at all.
+    for (let index = 1; index <= WARMUP_MIN; index += 1) {
       runs.push(await runInstance(ws, tick, "stable-" + index, [0.95]));
     }
-    const raises = raisesFrom(ws, runs);
-    assert.equal(raises.length, 1, "one raise for one qualifying window");
-    const raise = raises[0];
+    // One raise per scope: the global MEAN and each of the three dimensions ratchet independently.
+    const sections = ["global", "solves", "evidence", "trace"];
+    for (const scope of sections) {
+      assert.equal(raisesOfScope(ws, runs, scope).length, 1, "one raise for one qualifying window in " + scope);
+    }
+    assert.equal(raisesFrom(ws, runs).length, sections.length, "no other scope moved");
+    const raise = raisesOfScope(ws, runs, "global")[0];
     assert.equal(raise.from, 0.6);
     assert.equal(raise.to, 0.65, "a large headroom caps the step at +0.05");
     assert.equal(raise.formulaId, BAR_FORMULA_ID);
@@ -108,13 +118,15 @@ test("a modest headroom nudges the bar by the smallest earned step", async () =>
     judgedFlow(ws);
     const tick = clock().next;
     const runs: JudgedRun[] = [];
-    for (let index = 1; index <= BAR_WINDOW; index += 1) {
+    for (let index = 1; index <= WARMUP_MIN; index += 1) {
       runs.push(await runInstance(ws, tick, "modest-" + index, [0.74]));
     }
-    const raises = raisesFrom(ws, runs);
-    assert.equal(raises.length, 1);
-    assert.equal(raises[0].from, 0.6);
-    assert.equal(raises[0].to, 0.61, "step = 0.5 * (margin - 0.12) = 0.01");
+    for (const scope of ["global", "solves", "evidence", "trace"]) {
+      const raises = raisesOfScope(ws, runs, scope);
+      assert.equal(raises.length, 1, "each scope nudges itself in " + scope);
+      assert.equal(raises[0].from, 0.6);
+      assert.equal(raises[0].to, 0.61, "step = 0.5 * (margin - 0.12) = 0.01");
+    }
     assert.equal(barNow(ws), 0.61);
   } finally {
     dispose(ws);
@@ -127,7 +139,7 @@ test("a pass computed under the old floor cannot sneak past the raised bar", asy
     judgedFlow(ws);
     const tick = clock().next;
     const runs: JudgedRun[] = [];
-    for (let index = 1; index <= BAR_WINDOW; index += 1) {
+    for (let index = 1; index <= WARMUP_MIN; index += 1) {
       runs.push(await runInstance(ws, tick, "stale-" + index, [0.95]));
     }
     assert.equal(barNow(ws), 0.65);
@@ -194,18 +206,22 @@ test("the cooldown spaces raises a full window apart", async () => {
     judgedFlow(ws);
     const tick = clock().next;
     const runs: JudgedRun[] = [];
-    for (let index = 1; index <= BAR_WINDOW * 2; index += 1) {
+    // Warm up, earn the first raise, then a FULL window of fresh passes before the second: the
+    // cooldown is measured on top of the warmup, not instead of it.
+    for (let index = 1; index <= WARMUP_MIN + BAR_WINDOW; index += 1) {
       runs.push(await runInstance(ws, tick, "cooldown-" + index, [0.95]));
     }
-    const raises = raisesFrom(ws, runs);
-    assert.equal(raises.length, 2, "two windows, two raises");
-    assert.deepEqual(
-      raises.map((raise) => [raise.from, raise.to]),
-      [
-        [0.6, 0.65],
-        [0.65, 0.7],
-      ],
-    );
+    assert.equal(raisesFrom(ws, runs).length, 8, "two raises each for the global scope and three dimensions");
+    for (const scope of ["global", "solves", "evidence", "trace"]) {
+      assert.deepEqual(
+        raisesOfScope(ws, runs, scope).map((raise) => [raise.from, raise.to]),
+        [
+          [0.6, 0.65],
+          [0.65, 0.7],
+        ],
+        "the cooldown holds in " + scope,
+      );
+    }
     assert.equal(barNow(ws), 0.7);
   } finally {
     dispose(ws);
@@ -218,7 +234,7 @@ test("a full window under the raised bar with no pass is contested, never lowere
     judgedFlow(ws);
     const tick = clock().next;
     const runs: JudgedRun[] = [];
-    for (let index = 1; index <= BAR_WINDOW; index += 1) {
+    for (let index = 1; index <= WARMUP_MIN; index += 1) {
       runs.push(await runInstance(ws, tick, "raise-" + index, [0.95]));
     }
     assert.equal(barNow(ws), 0.65);
@@ -228,11 +244,13 @@ test("a full window under the raised bar with no pass is contested, never lowere
       runs.push(await runInstance(ws, tick, "fail-" + index, [0.3, 0.2]));
     }
     const contested = contestedFrom(ws, runs);
-    assert.equal(contested.length, 1, "one loud signal for the zero-pass window");
-    assert.equal(contested[0].bar, 0.65);
-    assert.equal(contested[0].task, TASK);
-    assert.match(String(contested[0].reason), /yielded no pass/);
-    assert.equal(raisesFrom(ws, runs).length, 1, "a contest never raises or lowers the bar");
+    assert.equal(contested.length, 4, "one loud signal per scope for the zero-pass window");
+    const globalContest = contested.find((payload) => payload.scope === "global");
+    assert.ok(globalContest, "the global MEAN bar is contested");
+    assert.equal(globalContest.bar, 0.65);
+    assert.equal(globalContest.task, TASK);
+    assert.match(String(globalContest.reason), /yielded no pass/);
+    assert.equal(raisesFrom(ws, runs).length, 4, "a contest never raises or lowers a bar");
     assert.equal(barNow(ws), 0.65, "the floor stays where the ratchet put it");
   } finally {
     dispose(ws);

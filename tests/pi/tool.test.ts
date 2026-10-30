@@ -114,7 +114,7 @@ test("descriptor draft lists submit", async () => {
   assert.deepEqual(bag(await start(project())).step, {
     id: "draft",
     capabilities: ["artifact.write", "emit"],
-    ops: ["submit"],
+    ops: ["submit", "check"],
     steps: ["draft", "derive"],
     brief: { goal: "write the architecture draft", produces: "praxis.artifact.architecture/v1" },
   });
@@ -125,7 +125,7 @@ test("descriptor derive lists submit and read", async () => {
   assert.deepEqual(step, {
     id: "derive",
     capabilities: ["artifact.read", "artifact.write", "emit"],
-    ops: ["submit", "read"],
+    ops: ["submit", "check", "read"],
     steps: ["draft", "derive"],
     brief: {
       goal: "derive the next artifact from the draft",
@@ -197,7 +197,7 @@ test("changed config payload is REQUEST_CONFLICT", async () => {
 test("submit A advances to derive", async () => {
   const { step } = await throughDraft(project());
   assert.equal(step.id, "derive");
-  assert.deepEqual(step.ops, ["submit", "read"]);
+  assert.deepEqual(step.ops, ["submit", "check", "read"]);
 });
 
 test("submit B completes", async () => {

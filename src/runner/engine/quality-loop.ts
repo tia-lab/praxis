@@ -18,7 +18,7 @@ import { appendEvent, listEvents } from "../../store/events.ts";
 import { setStatus } from "../../store/instance.ts";
 import { traceOf, type Grant } from "../capabilities.ts";
 import type { Handoff, Verdict } from "../step.ts";
-import { recomputeBar } from "../../quality/bar.ts";
+import { DIMENSION_TOLERANCE, recomputeBar, type Bars } from "../../quality/bar.ts";
 import { writeNote } from "../note-gate.ts";
 import { payloadOf } from "./support.ts";
 import { DEFAULT_MAX_ATTEMPTS, DEFAULT_ON_FAILURE, EVENT, type QualityAttempt } from "./types.ts";
@@ -88,7 +88,7 @@ function failedReasonFor(args: {
   step: string;
   attempts: number;
   maxAttempts: number;
-  threshold: number;
+  bars: Bars;
   verdict: QualityVerdict;
   previous?: QualityAttempt;
 }): string {
@@ -103,12 +103,22 @@ function failedReasonFor(args: {
   } else {
     cause = "attempt budget of " + args.maxAttempts + " exhausted at attempt " + args.attempts;
   }
-  const below = args.verdict.dimensions.filter((dimension) => dimension.score < args.threshold);
+  // The compound model: name every dimension that fell below its OWN bar past the tolerance band,
+  // and say separately whether the HARD MEAN gate failed. Numbers, never prose the agent must guess.
+  const barOf = (id: string): number => args.bars.perDimension.get(id) ?? args.bars.global;
+  const below = args.verdict.dimensions.filter((dimension) => dimension.score < barOf(dimension.id) - DIMENSION_TOLERANCE);
   const named = below.length === 0
     ? ""
-    : "; below the floor: " + below.map((dimension) => dimension.id + " " + dimension.score.toFixed(2)).join(", ");
-  return cause + "; step " + JSON.stringify(args.step) + " scored " + score + " against the floor " +
-    args.threshold.toFixed(2) + named;
+    : "; below its bar: " +
+      below
+        .map((dimension) => dimension.id + " " + dimension.score.toFixed(2) + " < " + barOf(dimension.id).toFixed(2))
+        .join(", ");
+  const mean = args.verdict.mean ?? (args.verdict.dimensions.length === 0
+    ? 0
+    : args.verdict.dimensions.reduce((sum, dimension) => sum + dimension.score, 0) / args.verdict.dimensions.length);
+  const meanFailed = mean < args.bars.global;
+  return cause + "; step " + JSON.stringify(args.step) + " scored " + score + " with mean " + mean.toFixed(2) +
+    (meanFailed ? " under the global " + args.bars.global.toFixed(2) : "") + named;
 }
 
 /**
@@ -166,14 +176,14 @@ export function failureOutcome(args: {
   taskRef: string;
   taskVersion: number;
   quality: Quality | undefined;
-  /** The effective floor (adaptive bar) this attempt was judged against. */
-  threshold: number;
+  /** The effective bars (per dimension + global MEAN) this attempt was judged against. */
+  bars: Bars;
   /** The project's default budget, threaded in by the caller; the task's own still wins. */
   defaultMaxAttempts?: number;
   verdict: QualityVerdict;
   at: string;
 }): FailureOutcome {
-  const { store, instance, step, taskRef, taskVersion, quality, threshold, verdict, at } = args;
+  const { store, instance, step, taskRef, taskVersion, quality, bars, verdict, at } = args;
   const maxAttempts = quality?.maxAttempts ?? args.defaultMaxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   // The verdict for this attempt was appended above, so it is the last element here.
   const history = qualityHistory(store, instance.id, step);
@@ -187,7 +197,7 @@ export function failureOutcome(args: {
     step,
     attempts,
     maxAttempts,
-    threshold,
+    bars,
     verdict,
     ...(previous === undefined ? {} : { previous }),
   });

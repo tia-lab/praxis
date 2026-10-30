@@ -15,6 +15,12 @@ export const ProjectDefaultsSchema = z.strictObject({
    * the task nor the flow declares one. A resource bound the project tunes; never a prompt.
    */
   maxAttempts: z.int().min(1).max(50).optional(),
+  /**
+   * Where this project keeps its Praxis store, relative to the project root when it is relative.
+   * Sits BETWEEN the environment and the built-in default: `PRAXIS_STORE_DIR` still wins, so a
+   * checkout can be pointed at another store without editing the committed config.
+   */
+  storeDir: z.string().min(1).optional(),
 });
 export type ProjectDefaults = z.infer<typeof ProjectDefaultsSchema>;
 

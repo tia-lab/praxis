@@ -1,6 +1,6 @@
 {
   "id": "research",
-  "version": 2,
+  "version": 3,
   "state": "published",
   "gate": "section-requirements",
   "goal": "establish what is true from sources and the code before anything is designed",
@@ -59,15 +59,18 @@
     "dimensions": [
       {
         "id": "grounded",
-        "statement": "Every claim is tied to a source or a code location, not asserted."
+        "statement": "Every claim is tied to a source or a code location, not asserted.",
+        "floor": 0.6
       },
       {
         "id": "covers-question",
-        "statement": "The stated question and its boundary are actually answered."
+        "statement": "The stated question and its boundary are actually answered.",
+        "floor": 0.6
       },
       {
         "id": "honest-uncertainty",
-        "statement": "Real unknowns and competing explanations are named, not hidden."
+        "statement": "Real unknowns and competing explanations are named, not hidden.",
+        "floor": 0.6
       }
     ],
     "threshold": 0.6,

@@ -179,6 +179,70 @@ acceptance here before building.
   constraint** by owner decision — the file was orphaned. Not authorized: `FlowConfigSchema`
   changes, changing the default flow path (stays `feature.json`), any engine logic beyond the one
   fallback layer, or identity/isolation/exactly-once claims.
+- **2026-10-30 — `op=check` dry-run compose aid (owner GO).** Owner authorized (“instruct the
+  engineer”) and **WAIVED the <600-line cap for `src/pi/tool.ts` for this unit** (“keep as is,
+  refactor later if needed”) — the handler goes inline, no refactor now. Scope: `src/types/pi.ts`
+  (add `"check"` to `PraxisToolOpSchema` + the descriptor ops enum; require `artifact` for
+  `op=check`; `CheckEnvelopeSchema` `{ok,missing,step}` + union), `src/pi/tool.ts` (inline `op=check`
+  handler: read-only; `currentStepOf` → `missingFor(args.artifact ?? {}, resolved.task.requires)` →
+  `{ok,missing,step}`; offer `check` alongside `submit`; observer authority), `tests/`. Acceptance:
+  `tsc` clean; full suite green (216 + new) under the no-network stub; `op=check` provably writes no
+  event, does not advance, does not score, costs no quality attempt and does not enforce the nonce
+  (store unchanged across a check); a complete artifact → `ok:true`, missing/malformed sections →
+  path-addressable gaps. Not authorized: scoring or nonce enforcement inside check,
+  `FlowConfigSchema`/`ResultSchema` six-key changes, identity/isolation/exactly-once claims. `tool.ts`
+  may exceed 600 by owner waiver (refactor deferred).
+- **2026-10-30 — storeDir honors `PRAXIS_STORE_DIR` + project config (owner GO).** Owner
+  authorized (“please DO”) after a live run proved the env var was ignored. VERIFIED finding: the Pi
+  tool hardcoded `storeDir` at `src/pi/tool.ts:128` (`resolve(ctx.cwd,".pi/praxis/state")`), shadowing
+  `process.env.PRAXIS_STORE_DIR`, so the env var was silently ignored on the interactive Pi path (the
+  CLI `--store` flag and the engine default `storeDirOf` did honor it). Scope: `src/types/project.ts`
+  (`ProjectDefaultsSchema.storeDir?: string.min(1)`), `src/runner/engine/support.ts`
+  (`projectStoreDir(cwd)` helper; `storeDirOf` consults project config between env and default),
+  `src/pi/tool.ts` (storeDir = `resolve(ctx.cwd, PRAXIS_STORE_DIR ?? projectConfig(ctx.cwd)?.defaults?.storeDir ?? ".pi/praxis/state")`),
+  `src/cli.ts` (confirm `--store` still wins), `tests/`. Precedence: `--store` > `PRAXIS_STORE_DIR` >
+  project `defaults.storeDir` > default `<cwd>/.pi/praxis/state`. Acceptance: committed
+  `.pi/praxis/config.json` keeps ONLY `{defaults:{maxAttempts:10}}` with NO `storeDir` (so no test
+  store is redirected and the suite stays green); new tests prove env honored on the Pi path, config
+  honored when env absent, env beats config, absent → default; `tsc` clean. Also done by the lead:
+  `.pi/praxis/tasks/discovery/research.json` reverted v3→v2 (`git checkout`) after a live agent bumped
+  it to escape a `TASK_VERSION_CONFLICT`. Not authorized: adding a `storeDir` to the committed
+  config.json, `FlowConfigSchema` changes, identity/isolation/exactly-once claims.
+- **2026-10-30 — recall steering fix (lever A), owner GO; Occam balance term staged (lever B).**
+  Owner authorized after four live runs proved the drift (“instruct engineer as usual and then
+  review”). Plan: `docs/recall-steering/PLAN.md`. **Lever A (dispatched now):** scope
+  `src/quality/recall.ts` `weakSetFor` only — replace the plain per-dimension `mean(scores)` with a
+  recency-weighted mean (`VERDICT_RECENCY_DECAY = 0.7`, newest verdict dominates) plus a
+  `recencyWeightedMean` helper; everything else in the function byte-identical; `tests/quality/recall.test.ts`
+  gains a fixture (grounded [0.63,0.73,0.84] / covers [0.81,0.73,0.71] → weakSet `["covers-question"]`,
+  not `["grounded"]`). Acceptance: tsc clean; suite green under the no-network stub; ~15 src LOC; only
+  `weakSetFor`+helper/constant change. **Lever B (STAGED, not authorized to build):** add an `occam`
+  parsimony dimension to `.pi/praxis/tasks/discovery/research.json` (data-only, bumps task to v3) —
+  owner to confirm the name and whether the 0.6 threshold needs tuning, decided after A's live result.
+  Not authorized: `bar.ts`, the bar-raise formula, `RECALL_WEIGHTS`, candidates/select/recallFor/
+  escalatedLesson, schemas, the scorer, other tasks' rubrics, or any identity/isolation/exactly-once
+- **2026-10-30 — per-dimension + global bars (PLAN written, build pending owner GO).** Owner directed
+  a per-dimension AND global acceptance model, BOTH must pass; global = MEAN with its own ratchet;
+  each dimension self-governs; and a **warmup of >= 10 genuine observations before any raise**. Plan:
+  `docs/per-dimension-bars/PLAN.md`. This reshapes the core acceptance + ratchet contract (schema
+  `dimension.floor`, `bar.ts` per-scope + `WARMUP_MIN=10` + `scope` on `bar.raised`, the gate's
+  compound floor, `mean` on the verdict, `weakSetFor` below-bar). NOT yet dispatched — awaiting one
+  explicit GO before the engineer builds it, given it is the largest core change so far. Not
+  authorized until then: any edit to `bar.ts`, the schema, the gate, or the research rubric.
+- **2026-10-30 — per-dimension + global bars: owner GO, DISPATCHED to wB:p22.** Owner said “agreed,
+  proceed.” Final locked params: per-dimension acceptance tolerance **5 absolute points, flagged**
+  (not 10); **global MEAN hard** (no tolerance, enforces compensation); bars keyed by **dimension
+  identity (id+statement)** with the **global keyed by dimension-set** (unchanged dimensions inherit
+  across a republish, new/edited warm up, global re-warms on composition change); **WARMUP_MIN=10**
+  genuine observations per scope before any raise; the accepted verdict carries `mean` + `flagged[]`
+  and the note-gate requires a tag per flagged dimension. Scope: `src/types/schema.ts`
+  (`dimension.floor`), `src/quality/bar.ts` (per-scope + warmup + scope on raise/contest + identity
+  keying; may split under 600), `src/runner/engine/quality-loop.ts` + the gate (compound accept),
+  `src/runner/note-gate.ts` (flag enforcement), `src/quality/recall.ts` (`weakSetFor` below-bar),
+  `.pi/praxis/tasks/discovery/research.json` (add `floor` to the 3 dims → bumps to v3), `tests/`. MIN
+  stays the reported headline score. Not authorized: the scorer, `RECALL_WEIGHTS`, adding `parsimony`
+  (separate later), identity/isolation/exactly-once claims, or committing.
+  claim.
 
 - **2026-10-29 — unit E authorized: P5 artifact templates (solo).** Owner GO in words:
   full scope, implemented alone, exact plan first. Docs: `docs/p5-artifact-templates-99d43024/`.

@@ -8,16 +8,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { RECALL_MAX, RECALL_TOKEN_BUDGET, briefRecall, escalatedLesson, recallFor, weakSetFor } from "../../src/quality/index.ts";
+import { RECALL_MAX, RECALL_TOKEN_BUDGET, WARMUP_MIN, briefRecall, escalatedLesson, recallFor, weakSetFor } from "../../src/quality/index.ts";
 import { effectiveBar } from "../../src/quality/index.ts";
 import { openStore } from "../../src/store/db.ts";
 import { join } from "node:path";
-import type { LearningTag, Quality } from "../../src/types/schema.ts";
+import type { LearningTag } from "../../src/types/learning.ts";
+import type { Quality } from "../../src/types/schema.ts";
 import { isAppError } from "../../src/types/errors.ts";
 import {
+  JUDGED_SCHEMA,
   LEARNING_RUBRIC,
   clock,
   dimensionScorer,
+  writeFlow,
   dispose,
   eventsOf,
   judgedFlow,
@@ -33,6 +36,101 @@ import {
 
 const TASK = "tasks/make";
 const QUALITY: Quality = { dimensions: LEARNING_RUBRIC, threshold: 0.6, policy: "required" };
+
+
+/* ---------------------------------------------------------------------------------------------
+ * The weak-set is STEERING, so it is recency-weighted: the newest verdict dominates and a dimension
+ * whose early scores were low but which has since recovered stops being flagged. The first case is
+ * the exact regression four live runs produced; the second proves the fix does not over-correct.
+ * ------------------------------------------------------------------------------------------- */
+
+/** A named rubric, so the weak-set can be read directly instead of through generic dimension ids. */
+const STEERING_RUBRIC = [
+  { id: "grounded", statement: "claims are grounded in sources" },
+  { id: "covers-question", statement: "the answer covers the question" },
+  { id: "honest-uncertainty", statement: "limits are stated" },
+];
+
+/** One judged step over STEERING_RUBRIC at the given floor. */
+function steeringFlow(ws: Workspace, threshold: number): void {
+  writeFlow(ws, "learn", [
+    {
+      id: "make",
+      capabilities: ["artifact.write", "emit", "evaluate"],
+      schema: JUDGED_SCHEMA,
+      quality: { dimensions: STEERING_RUBRIC, threshold, policy: "required" },
+    },
+  ]);
+}
+
+/** One verdict per instance, per-dimension, appended oldest first, which is the order recall reads. */
+async function seedVerdicts(ws: Workspace, tick: () => string, frames: ReadonlyArray<Record<string, number>>): Promise<void> {
+  for (let index = 0; index < frames.length; index += 1) {
+    const run = startJudged(ws, "verdict-" + index, tick());
+    try {
+      await submitJudged(ws, run, tick(), 1, dimensionScorer([frames[index]]));
+    } catch (error) {
+      assert.ok(isAppError(error), "a below-floor verdict is a typed refusal");
+    }
+  }
+}
+
+/** The weak-set a start would steer by, read straight from the store. */
+function weakOf(ws: Workspace, threshold: number): string[] {
+  const store = openStore(join(ws.store, "praxis.sqlite"));
+  try {
+    return weakSetFor(store, TASK, 1, { dimensions: STEERING_RUBRIC, threshold, policy: "required" });
+  } finally {
+    store.close();
+  }
+}
+
+const plainMean = (values: readonly number[]): number => values.reduce((sum, value) => sum + value, 0) / values.length;
+
+test("a recovered dimension stops being flagged: the weak-set is recency-weighted", async () => {
+  const ws = workspace();
+  try {
+    steeringFlow(ws, 0.75);
+    const tick = clock().next;
+    await seedVerdicts(ws, tick, [
+      { grounded: 0.63, "covers-question": 0.81, "honest-uncertainty": 0.92 },
+      { grounded: 0.73, "covers-question": 0.73, "honest-uncertainty": 0.94 },
+      { grounded: 0.84, "covers-question": 0.71, "honest-uncertainty": 0.90 },
+    ]);
+    // The observed regression, stated as arithmetic: the plain mean flags grounded (0.733) even
+    // though covers-question (0.750) is the one still declining and grounded is now the strong one.
+    assert.ok(
+      plainMean([0.63, 0.73, 0.84]) < plainMean([0.81, 0.73, 0.71]),
+      "a plain mean flags the dimension that has recovered",
+    );
+    assert.deepEqual(
+      weakOf(ws, 0.75),
+      ["covers-question"],
+      "the recency-weighted weak-set flags the dimension that is actually weak now",
+    );
+  } finally {
+    dispose(ws);
+  }
+});
+
+test("a dimension that is genuinely lowest in the recent verdicts stays flagged", async () => {
+  const ws = workspace();
+  try {
+    steeringFlow(ws, 0.9);
+    const tick = clock().next;
+    await seedVerdicts(ws, tick, [
+      { grounded: 0.85, "covers-question": 0.8, "honest-uncertainty": 0.92 },
+      { grounded: 0.75, "covers-question": 0.82, "honest-uncertainty": 0.93 },
+      { grounded: 0.55, "covers-question": 0.84, "honest-uncertainty": 0.92 },
+    ]);
+    const weakSet = weakOf(ws, 0.9);
+    assert.equal(weakSet[0], "grounded", "a declining dimension is not rehabilitated by the weighting");
+    assert.ok(weakSet.includes("covers-question"), "the second-weakest is still surfaced");
+    assert.equal(weakSet.includes("honest-uncertainty"), false, "the dimension that holds up stays out");
+  } finally {
+    dispose(ws);
+  }
+});
 
 /** One seeded lesson: an instance run to an outcome, then the note it owed. */
 interface Seed {
@@ -245,14 +343,14 @@ test("lessons survive a bar raise, decayed but present, with the weak-set spanni
     judgedFlow(ws);
     const tick = clock().next;
     await seed(ws, tick, { requestId: "raise-old", scores: [0.95], text: "old-bar lesson", tags: [{ dimension: "solves", lesson: "old-bar lesson" }] });
-    for (let index = 1; index <= 5; index += 1) {
+    for (let index = 1; index <= WARMUP_MIN; index += 1) {
       const run = startJudged(ws, "raise-pass-" + index, tick());
       await submitJudged(ws, run, tick(), 1, sequenceScorer([0.95]));
     }
     await seed(ws, tick, { requestId: "raise-new", scores: [0.95], text: "raised-bar lesson", tags: [{ dimension: "solves", lesson: "raised-bar lesson" }] });
     const store = openStore(join(ws.store, "praxis.sqlite"));
     try {
-      const bar = effectiveBar(store, TASK, 1, QUALITY);
+      const bar = effectiveBar(store, TASK, QUALITY);
       assert.equal(bar, 0.65, "the five stable passes raised the bar");
       const weakSet = weakSetFor(store, TASK, 1, QUALITY);
       assert.ok(weakSet.length > 0, "the weak-set is computed across both bar levels");

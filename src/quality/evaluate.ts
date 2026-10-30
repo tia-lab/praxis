@@ -9,7 +9,7 @@ import { canonicalBytes, digest, digestOf } from "../runner/canonical.ts";
 import { advance, inspect, type AdvanceOptions } from "../runner/engine/index.ts";
 import { parseWith, QualityVerdictSchema, type Quality, type QualityVerdict } from "../types/schema.ts";
 import type { QualityAttempt } from "../runner/engine/index.ts";
-import { effectiveBarFor } from "./bar.ts";
+import { barsFromQuality, compoundDecision, effectiveBarsFor, type Bars } from "./bar.ts";
 
 /** The injected typed-judgment port. Returns a per-dimension score in [0,1] and its own id. */
 export interface Scorer {
@@ -19,6 +19,15 @@ export interface Scorer {
     artifact: unknown;
     subjectDigest?: string;
   }): Promise<{ dimensions: { id: string; score: number }[]; rationale: string; scorer: string }>;
+}
+
+/**
+ * The ruler's digest: the quality declaration AND its bars (global + every dimension). One helper,
+ * used by the verdict and by the score-cache, so a raise in any scope is a different ruler and
+ * recorded verdicts are never reused across it.
+ */
+function rulerDigest(quality: Quality, bars: Bars): string {
+  return digestOf({ ruler: quality, floors: [...bars.perDimension] });
 }
 
 const clamp01 = (n: number): number => (Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);
@@ -39,8 +48,10 @@ export async function evaluateArtifact(
   scorer: Scorer | undefined,
   quality: Quality,
   input: { goal: string; artifact: unknown; subjectDigest?: string },
+  /** The bars in force; absent means the rubric's own seed floors (no history consulted). */
+  bars: Bars = barsFromQuality(quality),
 ): Promise<QualityVerdict> {
-  const rubricDigest = digestOf(quality);
+  const rubricDigest = rulerDigest(quality, bars);
   if (scorer === undefined) return degraded(rubricDigest, "unavailable", "no scorer available");
   let raw: { dimensions: { id: string; score: number }[]; rationale: string; scorer: string };
   try {
@@ -53,12 +64,26 @@ export async function evaluateArtifact(
   } catch (error) {
     return degraded(rubricDigest, "error", "scorer error: " + messageOf(error));
   }
-  const dimensions = raw.dimensions.map((d) => ({ id: d.id, score: clamp01(d.score) }));
+  const dimensions = raw.dimensions.map((d) => ({ id: d.id, score: clamp01(d.score), key: bars.keys.get(d.id) }));
+  // MIN stays the reported headline score; the DECISION is the compound (per-dimension bars with the
+  // tolerance band AND the hard MEAN bar), so the verdict the gate receives is already the answer.
   const score = dimensions.length === 0 ? 0 : Math.min(...dimensions.map((d) => d.score));
-  const decision = score >= quality.threshold ? "pass" : "below";
+  const compound = compoundDecision(dimensions, bars);
+  const decision = compound.pass ? "pass" : "below";
   return parseWith(
     QualityVerdictSchema,
-    { decision, score, dimensions, rationale: clip(raw.rationale), rubricDigest, scorer: raw.scorer, source: "jev" },
+    {
+      decision,
+      score,
+      dimensions,
+      // Rounded: the recorded mean is audit evidence, not a float artefact.
+      mean: Math.round(compound.mean * 10000) / 10000,
+      flagged: compound.flagged,
+      rationale: clip(raw.rationale),
+      rubricDigest,
+      scorer: raw.scorer,
+      source: "jev",
+    },
     "RESULT_INVALID",
     "quality verdict",
   );
@@ -105,16 +130,18 @@ export async function advanceEvaluated(
       // The threshold the judge scores against is the ADAPTIVE bar (O2), folded from `bar.raised`
       // exactly as the engine's gate will fold it: a raised bar is a different ruler, so it also
       // changes the rubric digest the score-cache keys on.
-      const ruler = { ...effective, threshold: effectiveBarFor(options, node.task, task.version, effective) };
+      const bars = effectiveBarsFor(options, node.task, effective);
+      const ruler = { ...effective, threshold: bars.global };
       const subjectDigest = view.handoffs.length === 1 ? view.handoffs[0].digest : undefined;
       const artifactDigest = digest(canonicalBytes(options.artifact === undefined ? {} : options.artifact));
-      const cached = cachedVerdict(view.qualityHistory, artifactDigest, digestOf(ruler));
+      const cached = cachedVerdict(view.qualityHistory, artifactDigest, rulerDigest(ruler, bars));
       if (cached !== undefined) return advance({ ...options, qualityVerdict: cached });
-      const verdict = await evaluateArtifact(options.scorer, ruler, {
-        goal: task.goal,
-        artifact: options.artifact,
-        subjectDigest,
-      });
+      const verdict = await evaluateArtifact(
+        options.scorer,
+        ruler,
+        { goal: task.goal, artifact: options.artifact, subjectDigest },
+        bars,
+      );
       return advance({ ...options, qualityVerdict: verdict });
     }
   }

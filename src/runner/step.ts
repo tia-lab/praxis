@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 import { fail, isAppError, type Code } from "../types/errors.ts";
 import { missingFor } from "./requirements.ts";
+import { compoundDecision } from "../quality/bar.ts";
 import {
   DigestSchema,
   type Artifact,
@@ -303,8 +304,17 @@ export function gate(
     requires?: Requirements;
     /** The task declares `bindsSubject`, so the payload must carry a current `subject`. */
     subject?: boolean;
-    /** An optional quality floor: policy, threshold and the pre-computed verdict (quality eval). */
-    quality?: { policy: "required" | "advisory"; threshold: number; verdict?: QualityVerdict };
+    /**
+     * An optional quality floor: policy, the global MEAN bar (`threshold`), the per-dimension bars
+     * (`floors`) and the pre-computed verdict. The check is the compound: every dimension within its
+     * tolerance band AND the MEAN at the global bar.
+     */
+    quality?: {
+      policy: "required" | "advisory";
+      threshold: number;
+      floors?: Record<string, number>;
+      verdict?: QualityVerdict;
+    };
   },
 ): Verdict {
   const parsed = GateSubject.safeParse(value);
@@ -353,7 +363,15 @@ export function gate(
       checks.qualityAvailable = false;
       decide(true, "QUALITY_REQUIRED");
     } else {
-      checks.qualityFloor = qualityVerdict.decision === "pass";
+      // The compound accept (per-dimension bars + HARD mean bar), computed here from the verdict's
+      // own scores, so the recorded decision is checked rather than trusted.
+      const compound = compoundDecision(qualityVerdict.dimensions, {
+        global: expected.quality.threshold,
+        perDimension: new Map(Object.entries(expected.quality.floors ?? {})),
+      });
+      checks.qualityPerDimension = compound.refused.length === 0;
+      checks.qualityMean = compound.mean >= expected.quality.threshold;
+      checks.qualityFloor = checks.qualityPerDimension && checks.qualityMean;
       decide(!checks.qualityFloor, "QUALITY_BELOW_THRESHOLD");
     }
   }

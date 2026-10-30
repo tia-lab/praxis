@@ -142,6 +142,36 @@ test("the note gate itself is a deterministic adequacy check", () => {
   assert.match(wrongTarget[0], /weakest dimension/);
 });
 
+test("a flagged dimension needs its own tag even when it is not the weakest", () => {
+  // The compound gate lets a dimension pass inside its tolerance band and records it as flagged; the
+  // reflection has to address it, because silence about an under-bar dimension is the mediocrity the
+  // gate exists to catch.
+  const wantsFlagged = noteGate(
+    { whatWrong: "one claim was thin", whatRight: "the schema held", whatBetter: "cite a line", tags: [{ dimension: "solves", lesson: "cite" }] },
+    LEARNING_RUBRIC,
+    "solves",
+    ["evidence"],
+  );
+  assert.equal(wantsFlagged.length, 1);
+  assert.match(wantsFlagged[0], /evidence/);
+  assert.match(wantsFlagged[0], /tolerance band/);
+  const addressed = noteGate(
+    {
+      whatWrong: "one claim was thin",
+      whatRight: "the schema held",
+      whatBetter: "cite a line",
+      tags: [
+        { dimension: "solves", lesson: "cite" },
+        { dimension: "evidence", lesson: "quote the source" },
+      ],
+    },
+    LEARNING_RUBRIC,
+    "solves",
+    ["evidence"],
+  );
+  assert.deepEqual(addressed, [], "tagging the flagged dimension closes the gap");
+});
+
 test("an advancing submit is blocked until the note is recorded", async () => {
   const ws = workspace();
   try {

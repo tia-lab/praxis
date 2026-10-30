@@ -1,13 +1,14 @@
 {
   "id": "verify",
-  "version": 1,
+  "version": 2,
   "state": "published",
   "gate": "section-requirements",
   "goal": "run the checks that prove the change does what was required, and record the observed result",
   "capabilities": [
     "artifact.read",
     "artifact.write",
-    "emit"
+    "emit",
+    "evaluate"
   ],
   "produces": {
     "schema": "praxis.artifact.verification/v1"
@@ -29,5 +30,19 @@
         "outcome"
       ]
     }
-  ]
+  ],
+  "quality": {
+    "dimensions": [
+      {
+        "id": "real-checks",
+        "statement": "The checks actually exercise the change, not unrelated or trivial assertions."
+      },
+      {
+        "id": "honest-result",
+        "statement": "The recorded observed results and pass flags match what the commands produced."
+      }
+    ],
+    "threshold": 0.6,
+    "policy": "required"
+  }
 }

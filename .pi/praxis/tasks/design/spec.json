@@ -1,13 +1,14 @@
 {
   "id": "spec",
-  "version": 1,
+  "version": 2,
   "state": "published",
   "gate": "section-requirements",
   "goal": "state requirements with failure behaviour and an oracle, and the model behind them",
   "capabilities": [
     "artifact.read",
     "artifact.write",
-    "emit"
+    "emit",
+    "evaluate"
   ],
   "produces": {
     "schema": "praxis.artifact.spec/v1"
@@ -17,7 +18,12 @@
       "section": "outcome",
       "note": "the single outcome this spec commits to",
       "required": [
-        { "field": "outcome", "type": "string", "minLength": 20, "note": "one testable sentence" }
+        {
+          "field": "outcome",
+          "type": "string",
+          "minLength": 20,
+          "note": "one testable sentence"
+        }
       ]
     },
     {
@@ -25,10 +31,27 @@
       "minItems": 1,
       "note": "each requirement with how it fails and how it is checked",
       "each": [
-        { "field": "id", "type": "string", "pattern": "^R[0-9]+$", "note": "stable id like R1" },
-        { "field": "requirement", "type": "string", "minLength": 10 },
-        { "field": "failure", "type": "string", "note": "what happens when it is violated" },
-        { "field": "oracle", "type": "string", "note": "how it is checked" }
+        {
+          "field": "id",
+          "type": "string",
+          "pattern": "^R[0-9]+$",
+          "note": "stable id like R1"
+        },
+        {
+          "field": "requirement",
+          "type": "string",
+          "minLength": 10
+        },
+        {
+          "field": "failure",
+          "type": "string",
+          "note": "what happens when it is violated"
+        },
+        {
+          "field": "oracle",
+          "type": "string",
+          "note": "how it is checked"
+        }
       ]
     },
     {
@@ -36,11 +59,28 @@
       "minItems": 1,
       "note": "the elements behind the requirements",
       "each": [
-        { "field": "element", "type": "string" },
-        { "field": "owner", "type": "string" },
-        { "field": "states", "type": "string" },
-        { "field": "invariants", "type": "string" },
-        { "field": "requirement", "type": "string", "references": "requirements.id", "note": "an id declared in requirements" }
+        {
+          "field": "element",
+          "type": "string"
+        },
+        {
+          "field": "owner",
+          "type": "string"
+        },
+        {
+          "field": "states",
+          "type": "string"
+        },
+        {
+          "field": "invariants",
+          "type": "string"
+        },
+        {
+          "field": "requirement",
+          "type": "string",
+          "references": "requirements.id",
+          "note": "an id declared in requirements"
+        }
       ]
     },
     {
@@ -53,9 +93,36 @@
       "minItems": 2,
       "note": "real options weighed, not strawmen",
       "each": [
-        { "field": "alternative", "type": "string", "note": "the option in one line" },
-        { "field": "rejected", "type": "string", "minLength": 40, "note": "why not chosen — name the concrete tradeoff" }
+        {
+          "field": "alternative",
+          "type": "string",
+          "note": "the option in one line"
+        },
+        {
+          "field": "rejected",
+          "type": "string",
+          "minLength": 40,
+          "note": "why not chosen — name the concrete tradeoff"
+        }
       ]
     }
-  ]
+  ],
+  "quality": {
+    "dimensions": [
+      {
+        "id": "testable",
+        "statement": "Each requirement has a concrete failure behaviour and a checkable oracle."
+      },
+      {
+        "id": "modelled",
+        "statement": "The model names one owner, valid states and invariants per element."
+      },
+      {
+        "id": "real-alternatives",
+        "statement": "Alternatives are genuine options with concrete rejection reasons, not strawmen."
+      }
+    ],
+    "threshold": 0.6,
+    "policy": "required"
+  }
 }

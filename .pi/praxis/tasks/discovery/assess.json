@@ -1,12 +1,13 @@
 {
   "id": "assess",
-  "version": 1,
+  "version": 2,
   "state": "published",
   "gate": "section-requirements",
   "goal": "record the behaviour and structure a refactor must preserve; changing behaviour is out of scope",
   "capabilities": [
     "artifact.write",
-    "emit"
+    "emit",
+    "evaluate"
   ],
   "produces": {
     "schema": "praxis.artifact.assessment/v1"
@@ -40,5 +41,19 @@
         "declaration"
       ]
     }
-  ]
+  ],
+  "quality": {
+    "dimensions": [
+      {
+        "id": "preservation-concrete",
+        "statement": "The behaviour a refactor must preserve is stated concretely with how it is checked."
+      },
+      {
+        "id": "scope-held",
+        "statement": "No behaviour change is proposed; the work stays structural."
+      }
+    ],
+    "threshold": 0.6,
+    "policy": "required"
+  }
 }

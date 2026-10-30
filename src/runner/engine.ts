@@ -17,7 +17,7 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { fail, isAppError, type AppError } from "../types/errors.ts";
-import { RoleAssignmentSchema } from "../types/schema.ts";
+import { RoleAssignmentSchema, type QualityVerdict } from "../types/schema.ts";
 import { ROLE_DEFINITION_ID, roleAssignment } from "./identity.ts";
 import {
   FlowConfigSchema,
@@ -50,6 +50,7 @@ export type { Verdict } from "./step.ts";
 export const EVENT = {
   instanceCreated: "instance.created",
   gateVerdict: "gate.verdict",
+  qualityVerdict: "quality.verdict",
   artifactAccepted: "artifact.accepted",
   stepTrace: "step.trace",
   instanceCompleted: "instance.completed",
@@ -79,6 +80,8 @@ export interface AdvanceOptions extends EngineOptions {
   instance: string;
   /** Parsed artifact payload supplied by the caller for the node being run. */
   artifact?: unknown;
+  /** A quality verdict pre-computed outside any transaction (quality eval); enforced by the gate. */
+  qualityVerdict?: QualityVerdict;
 }
 
 export interface InspectOptions extends EngineOptions {
@@ -587,6 +590,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
     const resolved: ResolvedNode =
       refuse === undefined ? { node, task, sources } : { node, task, sources, refuse };
     assertStepActor(store, instance, task, sources, options.actor);
+    const effectiveQuality = task.quality ?? flow.config.quality;
     const grant = grantFor({ id: node.id, capabilities: task.capabilities });
     const handoffs = buildHandoffs(store, instance, resolved, grant);
     const artifact = runStep({ store, storeDir, instance, node, task, grant, handoffs, payload: options.artifact, at });
@@ -602,6 +606,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
       ...(handoffs.length === 1 ? { derivedFrom: handoffs[0].digest } : {}),
       ...(task.requires === undefined ? {} : { requires: task.requires }),
       ...(task.bindsSubject === true ? { subject: true } : {}),
+      ...(effectiveQuality === undefined ? {} : { quality: { policy: effectiveQuality.policy, threshold: effectiveQuality.threshold, verdict: options.qualityVerdict } }),
     });
 
     if (alreadyAccepted && verdict.decision !== "accept") {
@@ -643,6 +648,13 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
         },
         at,
       });
+      if (verdict.quality !== undefined) {
+        appendEvent(store, instance.id, {
+          type: EVENT.qualityVerdict,
+          payload: { step: node.id, version: artifact.version, artifactDigest: artifact.digest, ...verdict.quality },
+          at,
+        });
+      }
       if (verdict.decision !== "accept") {
         // A refusal is evidence, not instance death. A refuse edge sends the work back to
         // the node that must be amended; without one the node stays current and is retried.

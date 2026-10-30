@@ -1,12 +1,13 @@
 {
   "id": "reproduce",
-  "version": 1,
+  "version": 2,
   "state": "published",
   "gate": "section-requirements",
   "goal": "reproduce the reported defect deterministically and capture the failing signal",
   "capabilities": [
     "artifact.write",
-    "emit"
+    "emit",
+    "evaluate"
   ],
   "produces": {
     "schema": "praxis.artifact.reproduction/v1"
@@ -39,5 +40,19 @@
         "effect"
       ]
     }
-  ]
+  ],
+  "quality": {
+    "dimensions": [
+      {
+        "id": "deterministic",
+        "statement": "The defect is reproduced reliably by the given steps."
+      },
+      {
+        "id": "real-signal",
+        "statement": "The captured command output is the actual failing signal, not a guess."
+      }
+    ],
+    "threshold": 0.6,
+    "policy": "required"
+  }
 }

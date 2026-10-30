@@ -17,6 +17,7 @@ import {
   type FlowConfig,
   type Instance,
   type Node,
+  type QualityVerdict,
   type Requirements,
   type ResolvedNode,
   type TaskConfig,
@@ -248,6 +249,8 @@ export interface Verdict {
   code?: Code;
   /** What the document was missing, when a section requirement failed. */
   missing?: string[];
+  /** The quality judgment recorded for this artifact, when a quality floor applies. */
+  quality?: QualityVerdict;
 }
 
 /**
@@ -264,6 +267,8 @@ export function gate(
     requires?: Requirements;
     /** The task declares `bindsSubject`, so the payload must carry a current `subject`. */
     subject?: boolean;
+    /** An optional quality floor: policy, threshold and the pre-computed verdict (quality eval). */
+    quality?: { policy: "required" | "advisory"; threshold: number; verdict?: QualityVerdict };
   },
 ): Verdict {
   const parsed = GateSubject.safeParse(value);
@@ -303,9 +308,23 @@ export function gate(
     checks.sectionRequirement = missing.length === 0;
     decide(!checks.sectionRequirement, "ARTIFACT_INVALID");
   }
+  // Quality floor (quality eval). The verdict is pre-computed outside any transaction and passed
+  // in; the gate only enforces it. An advisory floor never blocks; a required floor blocks when no
+  // score is available (QUALITY_REQUIRED) or the score is below the threshold (QUALITY_BELOW_THRESHOLD).
+  const qualityVerdict = expected.quality?.verdict;
+  if (expected.quality?.policy === "required") {
+    if (qualityVerdict === undefined || qualityVerdict.decision === "unavailable") {
+      checks.qualityAvailable = false;
+      decide(true, "QUALITY_REQUIRED");
+    } else {
+      checks.qualityFloor = qualityVerdict.decision === "pass";
+      decide(!checks.qualityFloor, "QUALITY_BELOW_THRESHOLD");
+    }
+  }
   const accepted = Object.values(checks).every(Boolean);
   const verdict: Verdict = { decision: accepted ? "accept" : "reject", checks };
   if (code !== undefined) verdict.code = code;
   if (missing !== undefined && missing.length > 0) verdict.missing = missing;
+  if (qualityVerdict !== undefined) verdict.quality = qualityVerdict;
   return verdict;
 }

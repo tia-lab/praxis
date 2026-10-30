@@ -32,6 +32,7 @@ export interface TaskFixture {
   requires?: unknown;
   bindsSubject?: boolean;
   role?: string;
+  quality?: unknown;
   version?: number;
   state?: "draft" | "published";
 }
@@ -81,6 +82,7 @@ export function writeTask(ws: Workspace, task: TaskFixture): void {
   if (task.requires !== undefined) document.requires = task.requires;
   if (task.bindsSubject !== undefined) document.bindsSubject = task.bindsSubject;
   if (task.role !== undefined) document.role = task.role;
+  if (task.quality !== undefined) document.quality = task.quality;
   // The document owns its version; the reference names only the path (spec R1, R5).
   const path = join(ws.tasks, `${task.id}.json`);
   mkdirSync(dirname(path), { recursive: true });
@@ -96,18 +98,20 @@ export function writeFlow(
   flow: string,
   nodes: readonly TaskFixture[],
   edges?: readonly EdgeFixture[],
+  flowQuality?: unknown,
 ): void {
   for (const node of nodes) writeTask(ws, node);
   const wiring =
     edges?.slice() ??
     nodes.slice(1).map((node, index) => ({ kind: "data" as const, from: nodes[index].id, to: node.id }));
-  const document = {
+  const document: Record<string, unknown> = {
     schema: "praxis.flow/v2",
     flow: flowRef(flow),
     nodes: nodes.map((node) => ({ id: node.id, task: taskRef(node.id) })),
     edges: wiring,
     result: "praxis.result/v1",
   };
+  if (flowQuality !== undefined) document.quality = flowQuality;
   writeFileSync(ws.config, JSON.stringify(document, null, 2) + "\n");
 }
 

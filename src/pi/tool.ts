@@ -3,8 +3,9 @@
  *
  * Three flow operations plus two issue operations over one argument surface: `start`
  * opens or re-opens the instance a request id names and returns the six-key result with
- * the derived step descriptor and the pinned nonce; `submit` calls `advance` exactly
- * once; `read` returns one recorded artifact, and only after the current step's grant
+ * the derived step descriptor and the pinned nonce; `submit` scores the artifact first when the
+ * current task declares a quality floor, then calls `advance` exactly once through
+ * `advanceEvaluated`; `read` returns one recorded artifact, and only after the current step's grant
  * allows `artifact.read`; `issue.template` and `issue.open` read the flow's optional
  * `issue` block and delegate to the writer in `src/runner/issues.ts`.
  *
@@ -26,8 +27,9 @@ import { ArtifactSummarySchema, FailureDetailsSchema, PraxisToolArgsSchema, Prax
 import type { ArtifactSummary, FailureDetails, PraxisToolArgs, StepDescriptor } from "../types/pi.ts";
 import { CAPABILITY_NAMES, grantFor, requireGrant } from "../runner/capabilities.ts";
 import { digest } from "../runner/canonical.ts";
-import { advance, inspect, openFlow, readStepArtifact, start } from "../runner/engine.ts";
+import { inspect, openFlow, readStepArtifact, start } from "../runner/engine.ts";
 import type { EngineOptions, HandoffRef, OpenedFlow } from "../runner/engine.ts";
+import { advanceEvaluated, jevScorer, type Scorer } from "../quality/index.ts";
 import { ISSUE_CATEGORIES, issueTemplate } from "../types/issue.ts";
 import { ISSUE_DISABLED, openIssue } from "../runner/issues.ts";
 import type { PiSessionContext, PiToolDefinition, PiToolResult } from "./host.ts";
@@ -274,13 +276,31 @@ function startOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResu
   });
 }
 
-function submitOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResult {
+/**
+ * The submit-path scorer. It defaults to the real pi-jev adapter; an injected fake replaces it
+ * so no unit test can reach the network, and `undefined` restores the default. The TypeSafe
+ * credential is read by pi-jev itself and never appears here.
+ */
+let scorerOverride: Scorer | undefined;
+
+/** Replace the submit-path scorer; `undefined` restores the pi-jev default. */
+export function setScorerForTest(scorer: Scorer | undefined): void {
+  scorerOverride = scorer;
+}
+
+/**
+ * Submit one artifact. Scoring happens in `advanceEvaluated`, outside any store transaction,
+ * and only when the pinned task declares an effective quality floor and holds `evaluate`;
+ * the engine then records the verdict and enforces the floor in the same synchronous advance.
+ */
+async function submitOperation(args: PraxisToolArgs, ctx: PiSessionContext): Promise<PiToolResult> {
   const options = engineOptions(ctx);
-  const advanced = advance({
+  const advanced = await advanceEvaluated({
     ...options,
     instance: required(args.instance, "instance"),
     artifact: args.artifact,
     actor: actorFor(ctx),
+    scorer: scorerOverride ?? jevScorer(),
   });
   return ok(StepEnvelopeSchema, {
     result: advanced.result,
@@ -341,8 +361,8 @@ function issueOperation(args: IssueOpArgs, ctx: PiSessionContext): PiToolResult 
   return ok(IssueReportEnvelopeSchema, { issue: report });
 }
 
-/** Parse the arguments, dispatch one operation, and never throw (R2, R8). */
-export function executePraxisTool(args: unknown, ctx: PiSessionContext): PiToolResult {
+/** Parse the arguments, dispatch one operation, and never throw or reject (R2, R8). */
+export async function executePraxisTool(args: unknown, ctx: PiSessionContext): Promise<PiToolResult> {
   try {
     const op = (args as { op?: unknown } | null | undefined)?.op;
     if (op === "issue.template" || op === "issue.open") {
@@ -350,7 +370,8 @@ export function executePraxisTool(args: unknown, ctx: PiSessionContext): PiToolR
     }
     const parsed = parseWith(PraxisToolArgsSchema, args, "CONFIG_INVALID", "praxis arguments");
     if (parsed.op === "start") return startOperation(parsed, ctx);
-    if (parsed.op === "submit") return submitOperation(parsed, ctx);
+    // `await`, not `return`: an async rejection must reach the catch below (R8: never reject).
+    if (parsed.op === "submit") return await submitOperation(parsed, ctx);
     return readOperation(parsed, ctx);
   } catch (error) {
     return failure(error);

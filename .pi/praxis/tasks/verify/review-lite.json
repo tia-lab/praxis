@@ -1,13 +1,14 @@
 {
   "id": "review-lite",
-  "version": 1,
+  "version": 2,
   "state": "published",
   "gate": "section-requirements",
   "goal": "confirm the change meets its requirement and adds no regression, and record the verdict",
   "capabilities": [
     "artifact.read",
     "artifact.write",
-    "emit"
+    "emit",
+    "evaluate"
   ],
   "produces": {
     "schema": "praxis.artifact.review/v1"
@@ -24,5 +25,19 @@
         "verdict": "PASS"
       }
     }
-  ]
+  ],
+  "quality": {
+    "dimensions": [
+      {
+        "id": "substantive",
+        "statement": "The change is judged against its requirement with a concrete basis."
+      },
+      {
+        "id": "regression-aware",
+        "statement": "Possible regressions are considered, not ignored."
+      }
+    ],
+    "threshold": 0.6,
+    "policy": "required"
+  }
 }

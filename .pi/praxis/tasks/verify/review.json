@@ -1,13 +1,14 @@
 {
   "id": "review",
-  "version": 1,
+  "version": 2,
   "state": "published",
   "gate": "section-requirements",
   "goal": "judge every requirement id, challenge minimality and record the verdict",
   "capabilities": [
     "artifact.read",
     "artifact.write",
-    "emit"
+    "emit",
+    "evaluate"
   ],
   "produces": {
     "schema": "praxis.artifact.review/v1"
@@ -26,5 +27,19 @@
         "verdict": "PASS"
       }
     }
-  ]
+  ],
+  "quality": {
+    "dimensions": [
+      {
+        "id": "substantive",
+        "statement": "Each requirement id is judged with a concrete basis, not a blanket pass."
+      },
+      {
+        "id": "minimality-challenged",
+        "statement": "Over-scope, duplication and speculative surface are actually challenged."
+      }
+    ],
+    "threshold": 0.6,
+    "policy": "required"
+  }
 }

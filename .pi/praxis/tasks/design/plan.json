@@ -1,13 +1,14 @@
 {
   "id": "plan",
-  "version": 1,
+  "version": 2,
   "state": "published",
   "gate": "section-requirements",
   "goal": "name every declaration touched, every check that proves it, the budget and the recovery path",
   "capabilities": [
     "artifact.read",
     "artifact.write",
-    "emit"
+    "emit",
+    "evaluate"
   ],
   "produces": {
     "schema": "praxis.artifact.plan/v1"
@@ -61,5 +62,23 @@
       "section": "outOfScope",
       "minItems": 1
     }
-  ]
+  ],
+  "quality": {
+    "dimensions": [
+      {
+        "id": "traceable",
+        "statement": "Every declaration is bound to a requirement it serves."
+      },
+      {
+        "id": "checks-prove",
+        "statement": "The checks actually prove the declarations, with real commands and expectations."
+      },
+      {
+        "id": "bounded",
+        "statement": "Budget and recovery are concrete, not placeholders."
+      }
+    ],
+    "threshold": 0.6,
+    "policy": "required"
+  }
 }

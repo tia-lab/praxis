@@ -38,7 +38,7 @@ function pathUnder(root: "tasks" | "flows"): z.ZodString {
 export const FlowNameSchema = pathUnder("flows");
 
 /** The closed capability registry (spec R7). An unknown name cannot be declared. */
-export const CapabilitySchema = z.enum(["artifact.read", "artifact.write", "emit"]);
+export const CapabilitySchema = z.enum(["artifact.read", "artifact.write", "emit", "evaluate"]);
 export type Capability = z.infer<typeof CapabilitySchema>;
 
 /** The only gate this slice implements: deterministic, no model in the loop. */
@@ -138,6 +138,30 @@ export type TaskState = z.infer<typeof TaskStateSchema>;
  * work; the flow owns the wiring, so there is no `consumes` and no `onRefuse`
  * here — edges carry both facts.
  */
+/** A decomposed quality rubric a task is judged against (the quality floor). */
+export const QualityDimensionSchema = z.strictObject({
+  id: z.string().min(1).max(64),
+  statement: z.string().min(1).max(500),
+});
+export const QualitySchema = z.strictObject({
+  dimensions: z.array(QualityDimensionSchema).min(1).max(8),
+  threshold: z.number().min(0).max(1),
+  policy: z.enum(["required", "advisory"]),
+});
+export type Quality = z.infer<typeof QualitySchema>;
+
+/** A recorded typed judgment over one artifact: the pinned ruler and the score (quality eval). */
+export const QualityVerdictSchema = z.strictObject({
+  decision: z.enum(["pass", "below", "unavailable"]),
+  score: z.number().min(0).max(1),
+  dimensions: z.array(z.strictObject({ id: z.string().min(1).max(64), score: z.number().min(0).max(1) })),
+  rationale: z.string().max(2000),
+  rubricDigest: DigestSchema,
+  scorer: z.string().min(1).max(200),
+  source: z.enum(["jev", "unavailable", "error"]),
+});
+export type QualityVerdict = z.infer<typeof QualityVerdictSchema>;
+
 export const TaskConfigSchema = z.strictObject({
   id: StepIdSchema,
   version: z.int().min(1),
@@ -151,6 +175,8 @@ export const TaskConfigSchema = z.strictObject({
   requires: RequirementsSchema.optional(),
   /** The flow role authorized to submit this step; absent means the instance creator. */
   role: RoleNameSchema.optional(),
+  /** An optional quality floor: a typed judgment over the produced artifact (quality eval). */
+  quality: QualitySchema.optional(),
   /** A review must carry the digest of the version it judged (spec R6). */
   bindsSubject: z.boolean().optional(),
 });
@@ -206,6 +232,8 @@ export const FlowConfigSchema = z
     edges: z.array(EdgeSchema).max(32),
     result: SchemaNameSchema,
     issue: IssueConfigSchema.optional(),
+    /** An optional flow-level quality floor a task inherits when it declares none (quality eval). */
+    quality: QualitySchema.optional(),
   })
   .superRefine((config, ctx) => {
     const at = new Map<string, number>();

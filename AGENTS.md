@@ -203,6 +203,51 @@ acceptance here before building.
   entry or ignore rule changes. Still not authorized: settling `scripts`, `dependencies`,
   `peerDependencies`, `files`, `.husky/`, `commitlint.config.cjs` or `.gitignore` — that full
   manifest/dependency housekeeping remains the separate unit named above.
+- **2026-10-29 — quality-eval unit (owner-authorized, core implemented).** Owner GO in words:
+  "proceed with implementation", plus "scope jev inside a folder". Plan: `docs/task-flow-quality-eval/PLAN.md`.
+  Delivers an optional per-task **quality floor**: a task may declare `quality { dimensions, threshold,
+  policy: required|advisory }`; a typed verdict is scored by an injected `Scorer` (fabric `jev.evaluate`
+  shape) **outside any store transaction** and enforced synchronously by the gate. Paths changed:
+  `src/types/schema.ts` (Quality/QualityVerdict schemas, `TaskConfig.quality`, capability `"evaluate"`),
+  `src/types/errors.ts` + `src/types/pi.ts` (`QUALITY_REQUIRED`, `QUALITY_BELOW_THRESHOLD`, mirror kept
+  in sync), `src/runner/step.ts` (`gate()` enforces the floor; `Verdict.quality`), `src/runner/engine.ts`
+  (`AdvanceOptions.qualityVerdict`, `EVENT.qualityVerdict`, forwards + records), new `src/quality/`
+  (`evaluate.ts` = `Scorer` port + `evaluateArtifact` + `advanceEvaluated`; `index.ts` barrel),
+  `tests/testkit.ts` (quality passthrough), `tests/runner/quality.test.ts` (6 tests, fake scorer),
+  `tests/types/errors.test.ts` (frozen taxonomy 26→28). Acceptance met: a task with no `quality` block is
+  byte-identical behaviour (full suite 159/159 green); below-threshold required → `QUALITY_BELOW_THRESHOLD`;
+  required + no scorer (or missing `evaluate` capability) → fail-closed `QUALITY_REQUIRED`; advisory below →
+  recorded and passes; every verdict records score/dimensions/rubricDigest/scorer/source; `tsc` clean.
+  Aggregation is the **minimum** dimension (no weighted scoring, MIN-011). **Deferred / still open:** the
+  live `--evaluate` CLI driver and how a driver obtains the real fabric `jev` port without nested calls
+  (P10) — the core is proven behind a **fake** scorer; no live Jev call is wired yet, and no learning
+  layer is in scope. The Occam `jev`/`self-eval` contract was used as **read-only reference** only; no
+  Occam code was imported (it is being rewritten).
+- **2026-10-29 — quality-eval (a)+(b) landed (owner-authorized).** Owner GO: "implement both".
+  (b) flow-level default: `FlowConfigSchema.quality?` + effective = `task.quality ?? flow.quality` in
+  `advance` and `advanceEvaluated`; `tests/testkit.ts` `writeFlow` gains a `flowQuality` arg; two tests
+  added (default applies; task overrides). (a) all 12 `.pi/praxis/tasks/*.json` gain a per-task `quality`
+  block (rubric dimensions + `threshold` 0.6 + `policy: "advisory"`), the `evaluate` capability, and
+  `version` bumped 1→2 (publication immutability). Verified: `tsc` clean, full suite 161/161. **Advisory on
+  purpose:** the blocks stay non-blocking, and the Pi-tool submit path still calls `advance` (not
+  `advanceEvaluated`) with no scorer, so **no scoring runs in real agent runs yet** — the blocks are inert
+  until the live scorer/driver is wired and the policy flipped to `required`. That wiring (resolve a real
+  `Scorer` from `TYPESAFE_API_KEY` and route submit through `advanceEvaluated`) remains the deferred unit,
+  to be done and tested with the owner on real agents after approval.
+- **2026-10-30 — live quality scorer + policy flip (owner GO).** Owner authorized directly; lead
+  records and verifies. Scope: `package.json` (add git dep `pi-jev` `#v0.2.1`),
+  `src/quality/jev-scorer.ts` (new adapter implementing the existing `Scorer` port via pi-jev
+  `evaluate`, one `noul` question per rubric dimension), `src/quality/index.ts`, `src/pi/tool.ts`
+  (`submitOperation` routes through `advanceEvaluated` with an injectable jev scorer; becomes async),
+  `tests/quality/jev-scorer.test.ts` (new), and the 12 `.pi/praxis/tasks/**/*.json`
+  (`quality.policy` `advisory`→`required`). Acceptance: `tsc` clean; full suite green with NO network
+  in any unit test; submit computes a verdict via the pi-jev-backed Scorer (overall = MIN dimension)
+  and the engine enforces the floor (`QUALITY_BELOW_THRESHOLD` / `QUALITY_REQUIRED`); all 12 tasks
+  read `"required"`; the adapter imports only from `"pi-jev"`. Not authorized: engine/store/schema
+  changes, new error codes, flow selection from the tool, OS sandbox / trusted-identity / exactly-once
+  claims; the real TypeSafe call stays opt-in and is not asserted in the suite. pi-jev itself
+  (`github:tia-lab/pi-jev`) is an owner-published external dependency, built and reviewed as its own
+  repo; no `pi-fabric` or Occam code is imported.
 
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a

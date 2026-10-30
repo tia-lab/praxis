@@ -1,13 +1,14 @@
 {
   "id": "patch",
-  "version": 1,
+  "version": 2,
   "state": "published",
   "gate": "section-requirements",
   "goal": "make the smallest change that resolves the defect, and record what ran",
   "capabilities": [
     "artifact.read",
     "artifact.write",
-    "emit"
+    "emit",
+    "evaluate"
   ],
   "produces": {
     "schema": "praxis.artifact.change/v1"
@@ -29,5 +30,19 @@
         "observed"
       ]
     }
-  ]
+  ],
+  "quality": {
+    "dimensions": [
+      {
+        "id": "minimal",
+        "statement": "The change is the smallest that resolves the defect."
+      },
+      {
+        "id": "verified",
+        "statement": "A check was run and its observed result is recorded."
+      }
+    ],
+    "threshold": 0.6,
+    "policy": "required"
+  }
 }

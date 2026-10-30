@@ -1,12 +1,13 @@
 {
   "id": "research",
-  "version": 1,
+  "version": 2,
   "state": "published",
   "gate": "section-requirements",
   "goal": "establish what is true from sources and the code before anything is designed",
   "capabilities": [
     "artifact.write",
-    "emit"
+    "emit",
+    "evaluate"
   ],
   "produces": {
     "schema": "praxis.artifact.research/v1"
@@ -53,5 +54,23 @@
       "section": "uncertainty",
       "minItems": 1
     }
-  ]
+  ],
+  "quality": {
+    "dimensions": [
+      {
+        "id": "grounded",
+        "statement": "Every claim is tied to a source or a code location, not asserted."
+      },
+      {
+        "id": "covers-question",
+        "statement": "The stated question and its boundary are actually answered."
+      },
+      {
+        "id": "honest-uncertainty",
+        "statement": "Real unknowns and competing explanations are named, not hidden."
+      }
+    ],
+    "threshold": 0.6,
+    "policy": "required"
+  }
 }

@@ -1,13 +1,14 @@
 {
   "id": "refactor",
-  "version": 1,
+  "version": 2,
   "state": "published",
   "gate": "section-requirements",
   "goal": "restructure without changing behaviour, and prove the behaviour was preserved",
   "capabilities": [
     "artifact.read",
     "artifact.write",
-    "emit"
+    "emit",
+    "evaluate"
   ],
   "produces": {
     "schema": "praxis.artifact.change/v1"
@@ -37,5 +38,19 @@
         "after"
       ]
     }
-  ]
+  ],
+  "quality": {
+    "dimensions": [
+      {
+        "id": "behaviour-preserved",
+        "statement": "Parity evidence shows behaviour is unchanged before and after."
+      },
+      {
+        "id": "real-improvement",
+        "statement": "The restructuring is a genuine structural improvement, not churn."
+      }
+    ],
+    "threshold": 0.6,
+    "policy": "required"
+  }
 }

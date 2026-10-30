@@ -1,13 +1,14 @@
 {
   "id": "implement",
-  "version": 1,
+  "version": 2,
   "state": "published",
   "gate": "section-requirements",
   "goal": "make the change the plan declares, and record what actually ran",
   "capabilities": [
     "artifact.read",
     "artifact.write",
-    "emit"
+    "emit",
+    "evaluate"
   ],
   "produces": {
     "schema": "praxis.artifact.change/v1"
@@ -37,5 +38,19 @@
         "evidence"
       ]
     }
-  ]
+  ],
+  "quality": {
+    "dimensions": [
+      {
+        "id": "matches-plan",
+        "statement": "The recorded changes match what the plan declared, nothing unplanned."
+      },
+      {
+        "id": "ran-evidence",
+        "statement": "The checks section records commands that actually ran with their observed output."
+      }
+    ],
+    "threshold": 0.6,
+    "policy": "required"
+  }
 }

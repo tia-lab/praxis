@@ -31,12 +31,16 @@ import type { RecallSet } from "../types/learning.ts";
 import type { Quality } from "../types/schema.ts";
 import { CAPABILITY_NAMES, grantFor, requireGrant } from "../runner/capabilities.ts";
 import { digest } from "../runner/canonical.ts";
-import { inspect, openFlow, readStepArtifact, start } from "../runner/engine/index.ts";
+import { inspect, openFlow, qualityHistory, readStepArtifact, start } from "../runner/engine/index.ts";
+import { withStore } from "../runner/engine/support.ts";
 import type { EngineOptions, HandoffRef, OpenedFlow } from "../runner/engine/index.ts";
-import { advanceEvaluated, briefRecall, effectiveBarsFor, escalatedLesson, jevScorer, type Scorer } from "../quality/index.ts";
+import { advanceEvaluated, briefRecall, compoundDecision, effectiveBarsFor, escalatedLesson, jevScorer, type Scorer } from "../quality/index.ts";
 import { noteStanding, recordNote } from "../runner/note-gate.ts";
 import { projectConfig, projectMaxAttempts } from "../runner/engine/support.ts";
-import { anchorOf, jevAlignJudge, judgeOrder, uncheckedClause, type AlignJudge } from "../quality/jev-align.ts";
+import { anchorOf, jevAlignJudge, judgeOrder, orderDigestOf, uncheckedClause, type AlignJudge } from "../quality/jev-align.ts";
+import { afterOp, beforeOp } from "../runner/hooks.ts";
+import { digestOf } from "../runner/canonical.ts";
+import type { VerdictSummary } from "../types/hooks.ts";
 import { ISSUE_CATEGORIES, issueTemplate } from "../types/issue.ts";
 import { ISSUE_DISABLED, openIssue } from "../runner/issues.ts";
 import type { PiSessionContext, PiToolDefinition, PiToolResult } from "./host.ts";
@@ -371,6 +375,8 @@ async function startOperation(args: PraxisToolArgs, ctx: PiSessionContext): Prom
   // The anchor is read from the flow document this start would pin, and the judgment happens here,
   // BEFORE start(): a refusal leaves no instance, pin, event or artifact behind.
   const anchor = anchorOf(openFlow(options));
+  // before_start runs at entry and BEFORE the judge it might save: a veto must cost nothing.
+  await beforeOp("before_start", { op: "start", flow: flowName, requestId, orderDigest: orderDigestOf(order), anchor });
   const verdict = await judgeOrder(alignJudgeOverride ?? jevAlignJudge(), { order, anchor });
   if (verdict.decision === "misaligned") {
     throw fail("ALIGNMENT_REJECTED", "the order does not belong to the task this flow runs", {
@@ -384,6 +390,8 @@ async function startOperation(args: PraxisToolArgs, ctx: PiSessionContext): Prom
   const started = start({ ...options, flow: flowName, requestId, actor, ...(args.roles !== undefined ? { roles: args.roles } : {}) });
   const { instance, result, flow, handoffs } = inspect({ ...options, instance: started.instance.id, actor });
   const step = stepDescriptor(flow, instance, handoffs, learningView(options, flow, instance));
+  // after_start: the instance exists (created or re-opened), so the outcome is a fact.
+  await afterOp("after_start", { op: "start", instance: instance.id, status: instance.status, step: instance.currentStep });
   if (verdict.decision === "aligned") {
     return ok(StartEnvelopeSchema, { result, step, nonce: instance.nonce });
   }
@@ -491,23 +499,74 @@ function qualityFeedback(error: unknown, options: EngineOptions & { instance: st
  * A quality refusal reaches the agent with the named dimensions and their scores, and the
  * attempt budget and no-progress rule live in the engine (they are bounds, not prompt text).
  */
+/**
+ * The recorded verdict of the step an op just acted on, as a hook summary — read from the
+ * `quality.verdict` events the engine already wrote, so no engine signature changes. Absent when the
+ * task declares no quality floor.
+ */
+function verdictSummaryOf(options: EngineOptions & { instance: string }, step: string, version: number): VerdictSummary | undefined {
+  const view = inspect(options);
+  // `inspect` reports the history of the CURRENT step, and an accepted submit has already advanced
+  // past the step it judged, so the recorded attempts are read for that step explicitly. Read-only,
+  // through the engine's own store seam: no engine signature changes.
+  const attempt = withStore(options, (store) => qualityHistory(store, options.instance, step))
+    .filter((entry) => entry.version === version)
+    .pop();
+  if (attempt === undefined) return undefined;
+  const verdict = attempt.verdict;
+  // Refused/flagged come from the SAME compound test the gate used, so the hook sees the decision
+  // the record reflects rather than a second opinion.
+  const node = view.flow.config.nodes.find((candidate) => candidate.id === step);
+  const quality = node === undefined ? undefined : (view.flow.tasks.get(node.task)?.quality ?? view.flow.config.quality);
+  const compound = node === undefined || quality === undefined
+    ? undefined
+    : compoundDecision(verdict.dimensions, effectiveBarsFor(options, node.task, quality));
+  const mean = verdict.mean ?? (verdict.dimensions.length === 0
+    ? 0
+    : verdict.dimensions.reduce((sum, dimension) => sum + dimension.score, 0) / verdict.dimensions.length);
+  return {
+    score: verdict.score,
+    mean: Math.round(mean * 10000) / 10000,
+    dimensions: verdict.dimensions.map((dimension) => ({ id: dimension.id, score: dimension.score })),
+    flagged: compound?.flagged ?? verdict.flagged ?? [],
+    refused: compound?.refused ?? [],
+    rubricDigest: verdict.rubricDigest,
+  };
+}
+
 async function submitOperation(args: PraxisToolArgs, ctx: PiSessionContext): Promise<PiToolResult> {
   const options = engineOptions(ctx);
   const instance = required(args.instance, "instance");
+  const actor = actorFor(ctx);
+  const before = inspect({ ...options, instance, actor });
+  const step = before.instance.currentStep;
+  const artifact = args.artifact;
+  await beforeOp("before_submit", { op: "submit", instance, step, artifact, artifactDigest: digestOf(artifact === undefined ? {} : artifact) });
   try {
     const advanced = await advanceEvaluated({
       ...options,
       instance,
-      artifact: args.artifact,
-      actor: actorFor(ctx),
+      artifact,
+      actor,
       scorer: scorerOverride ?? jevScorer(),
     });
+    const accepted = advanced.result.artifacts.find((ref) => ref.step === step);
+    const verdict = verdictSummaryOf({ ...options, instance }, step, accepted === undefined ? 0 : accepted.version);
+    await afterOp("after_submit", { op: "submit", instance, step, decision: "accepted", ...(verdict === undefined ? {} : { verdict }) });
     return ok(StepEnvelopeSchema, {
       result: advanced.result,
       step: stepDescriptor(advanced.flow, advanced.instance, advanced.handoffs, learningView(options, advanced.flow, advanced.instance)),
     });
   } catch (error) {
-    throw qualityFeedback(error, { ...options, instance });
+    const reviewed = qualityFeedback(error, { ...options, instance });
+    if (isAppError(reviewed) && QUALITY_CODES.has(reviewed.code)) {
+      // A quality refusal recorded its verdict, so it IS an outcome a composer can observe.
+      const detail = reviewed.detail as { step?: string; version?: number } | undefined;
+      const refusedStep = typeof detail?.step === "string" ? detail.step : step;
+      const verdict = verdictSummaryOf({ ...options, instance }, refusedStep, Number(detail?.version ?? 0));
+      await afterOp("after_submit", { op: "submit", instance, step: refusedStep, decision: "refused", ...(verdict === undefined ? {} : { verdict }) });
+    }
+    throw reviewed;
   }
 }
 
@@ -518,16 +577,23 @@ async function submitOperation(args: PraxisToolArgs, ctx: PiSessionContext): Pro
  * gaps while the attempt budget lasts; once it is spent the engine records a stub and the flow
  * proceeds, so the reflection is mandatory but never a deadlock.
  */
-function noteOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResult {
+async function noteOperation(args: PraxisToolArgs, ctx: PiSessionContext): Promise<PiToolResult> {
   const options = engineOptions(ctx);
   const actor = actorFor(ctx);
   const instance = required(args.instance, "instance");
+  // The step the note is owed for, read before the op so a before_note hook sees it.
+  const before = inspect({ ...options, instance, actor });
+  const step = noteStanding(options, before.instance, before.flow).pending?.step ?? before.instance.currentStep;
+  await beforeOp("before_note", { op: "note", instance, step, subjective: args.subjective ?? null });
   const outcome = recordNote({
     options: { ...options, instance },
     actor,
     subjective: args.subjective,
     at: new Date().toISOString(),
   });
+  // Only a recorded note (real or stub) is an outcome; an inadequate note threw above and is
+  // observed by the caller, not by an after_ hook.
+  await afterOp("after_note", { op: "note", instance, step: outcome.step, noteVersion: outcome.noteVersion, stub: outcome.stub });
   const view = inspect({ ...options, instance, actor });
   return ok(NoteEnvelopeSchema, {
     result: view.result,
@@ -547,14 +613,18 @@ function noteOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResul
  * it writes no event, advances nothing, scores nothing, consumes no quality attempt and does not
  * enforce the nonce or the schema. It reports exactly what the synchronous section gate would say.
  */
-function checkOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResult {
+async function checkOperation(args: PraxisToolArgs, ctx: PiSessionContext): Promise<PiToolResult> {
   const options = engineOptions(ctx);
   // Observer-level, like reading the descriptor: the pin is verified and the actor is observed,
   // but no step grant is consulted and no capability is gained.
   const { instance, flow } = inspect({ ...options, instance: required(args.instance, "instance"), actor: actorFor(ctx) });
   const resolved = currentStepOf(flow, instance);
-  const missing = resolved.task.requires === undefined ? [] : missingFor(args.artifact ?? {}, resolved.task.requires);
-  return ok(CheckEnvelopeSchema, { ok: missing.length === 0, missing, step: resolved.node.id });
+  const artifact = args.artifact ?? {};
+  await beforeOp("before_check", { op: "check", instance: instance.id, step: resolved.node.id, artifact, artifactDigest: digestOf(artifact) });
+  const missing = resolved.task.requires === undefined ? [] : missingFor(artifact, resolved.task.requires);
+  const clean = missing.length === 0;
+  await afterOp("after_check", { op: "check", instance: instance.id, step: resolved.node.id, ok: clean, missing });
+  return ok(CheckEnvelopeSchema, { ok: clean, missing, step: resolved.node.id });
 }
 
 function readOperation(args: PraxisToolArgs, ctx: PiSessionContext): PiToolResult {
@@ -622,8 +692,8 @@ export async function executePraxisTool(args: unknown, ctx: PiSessionContext): P
     if (parsed.op === "start") return await startOperation(parsed, ctx);
     // `await`, not `return`: an async rejection must reach the catch below (R8: never reject).
     if (parsed.op === "submit") return await submitOperation(parsed, ctx);
-    if (parsed.op === "note") return noteOperation(parsed, ctx);
-    if (parsed.op === "check") return checkOperation(parsed, ctx);
+    if (parsed.op === "note") return await noteOperation(parsed, ctx);
+    if (parsed.op === "check") return await checkOperation(parsed, ctx);
     return readOperation(parsed, ctx);
   } catch (error) {
     return failure(error);

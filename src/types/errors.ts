@@ -47,6 +47,8 @@ export type Code =
   | "QUALITY_BLOCKED"
   /** The order does not belong to the task the pinned flow will run (routing hygiene, not safety). */
   | "ALIGNMENT_REJECTED"
+  /** A `before_` hook refused the op (composition seam inside the ceiling; write-free). */
+  | "HOOK_VETOED"
   | "RESULT_INVALID"
   | "STORE_INVALID"
   | "INTERNAL";

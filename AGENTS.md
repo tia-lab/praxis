@@ -469,6 +469,43 @@ acceptance here before building.
   done**. Owner is restoring husky + commitlint himself (the post-Unit-2 reversal), so the engineer was
   told NOT to touch `.husky/`/`commitlint.config.cjs`. Unit 3 source stands as reported; nothing committed.
 
+- **2026-10-30 — Unit 4 GO (hooks contract), SPEC-FIRST.** Owner GO in words: instruct the engineer. Owner
+  decisions on scope: **eight hooks — `before_`/`after_` for each of the four ops `start`, `check`, `submit`,
+  `note`**; `read` and `issue.*` are NOT hooked. **`before_` fires at the op entry (pre-write) and MAY veto,
+  fail-closed with a typed reason; `after_` fires post-commit and is observe-only (a throw is contained and
+  logged, never un-commits).** Neither hook runs inside the store transaction (the no-txn-across-external-call
+  rule). Contract-bearing (new type module + runtime behaviour), so NOT a §4 waiver: G1 research + G2 spec,
+  STOP for review before any code. Scope (research/spec now; code only after spec PASS):
+  `docs/<unit4-slug>-<hash8>/`, later `src/types/hooks.ts` (new taxonomy+payloads), `src/runner/hooks.ts` (new
+  registry + ordered dispatch), emit points in `src/runner/engine/` and/or `src/pi/tool.ts`, `tests/`.
+  Boundaries: a hook runs inside the capability ceiling and can never amplify rights; the Unit 3 alignment
+  gate is noted as a conceptual `before_start` veto but is NOT refactored here. Not authorized: store-schema or
+  flow-schema change, new dependency, expanding the six result keys, or any isolation/identity/exactly-once claim.
+
+- **2026-10-30 — Unit 4 G4 GO (hooks contract).** After G1+G2 PASS, owner confirmed the one decision:
+  **new code `HOOK_VETOED`** (not `GATE_REJECTED`), and GO to plan + implement. The engineer writes
+  `plan.md` (G3) then implements per `docs/hooks-contract-2fbfdba5/spec.md` R1–R11. Paths:
+  `src/types/hooks.ts` (new: eight-name closed taxonomy + one payload type per hook + name->payload map),
+  `src/runner/hooks.ts` (new: registry + ordered sequential dispatch, resetHooks for tests, plain-data only),
+  `src/pi/tool.ts` (wire dispatchBefore/dispatchAfter into the four op entries; before_start before the
+  alignment judge), `src/types/errors.ts` + `src/types/pi.ts` (add HOOK_VETOED, TAXONOMY_SIZE 30->31),
+  `tests/`. Safety spine binding: a hook can only SUBTRACT (no Store/Grant/engine handle, after the ceiling
+  check) or observe (no payload transform); byte-identical when empty; no engine/store/schema/result-key/
+  dependency change; after_ throws contained to stderr (non-durable, F7). tool.ts cap stays waived — keep
+  orchestration in hooks.ts, minimal wiring in tool.ts. Not authorized: store/flow-schema change, new
+  dependency, new result key, or any isolation/identity/exactly-once claim.
+
+- **2026-10-30 — Unit 4 ACCEPTED (hooks contract).** Passed independent G5 review on R1–R11: the registry
+  (`src/runner/hooks.ts`) imports only the error helper and its own types — no `Store`/`Grant`/engine, so a
+  hook can only subtract (veto) or observe; vetoes are write-free; a throwing `before_` is a veto; a
+  throwing `after_` is contained to stderr; `after_submit` carries decision + the judged step's verdict;
+  empty registry is byte-identical; `HOOK_VETOED` mirrored, `TAXONOMY_SIZE` 31; tsc 0; 250/250 no-network;
+  scope confined to `src/types/hooks.ts` (new), `src/runner/hooks.ts` (new), `src/pi/tool.ts` (651->721, under
+  the waiver), `src/types/errors.ts`, `src/types/pi.ts`, `tests/`. Two non-blocking findings: (1) the spec's
+  D1 verdict-read note was inaccurate for an acceptance — engineer appends a one-line correction, R8
+  unchanged; (2) the engineer inverted plan-before-code this turn, disclosed, plan content accurate (G2 spec
+  had passed before code). Nothing committed. Four of five roadmap units done; Unit 5 (experience-query) next.
+
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a
 tool denies it, stop and correct host rooting rather than bypass the denial.

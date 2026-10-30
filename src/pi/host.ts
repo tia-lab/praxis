@@ -34,6 +34,12 @@ export interface PiToolResult {
 export interface PiSessionContext {
   readonly cwd: string;
   readonly sessionManager?: { readonly getSessionId: () => string | undefined };
+  /**
+   * The host UI, present on the tool execution context (types.d.ts:213-224, :514). Read by the
+   * extension's status footer and by nothing else: no engine, store or handler consults it, so
+   * removing it from a context can only remove a display, never change a call's outcome.
+   */
+  readonly ui?: PiFooterUi;
 }
 
 /**
@@ -59,4 +65,29 @@ export interface PiToolDefinition {
 /** The registration surface the extension receives. */
 export interface PiHost {
   registerTool(tool: PiToolDefinition): void;
+}
+
+/** One line producer for the status widget (the host's `Component`, minus what we never use). */
+export interface PiFooterComponent {
+  render(width: number): string[];
+  invalidate(): void;
+}
+
+/** The theme slice the widget needs: a semantic foreground colour. */
+export interface PiTheme {
+  fg(color: string, text: string): string;
+}
+
+/**
+ * The widget slice of the host UI (`ctx.ui.setWidget`, types.d.ts:101-104). Declared here rather than
+ * imported because the host package's declarations are not a compile dependency of this project; every
+ * member is optional so a non-TUI context (no widgets) is representable. Only the extension wrapper
+ * consults this — no engine, store or handler code reads it.
+ */
+export interface PiFooterUi {
+  setWidget?(
+    key: string,
+    content: string[] | ((tui: unknown, theme: PiTheme) => PiFooterComponent) | undefined,
+    options?: { readonly placement?: "aboveEditor" | "belowEditor" },
+  ): void;
 }

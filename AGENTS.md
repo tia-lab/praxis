@@ -571,6 +571,41 @@ acceptance here before building.
   (new), `docs/tool-split-72ffd0d0/`. Nothing committed. REMAINING: the owner's husky/commitlint restore, then
   one consolidation commit of all five units + README + the vision reconciliation + this split.
 
+- **2026-10-30 — status-footer GO (small Pi TUI addition).** Owner GO: a basic **right-aligned status element
+  over the Pi prompt bar** showing the current session's active praxis instance — its flow + current step/task —
+  so it is always visible which flow/task the agent is running. Research-first: the engineer must confirm the
+  Pi TUI/extension API actually supports a right-aligned element over the prompt bar (`docs/tui.md`,
+  `examples/extensions`) and STOP + report if it does not, rather than fake the placement. Scope: the Pi
+  extension/TUI surface (`src/pi/extension.ts` and a small footer/state-reader module), `docs/<slug>-<hash8>/`,
+  `tests/`. The footer DERIVES the flow + step from the active instance's live runtime state — no second copy,
+  no store/schema/contract change, display only. A richer TUI is explicitly later. Not authorized: changing
+  runtime behaviour, the store/flow schema, the tool contract, or any isolation/identity claim.
+
+- **2026-10-30 — status-footer ACCEPTED.** A right-aligned Pi widget over the prompt bar
+  (`ctx.ui.setWidget(key, component, {placement:"aboveEditor"})` — API confirmed in the installed Pi package,
+  `types.d.ts:47/101-102`, the shipped `widget-placement.ts` example) showing the session's active instance as
+  `praxis: <flow> · <step>`, blank when none. It DERIVES from the envelope the tool already returned
+  (`result.flow` + `StepDescriptor.id`) — no store read, no stored field, no second owner, display-only.
+  Scope: `src/pi/footer.ts` (new), `src/pi/extension.ts` (registers `withFooter`), `src/pi/host.ts` (type-only
+  mirror), `tests/pi/footer.test.ts` (new, 13), `docs/pi-status-footer-f4ae4e92/`; engine/store/tool/operations/
+  descriptor/types-pi untouched. tsc 0; 271/271 no-network. §4 waiver (display-only, no model/contract/schema
+  change, reversible). One accepted deviation: the readout is flow+STEP, not flow+task (neither the six-key
+  result nor StepDescriptor carries the task id; the step id matches the owner's example); a task-id surface is
+  a separate unit if wanted. Nothing committed. REMAINING before the finish: owner husky/commitlint restore, the
+  a/b/c live tests on the calibrated `/tmp/praxis-live-v3` store, then one consolidation commit.
+
+- **2026-10-30 — commit footer + EMA ratchet unit GO.** Owner: husky restore is done and committed by the
+  owner; the commit-msg hook is active. Engineer is authorized to COMMIT the remaining verified work — the
+  status-footer unit (`src/pi/footer.ts`, `tests/pi/footer.test.ts`, `src/pi/extension.ts`, `src/pi/host.ts`,
+  `docs/pi-status-footer-f4ae4e92/`) plus the `AGENTS.md` ledger — through the hook (conventional message).
+  NOT committed: `scripts/` (inherited manifold tooling, a separate deferred cleanup) and `docs/LIVE-TEST.md`
+  (local evidence). Then the **EMA ratchet unit, SPEC-FIRST**: replace the global bar's simple-mean/windowed
+  ratchet with a ~9-period EMA of genuine-pass highs, keeping the `max(current_bar, EMA)` never-lower guard;
+  the spec pins the EMA period, the "best" definition, and the scope decision (global bar only vs all per-dim
+  scopes — recommend, lead/owner confirms) and STOPS for review before code. Scope: `docs/<slug>-<hash8>/`, later
+  `src/quality/bar.ts` + `tests/quality/bar.test.ts`. Not authorized yet: code before the spec passes, any
+  store/flow-schema change, or lowering an earned bar. After acceptance: a final 16-window live test, then the
+  tasks part closes.
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a
 tool denies it, stop and correct host rooting rather than bypass the denial.

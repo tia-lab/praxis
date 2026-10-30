@@ -10,6 +10,10 @@ coverage/
 .env
 
 # runtime state — never tracked
+# The praxis store root defaults to <cwd>/.pi/praxis/state (src/runner/engine/support.ts
+# storeDirOf; a project may also set defaults.storeDir in .pi/praxis/config.json, or the
+# environment PRAXIS_STORE_DIR). The *.sqlite/-wal/-shm globs above cover a store redirected
+# anywhere inside the repo.
 .pi/manifold/state/
 .pi/manifold/sessions/
 .pi/manifold/cache/

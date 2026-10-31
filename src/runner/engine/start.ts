@@ -15,6 +15,11 @@ import { loadExisting, nonceFor, stamp, withStore } from "./support.ts";
 import { EVENT, type StartOptions, type Started } from "./types.ts";
 
 /** Create or re-open the instance a request id names; never fork (R2), never re-pin (R4). */
+/** Keep a recorded order inside its bound; the digest is always taken over the whole text. */
+function clipOrder(text: string, limit: number): string {
+  return text.length <= limit ? text : text.slice(0, limit - 1) + "\u2026";
+}
+
 export function start(options: StartOptions): Started {
   const flow = openFlow(options);
   if (flow.config.flow !== options.flow) {
@@ -97,6 +102,12 @@ export function start(options: StartOptions): Started {
         flowDigest: flow.flowDigest,
         nonce: instance.nonce,
         storeDir,
+        // T2: the order the caller was handed, clipped, with a digest of the RAW text. Two meanings
+        // stay separate: this digest is the raw order, while `orderDigestOf` digests the gate's
+        // normalized form. Absent order -> absent keys -> today's payload byte for byte.
+        ...(options.order === undefined
+          ? {}
+          : { order: clipOrder(options.order, 4000), orderDigest: digest(options.order) }),
       },
       at,
     });

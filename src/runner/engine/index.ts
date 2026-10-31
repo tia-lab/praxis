@@ -17,7 +17,7 @@ export type {
   StartOptions,
   Started,
 } from "./types.ts";
-export { storeDirOf, tasksDirOf } from "./support.ts";
+export { orderFor, orderOf, storeDirOf, tasksDirOf } from "./support.ts";
 export { acceptedRefs, currentHandoffs, instanceIdFor, loadPinnedFlow, openFlow, validateFlow } from "./flow.ts";
 export { qualityHistory } from "./quality-loop.ts";
 export { start } from "./start.ts";

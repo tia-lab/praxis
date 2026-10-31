@@ -7,9 +7,10 @@ import { join, resolve } from "node:path";
 import { fail, isAppError } from "../../types/errors.ts";
 import { openStore, type Store } from "../../store/db.ts";
 import { loadInstance } from "../../store/instance.ts";
+import { listEvents } from "../../store/events.ts";
 import { ProjectConfigSchema, type ProjectConfig } from "../../types/project.ts";
 import type { Instance } from "../../types/schema.ts";
-import type { EngineOptions } from "./types.ts";
+import { EVENT, type EngineOptions } from "./types.ts";
 
 export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -96,6 +97,24 @@ export function stamp(options: EngineOptions): string {
 export function payloadOf(payload: unknown): Record<string, unknown> {
   if (typeof payload === "object" && payload !== null) return payload as Record<string, unknown>;
   return {};
+}
+
+/**
+ * The order an instance was created with (T2): a pure read of its `instance.created` event.
+ *
+ * A pre-T2 instance carries no `order` key, so this returns `undefined` rather than throwing - the
+ * caller falls back to the task's own goal, which is exactly the behaviour before this slice.
+ */
+export function orderOf(store: Store, instance: string): string | undefined {
+  const event = listEvents(store, instance).find((candidate) => candidate.type === EVENT.instanceCreated);
+  if (event === undefined) return undefined;
+  const order = payloadOf(event.payload).order;
+  return typeof order === "string" ? order : undefined;
+}
+
+/** `orderOf` for a caller holding options: opens and CLOSES the store before any jev call runs. */
+export function orderFor(options: EngineOptions & { instance: string }): string | undefined {
+  return withStore(options, (store) => orderOf(store, options.instance));
 }
 
 export function loadExisting(store: Store, id: string): Instance | undefined {

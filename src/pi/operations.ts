@@ -193,7 +193,16 @@ export async function startOperation(args: PraxisToolArgs, ctx: PiSessionContext
       anchor,
     });
   }
-  const started = start({ ...options, flow: flowName, requestId, actor, ...(args.roles !== undefined ? { roles: args.roles } : {}) });
+  // T2: the order the tool already requires is RECORDED on the instance, so the record carries the
+  // assignment the work was done for. Nothing reads it yet: no score, gate or alignment changes.
+  const started = start({
+    ...options,
+    flow: flowName,
+    requestId,
+    actor,
+    order,
+    ...(args.roles !== undefined ? { roles: args.roles } : {}),
+  });
   const { instance, result, flow, handoffs } = inspect({ ...options, instance: started.instance.id, actor });
   const step = stepDescriptor(flow, instance, handoffs, learningView(options, flow, instance));
   // after_start: the instance exists (created or re-opened), so the outcome is a fact.

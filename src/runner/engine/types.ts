@@ -97,6 +97,12 @@ export interface EngineOptions {
 export interface StartOptions extends EngineOptions {
   flow: string;
   requestId: string;
+  /**
+   * The order the caller was handed (T2). RECORDED on `instance.created`, not interpreted here: the
+   * engine stores it so the record carries the assignment the work was done for. An absent order
+   * writes no key, so a start without one produces exactly the payload it always did.
+   */
+  order?: string;
   /** Optional role -> actor map, pinned at creation and immutable (team relay). */
   roles?: Record<string, string>;
 }

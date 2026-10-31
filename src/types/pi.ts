@@ -102,9 +102,13 @@ export const StepDescriptorSchema = z.strictObject({
    */
   alignment: z
     .strictObject({
-      decision: z.literal("unchecked"),
+      /** `unchecked`: the judge could not answer. `soft`: aligned, but close to the boundary (R37). */
+      decision: z.enum(["unchecked", "soft"]),
       reason: z.string().min(1).max(400),
       orderDigest: DigestSchema,
+      /** soft only: the two probabilities the flag names. */
+      aligned: z.number().min(0).max(1).optional(),
+      misaligned: z.number().min(0).max(1).optional(),
     })
     .optional(),
   brief: z.strictObject({

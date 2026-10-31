@@ -41,6 +41,10 @@ export interface AlignmentVerdict {
   model: string;
   /** `sha256:` over the order text: the text itself is never stored or logged. */
   orderDigest: string;
+  /** P(aligned) the judge reported, when it reported a distribution (R37). */
+  pAligned?: number;
+  /** P(misaligned) the judge reported, when it reported a distribution. */
+  pMisaligned?: number;
 }
 
 /** The injected port. A test passes a fake; a real run uses `jevAlignJudge()`. */
@@ -113,6 +117,9 @@ export function jevAlignJudge(opts: JevAlignOptions = {}): AlignJudge {
       const response = await run(request);
       const choice = choiceOf(response.answers.alignment, "alignment");
       const confidence = (response.answers.alignment as ChoiceAnswer).confidence;
+      // S6-optional (R37): the distribution pi-jev reports, when it reports one. Read here and only
+      // here: absent mass is absent, never guessed.
+      const mass = (response.answers.alignment as ChoiceAnswer).probabilities;
       return {
         decision: choice === ALIGNED ? "aligned" : "misaligned",
         reason:
@@ -120,10 +127,45 @@ export function jevAlignJudge(opts: JevAlignOptions = {}): AlignJudge {
           (typeof confidence === "number" ? " (confidence " + confidence.toFixed(2) + ")" : ""),
         model: response.model,
         orderDigest: orderDigestOf(order),
+        ...(mass === undefined
+          ? {}
+          : {
+              ...(mass[ALIGNED] === undefined ? {} : { pAligned: mass[ALIGNED] }),
+              ...(mass[MISALIGNED] === undefined ? {} : { pMisaligned: mass[MISALIGNED] }),
+            }),
       };
     },
   };
 }
+
+/**
+ * Below this P(aligned) an aligned answer is reported as SOFT (R37): start proceeds, but the two
+ * probabilities are disclosed. A code constant, never a task field.
+ */
+export const ALIGNMENT_CONFIDENCE = 0.7;
+
+/** The soft-alignment flag, or `undefined` when the answer is decided or has no distribution. */
+export function softAlignment(verdict: AlignmentVerdict): AlignmentFlag | undefined {
+  if (verdict.decision !== "aligned") return undefined;
+  const pAligned = verdict.pAligned;
+  const pMisaligned = verdict.pMisaligned;
+  if (pAligned === undefined || pMisaligned === undefined) return undefined;
+  if (pAligned >= ALIGNMENT_CONFIDENCE) return undefined;
+  return {
+    decision: "soft",
+    reason: clipReason("the order is aligned, but close to the boundary (aligned " + pAligned.toFixed(2) + ", misaligned " + pMisaligned.toFixed(2) + ")"),
+    orderDigest: verdict.orderDigest,
+    aligned: pAligned,
+    misaligned: pMisaligned,
+  };
+}
+
+/** The clause appended to the summary for a soft start, so the parent sees it without a new key. */
+export function softClause(flag: AlignmentFlag): string {
+  return "; alignment soft: " + (flag.aligned?.toFixed(2) ?? "?") + " aligned vs " + (flag.misaligned?.toFixed(2) ?? "?") + " misaligned";
+}
+
+const clipReason = (text: string): string => (text.length <= 400 ? text : text.slice(0, 399) + "\u2026");
 
 /**
  * Run the judge and normalize its result: any throw, timeout or unreadable answer becomes
@@ -172,9 +214,13 @@ export function anchorOf(flow: OpenedFlow): AlignmentAnchor {
 
 /** What the visible flag looks like when the judge could not answer (spec D3a). */
 export interface AlignmentFlag {
-  decision: "unchecked";
+  decision: "unchecked" | "soft";
   reason: string;
   orderDigest: string;
+  /** soft only: P(aligned) the judge reported (R37). */
+  aligned?: number;
+  /** soft only: P(misaligned) the judge reported. */
+  misaligned?: number;
 }
 
 /** The clause appended to the existing `summary` string, so the parent sees it without a new key. */

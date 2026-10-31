@@ -25,7 +25,7 @@ import { projectConfig, projectMaxAttempts, withStore } from "../runner/engine/s
 import { afterOp, beforeOp } from "../runner/hooks.ts";
 import { noteStanding, recordNote } from "../runner/note-gate.ts";
 import { advanceEvaluated, briefRecall, compoundDecision, effectiveBarsFor, escalatedLesson, gateBar, jevScorer, recallRanked, sampleIfDue, type Scorer } from "../quality/index.ts";
-import { anchorOf, jevAlignJudge, judgeOrder, orderDigestOf, uncheckedClause, type AlignJudge } from "../quality/jev-align.ts";
+import { anchorOf, jevAlignJudge, judgeOrder, orderDigestOf, softAlignment, softClause, uncheckedClause, type AlignJudge } from "../quality/jev-align.ts";
 import { artifactSummary, currentStepOf, learningView, stepDescriptor } from "./descriptor.ts";
 import type { PiSessionContext, PiToolResult } from "./host.ts";
 
@@ -198,7 +198,15 @@ export async function startOperation(args: PraxisToolArgs, ctx: PiSessionContext
   // after_start: the instance exists (created or re-opened), so the outcome is a fact.
   await afterOp("after_start", { op: "start", instance: instance.id, status: instance.status, step: instance.currentStep });
   if (verdict.decision === "aligned") {
-    return ok(StartEnvelopeSchema, { result, step, nonce: instance.nonce });
+    // R37: an aligned answer that sits close to the boundary proceeds WITH a flag naming both
+    // probabilities. No distribution, no flag: the unchanged path stays unchanged.
+    const soft = softAlignment(verdict);
+    if (soft === undefined) return ok(StartEnvelopeSchema, { result, step, nonce: instance.nonce });
+    return ok(StartEnvelopeSchema, {
+      result: { ...result, summary: clipText(result.summary + softClause(soft), 4096) },
+      step: { ...step, alignment: soft },
+      nonce: instance.nonce,
+    });
   }
   // Judged unavailable: proceed, and make it VISIBLE to both parties without adding a result key.
   const flag = { decision: "unchecked" as const, reason: clipText(verdict.reason, 400), orderDigest: verdict.orderDigest };

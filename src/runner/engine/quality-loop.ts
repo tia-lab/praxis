@@ -47,6 +47,9 @@ export function qualityHistory(store: Store, instance: string, step: string): Qu
           dimensions: payload.dimensions,
           // S2: the judge's uncertainty is recorded evidence; a re-read must not drop it (R14, R17).
           ...(payload.torn === undefined ? {} : { torn: payload.torn }),
+          // S6: the provisional report is recorded evidence too; a re-read must not drop it (R35).
+          ...(payload.provisional === undefined ? {} : { provisional: payload.provisional }),
+          ...(payload.provisionalOn === undefined ? {} : { provisionalOn: payload.provisionalOn }),
           rationale: payload.rationale,
           rubricDigest: payload.rubricDigest,
           scorer: payload.scorer,

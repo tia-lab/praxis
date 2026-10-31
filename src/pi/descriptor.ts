@@ -78,6 +78,8 @@ export interface NoteJudgment {
     divergence?: boolean;
     rationale?: string;
     torn?: string[];
+    provisional?: boolean;
+    provisionalOn?: { dimension: string; criterion: string; signal: "mass" | "confidence" | "noul-band" }[];
     diagnosis?: { probe: string; answer: string | number; confidence?: number; pClean?: number; pTop?: number; spread?: number }[];
   }[];
 }
@@ -144,6 +146,8 @@ export function learningView(options: EngineOptions, flow: OpenedFlow, instance:
               ...(dimension.divergence === true ? { divergence: true } : {}),
               ...(dimension.rationale === undefined ? {} : { rationale: dimension.rationale }),
               ...(dimension.torn === undefined ? {} : { torn: dimension.torn }),
+              ...(recorded.provisional === undefined ? {} : { provisional: recorded.provisional }),
+              ...(recorded.provisionalOn === undefined ? {} : { provisionalOn: recorded.provisionalOn }),
               ...(dimension.diagnosis === undefined ? {} : { diagnosis: dimension.diagnosis }),
             })),
           };

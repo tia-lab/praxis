@@ -206,6 +206,23 @@ export const QualityVerdictSchema = z.strictObject({
    * Recorded evidence: it never enters the score, the mean, the decision or a bar (R18, D10).
    */
   torn: z.array(z.string().min(1).max(129)).max(PROBES_TOTAL).optional(),
+  /**
+   * True when the criterion that DECIDED this verdict was itself torn (S6, R33): the judgment is
+   * honest about being close, and still decides exactly as it would have (R35).
+   */
+  provisional: z.boolean().optional(),
+  /** Which deciding criteria were torn, and which signal made them torn (S6, R34). */
+  provisionalOn: z
+    .array(
+      z.strictObject({
+        dimension: z.string().min(1).max(64),
+        criterion: z.string().min(1).max(64),
+        /** mass = a choice/score distribution, confidence = the answer's own confidence, noul-band = a single probability near 0.5. */
+        signal: z.enum(["mass", "confidence", "noul-band"]),
+      }),
+    )
+    .max(PROBES_TOTAL)
+    .optional(),
   rationale: z.string().max(2000),
   rubricDigest: DigestSchema,
   scorer: z.string().min(1).max(200),

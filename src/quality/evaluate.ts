@@ -152,6 +152,23 @@ export async function evaluateArtifact(
       ...(rationale === undefined ? {} : { rationale }),
     };
   });
+  // The provisional report (S6, R33-R35): a DECIDING criterion was torn. It is derived AFTER the
+  // decision and never passed into it, so acceptance, the mean, the flagged set and the bars are
+  // identical with and without it.
+  const provisionalOn = judged.flatMap((dimension) => {
+    if (dimension.torn === undefined || dimension.bound === undefined) return [];
+    if (!dimension.torn.includes(dimension.bound)) return [];
+    const entry = dimension.diagnosis?.find((answer) => answer.probe === dimension.bound);
+    if (entry === undefined) return [];
+    // Which signal made it torn: mass for a distribution, otherwise the answer's confidence, else the
+    // single-probability band a noul has (R34) - a noul is never presented as a distribution.
+    const signal = entry.spread !== undefined || entry.pClean !== undefined || entry.pTop !== undefined
+      ? "mass"
+      : entry.confidence !== undefined
+        ? "confidence"
+        : "noul-band";
+    return [{ dimension: dimension.id, criterion: dimension.bound, signal }];
+  });
   return parseWith(
     QualityVerdictSchema,
     {
@@ -162,6 +179,7 @@ export async function evaluateArtifact(
       mean: Math.round(compound.mean * 10000) / 10000,
       flagged: compound.flagged,
       ...(torn.length === 0 ? {} : { torn }),
+      ...(provisionalOn.length === 0 ? {} : { provisional: true, provisionalOn }),
       rationale: clip(raw.rationale),
       rubricDigest,
       scorer: raw.scorer,

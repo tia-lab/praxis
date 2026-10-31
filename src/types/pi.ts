@@ -208,6 +208,18 @@ export const StepDescriptorSchema = z.strictObject({
                 rationale: z.string().min(1).max(240).optional(),
                 /** Criterion ids the judge answered near its own boundary (S2). Disclosure, never a gate. */
                 torn: z.array(z.string().min(1).max(64)).max(48).optional(),
+                /** The deciding criterion was torn, so the verdict is provisional (S6, R33-R35). */
+                provisional: z.boolean().optional(),
+                provisionalOn: z
+                  .array(
+                    z.strictObject({
+                      dimension: z.string().min(1).max(64),
+                      criterion: z.string().min(1).max(64),
+                      signal: z.enum(["mass", "confidence", "noul-band"]),
+                    }),
+                  )
+                  .max(48)
+                  .optional(),
                 diagnosis: z
                   .array(
                     z.strictObject({

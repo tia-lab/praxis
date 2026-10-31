@@ -402,7 +402,7 @@ the cache adds `model` and `seconds` per message
 | **Speculative fan-out** [doc: /patterns/fan-out.md] | Ask every question you might need in one request; discard in code | our probe battery asks all dimensions' probes even though only one may matter |
 | **Confidence-gated routing** [doc: /patterns/confidence-routing.md] | The answer says *what*; confidence says *whether to act* | threshold the alignment `choice`'s confidence rather than only its label [proposed] |
 | **Composite scoring** [doc: /patterns/composite-scoring.md] | Atomic scores, weights in code | already how dimensions and bars work; jev supplies the atoms, Praxis the weights [source: src/quality/evaluate.ts:71-76] |
-| **Intent routing** [doc: /patterns/intent-routing.md] | Classify the request, route to logic / specialist / human | route an order to the flow it belongs to instead of refusing [proposed] |
+| **Intent routing** [doc: /patterns/intent-routing.md] | Classify the request, route to logic / specialist / human | route an order to the flow it belongs to instead of refusing [proposed] **[control-flow · future layer]** |
 
 ---
 
@@ -454,41 +454,84 @@ failure as a visible degradation rather than a silent pass [source: src/quality/
 
 ## 8. Adoption ideas — **[proposed]**
 
+**Layer legend (owner-fixed, 2026-10-31).** `[task-loop]` = built in the task self-improvement unit, as ordered slices; `[task-loop · optional]` = a later, optional task slice; `[control-flow · future layer]` = orchestration above the task — captured only, never designed in this unit. Every `[task-loop]` idea also carries a **Map inside jev** line naming the exact primitive, answer field and reference section it rests on.
+
 1. **Criteria-composed scorer instructions.** Build the scoring `noul`'s instructions from the dimension's
    probes instead of one generic sentence, so the score and the battery judge the same facts
-   [proposed, needs EntryType for structure; plain strings work today].
+   [proposed, needs EntryType for structure; plain strings work today]. **[task-loop]** — slice 1.
+   *Map inside jev:* primitive **`noul`**, answer field **`noul`** (§1 table: "the probability that a statement
+   is true"; no confidence field). The parenthetical is corrected here, not required: §2 already records that
+   `pi-jev` 0.2.2 types `EntryType` for `instructions` and `criteria` [source: node_modules/pi-jev/dist/src/types.d.ts:2-23];
+   what is still plain strings is the PRAXIS probe schema [source: src/types/schema.ts:148-190]. Composition
+   needs no structure at all — one `noul` per criterion, all in ONE request (§3), arithmetic in code.
 2. **Probabilities, not just labels.** A score answer already carries per-level probabilities: use
    `P(top level)` as an extra signal beside the score, and flag a dimension whose probability mass is
    split (low `confidence`) as *needs a better statement*, using the D11 divergence clause's wording
-   [proposed] [doc: /primitives/score.md].
+   [proposed] [doc: /primitives/score.md]. **[task-loop]** — slice 2.
+   *Map inside jev — grounding corrected 2026-10-31, then corrected again the same day:* in pi-jev **0.2.2**
+   the documented `probabilities` map does NOT survive the client, which rebuilds every answer from its
+   type-specific fields [source: node_modules/pi-jev/dist/src/client.js:69-101]: `ScoreAnswer`/`ChoiceAnswer`
+   carry an optional `confidence`, and `NoulAnswer` carries neither
+   [source: node_modules/pi-jev/dist/src/types.d.ts:21-35]. **That is an OWNED client gap, not a boundary.**
+   pi-jev is ours, so **slice 0** of the task-loop design has it preserve the `choice`/`score` distribution
+   **[enabler · pi-jev, owned]** — the same kind of small owned change as the EntryType one. Once slice 0 lands
+   the mass IS available and is read as a distribution's SPREAD (§1 "Reading probabilities"). A **`noul`** still
+   returns a single probability — no distribution, no confidence — so its only instability signal is repeat-N.
 3. **Confidence-gated alignment.** Today the alignment gate refuses on `misaligned` and proceeds flagged
    when jev is unavailable. A `confidence` threshold on the `choice` would add a third, honest state:
    judged-but-unsure → proceed flagged [proposed] [doc: /patterns/confidence-routing.md].
+   **[task-loop · optional]** — a later, optional task slice.
+   *Map inside jev:* primitive **`choice`**, answer field **`confidence`** (optional, `[0,1]`; §1 "Reading
+   confidence", §5 "Confidence-gated routing"). The gate reads the label today and ignores the confidence
+   [source: src/quality/jev-align.ts:56-114].
 4. **Taxonomy over flows and tasks.** Hierarchical `choice` walk of the `.pi/praxis/` tree (or a task
    catalogue) to route an order to a flow, instead of one flat list [proposed] [doc: /cookbooks/hierarchical_classification.md].
+   **[control-flow · future layer]** — routing above the task; captured, not designed here.
 5. **Cascade for extraction.** Task metadata (version, threshold, required sections) read by jev over a
    pre-parsed candidate set, with the expensive model only on disputes [proposed] [doc: /cookbooks/sde_cascade.md].
+   **[control-flow · future layer]** — intake, not the task loop.
 6. **Stability sampling of a rubric.** A repeat-N harness (à la the self-consistency cookbooks) over a
    frozen artifact, to decide whether a new dimension's statement is stable enough to ratchet on
-   [proposed] [doc: /cookbooks/consistency_noul_cookbook.md].
+   [proposed] [doc: /cookbooks/consistency_noul_cookbook.md]. **[task-loop]** — slice 3.
+   *Map inside jev:* repeat-N of the SAME composed request (the `noul` per criterion plus any `score`/`choice`
+   criterion) over one frozen artifact; agreement is read per answer field — `noul`/`score` spread, `choice` key
+   agreement — and the decision is code-owned (§4 "Self-consistency: nouls" / "…choices"; [doc:
+   /cookbooks/consistency_noul_cookbook.md]). A `noul` carries no confidence (§1), so repeat-N is the ONLY way
+   to observe a statement's instability. Each repeat is a real call, so the sample is bounded and recorded.
 7. **Injection screening of recalled exemplars.** A `noul` battery ("tries to instruct the model") on each
    recalled case before it reaches the agent [proposed] [doc: /cookbooks/classifying_rag_passages.md].
+   **[task-loop]** — slice 4.
+   *Map inside jev:* one **`noul`** per case per screen question, ids `<case>.<criterion>` (§3 id grammar),
+   thresholded in code (§1 `noul`; §4b classifying_rag_passages — relevant / usable / contradicts / *instructs
+   the model*). Each `noul` may carry `criteria.true`/`criteria.false` examples: typed by the client
+   [source: node_modules/pi-jev/dist/src/types.d.ts:11-18], NOT exposed by the praxis probe schema
+   [source: src/types/schema.ts:148-172] — irrelevant here, because a screen is code-side questions over
+   recalled text, not a task-authored probe, so no schema change is needed.
 8. **A presence noul for "not stated".** The function-calling example asks a separate `<arg>?` noul — "does
    the user say this?" — and then drops the argument when the probability is low
    [source: .dev/typesafe-public-examples-main/cookbooks/function_calling/dispatch.py:159-200]. Praxis could
    use the same question for an optional order field (a task version, a rework target) instead of guessing
-   it from the prose [proposed].
+   it from the prose [proposed]. **[control-flow · future layer]** — reading an order, not judging a task's work.
 9. **Three nouls instead of one score.** The re-ranking example keeps `is_cited_source`,
    `same_proposition` and `shared_language` per pair and ranks on the combination, which says *why* a
    candidate ranked where it did [example: .dev/typesafe-public-examples-main/cookbooks/rerank_typesafe/json_cache.json].
-   The same trio over an exemplar would explain a recall ordering [proposed].
+   The same trio over an exemplar would explain a recall ordering [proposed]. **[task-loop]** — slice 5.
+   *Map inside jev:* k **`noul`** questions per candidate, ids `<case>.<criterion>` (§3 id grammar), with the
+   combination in code — the §5 "composite scoring" pattern: jev supplies the atoms, Praxis the weights; the
+   rerank cache shows the trio per pair. A `noul` has no confidence and no probability mass (§1), so the
+   weights are the ONLY combination and must be frozen constants, never a model choice.
 10. **A per-line relevance vector.** The semantic-search example returns `exists` plus a relevance probability
    per line id in ONE call [example: .dev/typesafe-public-examples-main/cookbooks/semantic_find/json_cache.json].
    Pointed at a task document, that is a cheap locator for "which section is this order about" [proposed].
+   **[control-flow · future layer]** — a locator for the order, not a judgment of the work.
 11. **Read `confidence` as a routing axis.** The classification example reports the leaf group when
    confidence is high and the parent division when it is not
    [doc: /cookbooks/classification_using_confidence.md]. A Praxis analogue: report a verdict as *provisional*
-   below a confidence threshold instead of refusing it [proposed].
+   below a confidence threshold instead of refusing it [proposed]. **[task-loop]** — slice 6.
+   *Map inside jev:* **`confidence`** on a `choice`/`score` answer (§1 "Reading confidence"; §4b
+   classification_using_confidence — the leaf group when confidence is high, the parent when it is not; §5
+   "Confidence-gated routing"). A `noul` criterion cannot supply it (§1), so a provisional verdict is derived
+   from the criteria that do carry a confidence, with its threshold a code constant.
 
 ---
 

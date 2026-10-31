@@ -98,14 +98,24 @@ export const QualityDimensionSchema = z.strictObject({
    */
   probes: z.array(ProbeSchema).min(1).max(PROBES_PER_DIMENSION).optional(),
   /**
-   * This dimension's own floor. Omitted means it seeds from the task's `threshold`, so an existing
-   * rubric keeps working unchanged. Each floor ratchets independently of the others and of the
-   * global MEAN bar built from `threshold`.
+   * Which RANK of the population this dimension gates at (A2): an integer percentile, 1-99, default
+   * 25. It selects strictness only - it cannot express an absolute value, so it cannot reintroduce
+   * an unreachable bar. Recorded on every raise, so the setting is always visible.
+   */
+  quantileGate: z.int().min(1).max(99).optional(),
+  /**
+   * @deprecated since quantile-bars: the bar is MEASURED (a quantile of the carried population,
+   * floored at 0.5), so an authored floor sets nothing. Parsed and ignored, kept so existing task
+   * documents and pins still load; removed from the shipped documents in the data slice.
    */
   floor: z.number().min(0).max(1).optional(),
 });
 export const QualitySchema = z.strictObject({
   dimensions: z.array(QualityDimensionSchema).min(1).max(8),
+  /**
+   * @deprecated since quantile-bars: there is no global bar and no mean bar. Parsed and ignored,
+   * kept so existing documents and pins still load.
+   */
   threshold: z.number().min(0).max(1),
   policy: z.enum(["required", "advisory"]),
   /**
@@ -126,6 +136,10 @@ export const QualitySchema = z.strictObject({
    * higher bar without refusing a run that is already good enough. Absent means the code default of
    * 0.8 (`DEFAULT_PARETO_THRESHOLD`). Part of the declared floor, so it is inside the rubric digest
    * and the pin; the ratchet itself is unaffected.
+   */
+  /**
+   * @deprecated since quantile-bars: the Pareto cap is gone (F1) - a measured bar cannot exceed the
+   * level live work reaches. Parsed and ignored.
    */
   paretoThreshold: z.number().min(0).max(1).optional(),
 }).superRefine((quality, ctx) => {

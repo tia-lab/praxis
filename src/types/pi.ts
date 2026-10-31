@@ -137,6 +137,8 @@ export const StepDescriptorSchema = z.strictObject({
               id: z.string().min(1).max(64),
               statement: z.string().min(1).max(500),
               floor: z.number().min(0).max(1).optional(),
+              /** The rank this dimension gates at (A2), when it declares one; default 25. */
+              quantileGate: z.int().min(1).max(99).optional(),
               /**
                * The criteria that decide this dimension, when it is composed (compose slice R13):
                * the authored text the judge asks, with its type and its options or levels.

@@ -262,7 +262,7 @@ export function unsampledDueScopes(store: Store, task: string, taskVersion: numb
     const raises = raisesFor(store, task, dimension.id, key);
     const current = flooredBar(raises, ABSOLUTE_MIN);
     // The selector lands as a task field in S4; until then every dimension uses the default rank.
-    const percentile = (dimension as GatedDimension).quantileGate ?? DEFAULT_QUANTILE;
+    const percentile = dimension.quantileGate ?? DEFAULT_QUANTILE;
     const target = raiseTarget(observations.map((observation) => observation.score), percentile, raises.length > 0);
     if (target === undefined || !(target >= current + RAISE_STEP)) continue;
     due.push({ scope: dimension.id, key });

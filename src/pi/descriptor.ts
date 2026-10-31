@@ -245,6 +245,7 @@ export function stepDescriptor(
                   id: dimension.id,
                   statement: dimension.statement,
                   ...(dimension.floor === undefined ? {} : { floor: dimension.floor }),
+                  ...(dimension.quantileGate === undefined ? {} : { quantileGate: dimension.quantileGate }),
                   ...(dimension.probes === undefined ? {} : { criteria: dimension.probes.map(criterionBrief) }),
                 })),
                 threshold: learning?.bar ?? quality.threshold,

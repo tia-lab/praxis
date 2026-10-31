@@ -30,32 +30,32 @@ const RUBRIC = [
   { id: "evidence", statement: "every claim carries evidence", floor: 0.6 },
 ];
 
-/** A scorer with a score and a battery: the battery answers `drifted` and `0.1` (both dirty). */
+/**
+ * A fake judge that answers a composed dimension from its criteria (one call, as the real scorer
+ * does): both criteria dirty, so the dimension's why is rendered from the answers that set its score.
+ */
 function scorerWithBattery(scores: { solves: number; evidence: number }): Scorer {
   return {
     async score({ rubric }) {
       return {
-        dimensions: rubric.map((dimension) => ({
-          id: dimension.id,
-          score: dimension.id === "solves" ? scores.solves : scores.evidence,
-        })),
-        rationale: "fake noul",
-        scorer: "fake/v1",
-      };
-    },
-    async explain({ rubric }) {
-      return {
-        scorer: "fake/v1",
-        dimensions: rubric
-          .filter((dimension) => dimension.probes !== undefined)
-          .map((dimension) => ({
+        dimensions: rubric.map((dimension) => {
+          if (dimension.probes === undefined) {
+            return { id: dimension.id, score: scores.evidence };
+          }
+          return {
             id: dimension.id,
+            score: scores.solves,
+            bound: "main-issue",
+            statementScore: scores.solves,
             diagnosis: [
               { probe: "main-issue", answer: "drifted" },
               { probe: "redundant", answer: 0.1 },
             ],
             rationale: dimension.id + ": drifts into adjacent issues; not satisfied: No included item repeats another.",
-          })),
+          };
+        }),
+        rationale: "fake composed",
+        scorer: "fake/v1",
       };
     },
   };

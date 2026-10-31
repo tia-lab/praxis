@@ -25,7 +25,7 @@
  */
 import { z } from "zod";
 import { BarContestedSchema, BarRaisedSchema } from "../types/learning.ts";
-import { parseWith, type Quality } from "../types/schema.ts";
+import { parseWith, type Probe, type Quality } from "../types/schema.ts";
 import { storeCall, type Store } from "../store/db.ts";
 import { appendEvent } from "../store/events.ts";
 import { withStore } from "../runner/engine/support.ts";
@@ -113,9 +113,19 @@ export function ofTask(event: LogEvent, task: string): boolean {
   return event.payload.task === task;
 }
 
-/** The identity key of one dimension: its id AND its statement, so a reword resets only it. */
-export function dimensionKey(dimension: { id: string; statement: string }): string {
-  return digest("dimension:" + dimension.id + "\u0000" + dimension.statement).slice(7, 23);
+/**
+ * The identity key of one dimension (D6, R12): the id AND what decides it. A composed dimension is
+ * identified by its CRITERIA, so editing one criterion resets that dimension's bar while rewording
+ * the statement — which no longer decides anything — leaves the key, and the bar, in place. A
+ * dimension with no criteria is still identified by its statement, exactly as before.
+ */
+export function dimensionKey(dimension: { id: string; statement: string; probes?: readonly Probe[] }): string {
+  const criteria = dimension.probes ?? [];
+  const basis = criteria.length === 0
+    ? "dimension:" + dimension.id + "\u0000" + dimension.statement
+    : "dimension:" + dimension.id + "\u0000criteria\u0000" +
+      JSON.stringify(criteria.map((probe) => [probe.id, probe.type, probe.instructions, probe.criteria ?? null, probe.clean ?? null]));
+  return digest(basis).slice(7, 23);
 }
 
 /** The composition key of a rubric: any add, edit or removal changes it (the MEAN re-warms). */

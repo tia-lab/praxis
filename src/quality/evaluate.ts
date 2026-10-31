@@ -4,69 +4,80 @@
  * a real driver wraps that provider, tests pass a fake, and an absent scorer degrades to
  * `unavailable` (fail-closed for a `required` floor). The score is computed here — OUTSIDE any store
  * transaction — then handed to the synchronous engine, which records it and enforces the floor.
+ *
+ * ONE rubric, ONE call (task-self-improvement D7): the port returns a dimension's composed score
+ * together with what produced it — the binding criterion, the witness probability and the rendered
+ * why. Nothing here re-judges, re-renders or explains; it clamps, decides, and adds the one line the
+ * evaluator alone can render, because it alone knows the bar (the divergence clause, D5).
  */
 import { canonicalBytes, digest, digestOf } from "../runner/canonical.ts";
 import { advance, inspect, type AdvanceOptions } from "../runner/engine/index.ts";
 import { parseWith, QualityVerdictSchema, type Probe, type Quality, type QualityVerdict } from "../types/schema.ts";
 import type { QualityAttempt } from "../runner/engine/index.ts";
 import { barsFromQuality, compoundDecision, effectiveBarsFor, type Bars } from "./bar.ts";
+import { RATIONALE_DIVERGENCE, RATIONALE_MAX } from "./jev-scorer.ts";
 
-/** One dimension's structured why: the battery's answers, and the line rendered from them. */
-export interface ExplainedDimension {
+/** One criterion's recorded answer: the evidence a composed score was computed from. */
+export interface CriterionAnswer {
+  probe: string;
+  answer: string | number;
+}
+
+/** One dimension's judgment: the composed score AND what produced it (D6, D7). */
+export interface DimensionJudgment {
   id: string;
-  diagnosis: { probe: string; answer: string | number }[];
+  score: number;
+  /** The criterion that produced the minimum; absent on a dimension with no criteria (R8). */
+  bound?: string;
+  /** The witness `noul`'s probability. Recorded, never a gate input (D5, R7). */
+  statementScore?: number;
+  /** True when the witness and the composed score differ by at least `DIVERGENCE_MIN`. */
+  divergence?: boolean;
+  /** Every criterion's answer, in declared order (the recorded `diagnosis`). */
+  diagnosis?: CriterionAnswer[];
+  /** The bounded line rendered from those answers (R9). */
   rationale?: string;
+  /**
+   * Internal to the port: every criterion was clean. The evaluator turns this into the divergence
+   * wording only when the dimension also missed its bar — the one fact the scorer does not own.
+   * Never recorded on the verdict.
+   */
+  allClean?: boolean;
 }
 
 /**
- * The injected typed-judgment port. Returns a per-dimension score in [0,1] and its own id — and,
- * OPTIONALLY, a second explain-only pass over the rubric's probe batteries (verdict-rationale D3).
- * `explain` never sees or changes a score: it is evidence, and a throw from it leaves the verdict
- * exactly as the scoring pass produced it.
+ * The injected typed-judgment port: one call per submission, returning a per-dimension judgment.
+ * It sees the criteria because composition is the judge's arithmetic (D4); it never sees a bar, so
+ * it cannot refuse — the engine and the compound decision own that.
  */
 export interface Scorer {
   score(input: {
     goal: string;
-    rubric: readonly { id: string; statement: string }[];
-    artifact: unknown;
-    subjectDigest?: string;
-  }): Promise<{ dimensions: { id: string; score: number }[]; rationale: string; scorer: string }>;
-  explain?(input: {
-    goal: string;
     rubric: readonly { id: string; statement: string; probes?: readonly Probe[] }[];
     artifact: unknown;
     subjectDigest?: string;
-    /** Dimensions that did not clear their bar (refused or flagged), for the divergence clause (D11). */
-    weak: readonly string[];
-  }): Promise<{ dimensions: ExplainedDimension[]; scorer: string }>;
+  }): Promise<{ dimensions: DimensionJudgment[]; rationale: string; scorer: string }>;
 }
 
 /**
- * The ruler's digest: the quality declaration AND its bars (global + every dimension). One helper,
- * used by the verdict and by the score-cache, so a raise in any scope is a different ruler and
- * recorded verdicts are never reused across it.
+ * The composition formula's identity, part of the ruler (D6, R11): when the arithmetic that turns
+ * criteria into a dimension score changes, every recorded verdict is a different ruler and no cached
+ * verdict may be reused across it.
  */
-function rulerDigest(quality: Quality, bars: Bars): string {
-  return digestOf({ ruler: quality, floors: [...bars.perDimension] });
+export const COMPOSE_FORMULA_ID = "praxis.compose/min/v1";
+
+/**
+ * The ruler's digest: the quality declaration AND its bars (global + every dimension) AND the
+ * composition formula. One helper, used by the verdict and by the score-cache, so a raise in any
+ * scope or a change of formula is a different ruler and recorded verdicts are never reused across it.
+ */
+export function rulerDigest(quality: Quality, bars: Bars, formula: string = COMPOSE_FORMULA_ID): string {
+  return digestOf({ ruler: quality, floors: [...bars.perDimension], formula });
 }
 
 const clamp01 = (n: number): number => (Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);
 const clip = (text: string, limit = 2000): string => (text.length <= limit ? text : text.slice(0, limit - 1) + "\u2026");
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
-
-/** Run the explain pass, swallowing EVERY failure: the why is evidence, never a gate input (D3). */
-async function explainQuietly(
-  scorer: Scorer,
-  input: Parameters<NonNullable<Scorer["explain"]>>[0],
-): Promise<Map<string, ExplainedDimension> | undefined> {
-  if (scorer.explain === undefined) return undefined;
-  try {
-    const explained = await scorer.explain(input);
-    return new Map(explained.dimensions.map((dimension) => [dimension.id, dimension]));
-  } catch {
-    return undefined;
-  }
-}
 
 /** An unavailable/error verdict carrying the pinned ruler, so the record stays auditable. */
 function degraded(rubricDigest: string, source: "unavailable" | "error", rationale: string): QualityVerdict {
@@ -87,7 +98,7 @@ export async function evaluateArtifact(
 ): Promise<QualityVerdict> {
   const rubricDigest = rulerDigest(quality, bars);
   if (scorer === undefined) return degraded(rubricDigest, "unavailable", "no scorer available");
-  let raw: { dimensions: { id: string; score: number }[]; rationale: string; scorer: string };
+  let raw: { dimensions: DimensionJudgment[]; rationale: string; scorer: string };
   try {
     raw = await scorer.score({
       goal: input.goal,
@@ -98,40 +109,38 @@ export async function evaluateArtifact(
   } catch (error) {
     return degraded(rubricDigest, "error", "scorer error: " + messageOf(error));
   }
-  const dimensions = raw.dimensions.map((d) => ({ id: d.id, score: clamp01(d.score), key: bars.keys.get(d.id) }));
+  const judged = raw.dimensions.map((dimension) => ({ ...dimension, score: clamp01(dimension.score) }));
   // MIN stays the reported headline score; the DECISION is the compound (per-dimension bars with the
   // tolerance band AND the hard MEAN bar), so the verdict the gate receives is already the answer.
-  const score = dimensions.length === 0 ? 0 : Math.min(...dimensions.map((d) => d.score));
-  const compound = compoundDecision(dimensions, bars);
+  const score = judged.length === 0 ? 0 : Math.min(...judged.map((d) => d.score));
+  const compound = compoundDecision(judged, bars);
   const decision = compound.pass ? "pass" : "below";
-  // The battery runs AFTER the verdict is decided and never touches it: a throw, a timeout or an
-  // unreadable answer costs the structured why, never the score (spec D3, R7).
-  const explained = scorer.explain === undefined
-    ? undefined
-    : await explainQuietly(scorer, {
-        goal: input.goal,
-        rubric: quality.dimensions,
-        artifact: input.artifact,
-        ...(input.subjectDigest === undefined ? {} : { subjectDigest: input.subjectDigest }),
-        weak: [...compound.refused, ...compound.flagged],
-      });
-  const judged = explained === undefined
-    ? dimensions
-    : dimensions.map((dimension) => {
-        const why = explained.get(dimension.id);
-        if (why === undefined || why.diagnosis.length === 0) return dimension;
-        return {
-          ...dimension,
-          diagnosis: why.diagnosis,
-          ...(why.rationale === undefined ? {} : { rationale: why.rationale }),
-        };
-      });
+  const weak = new Set([...compound.refused, ...compound.flagged]);
+  const dimensions = judged.map((dimension) => {
+    // The divergence wording (D5, R9): every criterion clean, yet the dimension missed its bar. The
+    // scorer rendered no clause (there was nothing non-clean to name), so the evaluator supplies the
+    // one line that needs the bar. A dimension with no criteria never gets it — nothing was composed.
+    const rationale = dimension.rationale ??
+      (dimension.bound !== undefined && dimension.allClean === true && weak.has(dimension.id)
+        ? clip(dimension.id + ": " + RATIONALE_DIVERGENCE, RATIONALE_MAX)
+        : undefined);
+    return {
+      id: dimension.id,
+      score: dimension.score,
+      key: bars.keys.get(dimension.id),
+      ...(dimension.bound === undefined ? {} : { bound: dimension.bound }),
+      ...(dimension.statementScore === undefined ? {} : { statementScore: dimension.statementScore }),
+      ...(dimension.divergence === true ? { divergence: true } : {}),
+      ...(dimension.diagnosis === undefined || dimension.diagnosis.length === 0 ? {} : { diagnosis: dimension.diagnosis }),
+      ...(rationale === undefined ? {} : { rationale }),
+    };
+  });
   return parseWith(
     QualityVerdictSchema,
     {
       decision,
       score,
-      dimensions: judged,
+      dimensions,
       // Rounded: the recorded mean is audit evidence, not a float artefact.
       mean: Math.round(compound.mean * 10000) / 10000,
       flagged: compound.flagged,

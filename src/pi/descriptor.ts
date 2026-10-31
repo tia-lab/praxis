@@ -6,7 +6,7 @@
  * Moved verbatim out of `tool.ts` (the 600-line split); no logic changed.
  */
 import { fail } from "../types/errors.ts";
-import { parseWith, type Artifact, type Instance, type Quality, type ResolvedNode } from "../types/schema.ts";
+import { parseWith, type Artifact, type Instance, type Probe, type Quality, type ResolvedNode } from "../types/schema.ts";
 import { ArtifactSummarySchema, StepDescriptorSchema, type ArtifactSummary, type StepDescriptor } from "../types/pi.ts";
 import type { RecallSet } from "../types/learning.ts";
 import { CAPABILITY_NAMES, grantFor } from "../runner/capabilities.ts";
@@ -40,10 +40,28 @@ export function currentStepOf(flow: OpenedFlow, instance: Instance): ResolvedNod
   return refuse === undefined ? { node, task, sources } : { node, task, sources, refuse };
 }
 
+/**
+ * One criterion as the brief shows it (R13): identity, type and the authored text that decides, with
+ * its options (choice) or levels (score). Disclosure only — the brief never reveals a score.
+ */
+function criterionBrief(probe: Probe): Record<string, unknown> {
+  const criteria = probe.criteria;
+  return {
+    id: probe.id,
+    type: probe.type,
+    instructions: probe.instructions,
+    ...(probe.type === "choice" && typeof criteria === "object" && criteria !== null && !Array.isArray(criteria)
+      ? { options: criteria, ...(probe.clean === undefined ? {} : { clean: probe.clean }) }
+      : {}),
+    ...(probe.type === "score" && Array.isArray(criteria) ? { levels: criteria } : {}),
+  };
+}
+
 /** The judging stance, in the agent's own terms (F1/O1): how a score is produced and combined. */
 
+// Kept inside the brief's 400-character bound: the stance has to state composition AND the MIN rule.
 export const JUDGING_STANCE =
-  "an independent judge scores each dimension from 0 to 1 for how fully the artifact meets its statement, given the task goal; the overall score is the MINIMUM of those dimension scores, so every dimension must clear the floor on its own; the floor is this task's current bar and may rise as its history proves stable competence";
+  "a judge scores each dimension 0-1. A dimension with criteria is COMPOSED: each criterion is its own question and the dimension scores their MINIMUM, so no strong criterion hides a weak one; the judge's answer to the statement is recorded, never scored. No criteria means the statement scores. The overall score is the MINIMUM of the dimensions; the floor is the current bar, which may rise";
 
 /** What the brief discloses about the standard plus what the past teaches (F1, F3, F7). */
 
@@ -52,7 +70,15 @@ export interface NoteJudgment {
   score: number;
   mean?: number;
   flagged: string[];
-  dimensions: { id: string; score: number; rationale?: string; diagnosis?: { probe: string; answer: string | number }[] }[];
+  dimensions: {
+    id: string;
+    score: number;
+    bound?: string;
+    statementScore?: number;
+    divergence?: boolean;
+    rationale?: string;
+    diagnosis?: { probe: string; answer: string | number }[];
+  }[];
 }
 
 interface LearningView {
@@ -110,6 +136,11 @@ export function learningView(options: EngineOptions, flow: OpenedFlow, instance:
             dimensions: recorded.dimensions.map((dimension) => ({
               id: dimension.id,
               score: dimension.score,
+              // What decided it (R14): the binding criterion and the statement witness, read back
+              // from the recorded verdict rather than recomputed.
+              ...(dimension.bound === undefined ? {} : { bound: dimension.bound }),
+              ...(dimension.statementScore === undefined ? {} : { statementScore: dimension.statementScore }),
+              ...(dimension.divergence === true ? { divergence: true } : {}),
               ...(dimension.rationale === undefined ? {} : { rationale: dimension.rationale }),
               ...(dimension.diagnosis === undefined ? {} : { diagnosis: dimension.diagnosis }),
             })),
@@ -182,17 +213,21 @@ export function stepDescriptor(
           ? {}
           : {
               quality: {
-                // The brief shows the rubric, not the judge's battery: identity, statement and floor.
+                // The brief shows the rubric AND what decides each dimension (R13): identity, statement,
+                // floor, and — for a composed dimension — every criterion with the text it asks.
                 dimensions: quality.dimensions.map((dimension) => ({
                   id: dimension.id,
                   statement: dimension.statement,
                   ...(dimension.floor === undefined ? {} : { floor: dimension.floor }),
+                  ...(dimension.probes === undefined ? {} : { criteria: dimension.probes.map(criterionBrief) }),
                 })),
                 threshold: learning?.bar ?? quality.threshold,
                 ...(learning?.gate === undefined ? {} : { gate: learning.gate }),
                 ...(learning?.judgment === undefined ? {} : { judgment: learning.judgment }),
                 policy: quality.policy,
                 aggregation: "min" as const,
+                // How the criteria become a dimension score, shown only when something is composed.
+                ...(quality.dimensions.some((dimension) => dimension.probes !== undefined) ? { criteriaAggregation: "min" as const } : {}),
                 judging: JUDGING_STANCE,
                 ...(learning?.recall === undefined ? {} : { recall: learning.recall }),
               },

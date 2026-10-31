@@ -11,7 +11,7 @@
  */
 import { z } from "zod";
 import type { Code } from "./errors.ts";
-import { ActorSchema, ArtifactStateSchema, CapabilitySchema, DigestSchema, FlowNameSchema, InstanceIdSchema, NonceSchema, QualityDimensionSchema, RequirementsSchema, ResultSchema, SchemaNameSchema, StepIdSchema, TaskRefSchema, TimestampSchema } from "./schema.ts";
+import { ActorSchema, ArtifactStateSchema, CapabilitySchema, DigestSchema, FlowNameSchema, InstanceIdSchema, NonceSchema, PROBES_PER_DIMENSION, RequirementsSchema, ResultSchema, SchemaNameSchema, StepIdSchema, TaskRefSchema, TimestampSchema } from "./schema.ts";
 import { LearningNoteSubjectiveSchema, RecallSetSchema } from "./learning.ts";
 
 /**
@@ -125,9 +125,38 @@ export const StepDescriptorSchema = z.strictObject({
      */
     quality: z
       .strictObject({
-        // The rubric as the BRIEF shows it: identity, statement and floor — never the probe battery,
-        // which is the judge's business and would only bloat the envelope.
-        dimensions: z.array(QualityDimensionSchema.omit({ probes: true })).min(1).max(8),
+        // The rubric as the BRIEF shows it: identity, statement, floor, and what decides each
+        // dimension. Disclosure only — never a score, never a bar the agent could argue with.
+        dimensions: z
+          .array(
+            z.strictObject({
+              id: z.string().min(1).max(64),
+              statement: z.string().min(1).max(500),
+              floor: z.number().min(0).max(1).optional(),
+              /**
+               * The criteria that decide this dimension, when it is composed (compose slice R13):
+               * the authored text the judge asks, with its type and its options or levels.
+               */
+              criteria: z
+                .array(
+                  z.strictObject({
+                    id: z.string().min(1).max(64),
+                    type: z.enum(["choice", "noul", "score"]),
+                    instructions: z.string().min(1).max(500),
+                    /** choice: the authored options, keyed by option id. */
+                    options: z.record(z.string().min(1).max(64), z.string().min(1).max(200)).optional(),
+                    /** choice: the option that counts as satisfied. */
+                    clean: z.string().min(1).max(64).optional(),
+                    /** score: the authored levels, worst first. */
+                    levels: z.array(z.string().min(1).max(200)).optional(),
+                  }),
+                )
+                .max(PROBES_PER_DIMENSION)
+                .optional(),
+            }),
+          )
+          .min(1)
+          .max(8),
         /**
          * The threshold IN FORCE: the task's authored min_floor, or the higher bar the engine has
          * ratcheted to from stable history (O2). The agent never sets it and cannot see the code.
@@ -136,6 +165,11 @@ export const StepDescriptorSchema = z.strictObject({
         policy: z.enum(["required", "advisory"]),
         /** How the per-dimension judgments become one score: the MINIMUM (MIN-011). */
         aggregation: z.literal("min"),
+        /**
+         * How a composed dimension's criteria become its score, present when any dimension declares
+         * criteria: the MINIMUM, so no strong criterion hides a failed one (R13, D4).
+         */
+        criteriaAggregation: z.literal("min").optional(),
         /**
          * The gate ACTUALLY applied, beside the earned bar above: the Pareto cap,
          * `min(earnedBar, paretoThreshold)`, per scope. Display only — the decision is
@@ -165,6 +199,12 @@ export const StepDescriptorSchema = z.strictObject({
               z.strictObject({
                 id: z.string().min(1).max(64),
                 score: z.number().min(0).max(1),
+                /** The criterion that produced the composed minimum, when the dimension was composed (R14). */
+                bound: z.string().min(1).max(64).optional(),
+                /** The statement witness recorded beside the composed score (R14). Evidence, never a gate. */
+                statementScore: z.number().min(0).max(1).optional(),
+                /** The witness departed from the composed score by at least DIVERGENCE_MIN. */
+                divergence: z.boolean().optional(),
                 rationale: z.string().min(1).max(240).optional(),
                 diagnosis: z
                   .array(

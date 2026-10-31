@@ -1,16 +1,17 @@
 /**
- * The verdict rationale (verdict-rationale D1-D13, R1-R13): the per-dimension jev battery.
+ * The verdict rationale (verdict-rationale D1-D13, re-pinned for the compose slice): the criteria now
+ * DECIDE, so the same answers that produce a dimension's score produce its why, in ONE call.
  *
- * Everything here is deterministic: the scoring and battery calls go through an injected `evaluateFn`
- * (the same seam the alignment gate uses), and the store cases use a temp workspace. No network.
+ * Everything here is deterministic: every call goes through an injected `evaluateFn` (the same seam
+ * the alignment gate uses), and the store cases use a temp workspace. No network.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { JevRequest, JevResponse } from "pi-jev";
 import { QualitySchema, QualityVerdictSchema, type Quality } from "../../src/types/schema.ts";
-import { evaluateArtifact, type Scorer } from "../../src/quality/index.ts";
-import { jevScorer, RATIONALE_DIVERGENCE, RATIONALE_MAX, rationaleFor } from "../../src/quality/jev-scorer.ts";
+import { evaluateArtifact } from "../../src/quality/index.ts";
+import { jevScorer, RATIONALE_MAX, rationaleFrom } from "../../src/quality/jev-scorer.ts";
 import { applyBounds } from "../../src/quality/ranker.ts";
 
 const RUBRIC = [
@@ -26,7 +27,7 @@ const RUBRIC = [
 ];
 const QUALITY: Quality = { dimensions: RUBRIC, threshold: 0.6, policy: "required" };
 
-/** A fake pi-jev: records each request and answers by question type. */
+/** A fake pi-jev: records each request and answers by the question it was asked. */
 function fakeJev(answer: (id: string, request: JevRequest) => unknown) {
   const calls: JevRequest[] = [];
   const evaluateFn = async (request: JevRequest): Promise<JevResponse> => {
@@ -38,11 +39,13 @@ function fakeJev(answer: (id: string, request: JevRequest) => unknown) {
   return { evaluateFn, calls };
 }
 
-/** The scoring answers: a plain noul per dimension id. */
-const scoreAnswer = (scores: Record<string, number>) => (id: string) => ({ type: "noul", noul: scores[id] ?? 0.9 });
-
-/** The battery answers: driven per probe key. */
-const probeAnswers = (answers: Record<string, unknown>) => (id: string) => answers[id] ?? { type: "noul", noul: 0.9 };
+/** Clean answers for every criterion: the top level, the clean option, a high probability. */
+const clean = (id: string, request: JevRequest): unknown => {
+  const question = request.questions[id];
+  if (question.type === "choice") return { type: "choice", choice: "one-issue" };
+  if (question.type === "score") return { type: "score", score: 2 };
+  return { type: "noul", noul: 0.9 };
+};
 
 test("R1: the probe battery parses, and its caps and shapes are enforced at parse", () => {
   const base = { threshold: 0.6, policy: "required" as const };
@@ -69,72 +72,57 @@ test("R1: the probe battery parses, and its caps and shapes are enforced at pars
     probes: Array.from({ length: 6 }, (_, probe) => ({ id: "p" + probe, type: "noul", instructions: "x" })),
   }));
   assert.equal(QualitySchema.safeParse({ ...base, dimensions: eight }).success, true, "48 probes is the ceiling and parses");
-  const nine = [
-    ...eight, 9,
-  ];
   const over = { ...base, dimensions: [...eight, { id: "d9", statement: "s", probes: [{ id: "p", type: "noul", instructions: "x" }] }] };
   assert.equal(QualitySchema.safeParse(over).success, false, "49 probes is refused");
-  void nine;
 });
 
-test("R2/R3/R12: one scoring call (byte-identical) then ONE battery call, no scores in its state", async () => {
-  const jev = fakeJev((id, request) => {
-    if (request.questions[id].type === "noul") return scoreAnswer({ parsimony: 0.9, grounded: 0.9 })(id);
-    return probeAnswers({
-      "parsimony.redundant": { type: "noul", noul: 0.9 },
-      "parsimony.deletable": { type: "score", score: 2 },
-      "parsimony.main-issue": { type: "choice", choice: "one-issue" },
-    })(id);
-  });
-  const scorer = jevScorer({ evaluateFn: jev.evaluateFn });
-  const verdict = await evaluateArtifact(scorer, QUALITY, { goal: "g", artifact: { a: 1 } });
+test("R2/R3/R12: ONE composed call carries every criterion and every witness", async () => {
+  const jev = fakeJev(clean);
+  const verdict = await evaluateArtifact(jevScorer({ evaluateFn: jev.evaluateFn }), QUALITY, { goal: "g", artifact: { a: 1 } });
 
-  assert.equal(jev.calls.length, 2, "one scoring call and one battery call");
-  const [score, battery] = jev.calls;
-  // R2: the scoring request is exactly today's: the dimension ids, noul questions, the state, no probes.
-  assert.deepEqual(Object.keys(score.questions).sort(), ["grounded", "parsimony"]);
-  for (const id of Object.keys(score.questions)) assert.equal(score.questions[id].type, "noul");
-  // Today's state shape, unchanged: goal, artifact, subjectDigest (present even when undefined).
-  assert.deepEqual(Object.keys(score.state as object).sort(), ["artifact", "goal", "subjectDigest"]);
-  assert.equal(
-    (score.questions.parsimony as { instructions: string }).instructions,
-    "Judge the artifact strictly against this standard; answer the probability it is fully satisfied: every included item earns its place",
-    "the scoring instruction is unchanged",
+  assert.equal(jev.calls.length, 1, "exactly one request per submission (D7, R10)");
+  const [request] = jev.calls;
+  assert.deepEqual(
+    Object.keys(request.questions).sort(),
+    ["grounded", "parsimony.__statement", "parsimony.deletable", "parsimony.main-issue", "parsimony.redundant"],
+    "every criterion plus one witness, and the criteria-less dimension by its own id",
   );
-  // R3: one battery request, <dim>.<probe> ids, and NO score in its state.
-  assert.deepEqual(Object.keys(battery.questions).sort(), ["parsimony.deletable", "parsimony.main-issue", "parsimony.redundant"]);
-  assert.equal(JSON.stringify(battery.state).includes("0.9"), false, "the battery does not see the scoring numbers");
+  // The witness asks exactly what the retired scoring call asked, so the statement is still judged.
+  assert.equal(
+    (request.questions["parsimony.__statement"] as { instructions: string }).instructions,
+    "Judge the artifact strictly against this standard; answer the probability it is fully satisfied: every included item earns its place",
+    "the witness instruction is unchanged",
+  );
+  assert.equal(request.questions.redundant === undefined, true, "criteria never collide with a dimension id");
+  assert.deepEqual(Object.keys(request.state as object).sort(), ["artifact", "goal", "subjectDigest"], "today's state shape");
+
   assert.deepEqual(verdict.dimensions.map((d) => d.id), ["parsimony", "grounded"]);
   assert.equal(verdict.dimensions[0].diagnosis?.length, 3, "the structured answers are recorded");
-  assert.equal(verdict.dimensions[1].diagnosis, undefined, "a dimension without probes has none");
+  assert.equal(verdict.dimensions[0].bound, "redundant", "all clean: the first criterion in declared order binds");
+  assert.equal(verdict.dimensions[0].statementScore, 0.9, "the witness is recorded beside the composition");
+  assert.equal(verdict.dimensions[1].diagnosis, undefined, "a dimension without criteria records none");
+  assert.equal(verdict.dimensions[1].bound, undefined, "and has no binding criterion");
 });
 
-test("R4/R7: a bad battery answer changes nothing; a throwing battery changes nothing", async () => {
-  const good = fakeJev((id, request) =>
-    request.questions[id].type === "noul" ? { type: "noul", noul: 0.9 } : { type: "noul", noul: 0.1 },
-  );
-  const broken = fakeJev((id, request) =>
-    request.questions[id].type === "noul" ? { type: "noul", noul: 0.9 } : { type: "score", score: 0 },
-  );
-  // A battery-only outage: the scoring questions (dimension ids) still answer, the probes (dotted ids) fail.
-  const down = fakeJev((id) => {
-    if (id.includes(".")) throw new Error("jev is down");
-    return { type: "noul", noul: 0.9 };
+test("R4/R7: an unreadable criterion answer is a fail-closed error, never a fabricated score", async () => {
+  const broken = fakeJev((id, request) => {
+    const question = request.questions[id];
+    // A mistyped answer for a score criterion: the client would accept the type the question asked,
+    // so this is the judge answering the wrong kind — an error, never a silently smaller minimum.
+    if (question.type === "score") return { type: "noul", noul: 0.5 };
+    return clean(id, request);
   });
-  const plain: Scorer = { score: jevScorer({ evaluateFn: good.evaluateFn }).score };
-  const strip = (verdict: { dimensions: { id: string; score: number; key?: string }[]; [key: string]: unknown }) => JSON.stringify(verdict);
+  const failed = await evaluateArtifact(jevScorer({ evaluateFn: broken.evaluateFn }), QUALITY, { goal: "g", artifact: {} });
+  assert.equal(failed.decision, "unavailable", "the fail-closed path, not a pass");
+  assert.equal(failed.source, "error");
+  assert.deepEqual(failed.dimensions, [], "no fabricated dimension survives");
+  assert.match(failed.rationale, /mistyped|not a noul/, "the reason names the unreadable answer");
 
-  const without = await evaluateArtifact(plain, QUALITY, { goal: "g", artifact: {} });
-  const withBroken = await evaluateArtifact(jevScorer({ evaluateFn: broken.evaluateFn }), QUALITY, { goal: "g", artifact: {} });
-  const withDown = await evaluateArtifact(jevScorer({ evaluateFn: down.evaluateFn }), QUALITY, { goal: "g", artifact: {} });
-
-  assert.deepEqual(withBroken, without, "an unreadable battery leaves the verdict byte-identical");
-  assert.deepEqual(withDown, without, "a throwing battery leaves the verdict byte-identical");
-  assert.deepEqual(
-    { decision: withBroken.decision, score: withBroken.score, mean: withBroken.mean, flagged: withBroken.flagged },
-    { decision: without.decision, score: without.score, mean: without.mean, flagged: without.flagged },
-  );
-  assert.equal(strip(withBroken).includes("diagnosis"), false);
+  // The same failure leaves a criteria-less rubric untouched: it has one witness-free noul, as before.
+  const plain: Quality = { dimensions: [RUBRIC[1]!], threshold: 0.6, policy: "required" };
+  const ok = await evaluateArtifact(jevScorer({ evaluateFn: fakeJev(clean).evaluateFn }), plain, { goal: "g", artifact: {} });
+  assert.equal(ok.decision, "pass");
+  assert.deepEqual(ok.dimensions.map((d) => [d.id, d.score]), [["grounded", 0.9]]);
 });
 
 test("R5: rendering is bounded, deterministic and never invents a clause", () => {
@@ -144,44 +132,40 @@ test("R5: rendering is bounded, deterministic and never invents a clause", () =>
     { probe: "deletable", answer: 1 },
     { probe: "main-issue", answer: "padded" },
   ];
-  const line = rationaleFor(dimension, dirty, true);
-  assert.ok(line, "a dirty battery renders a line");
-  assert.equal(line, rationaleFor(dimension, dirty, true), "the same answers render the same string");
+  const line = rationaleFrom(dimension, dirty, "main-issue");
+  assert.ok(line, "a dirty composition renders a line");
+  assert.equal(line, rationaleFrom(dimension, dirty, "main-issue"), "the same answers render the same string");
   assert.ok(line!.startsWith("parsimony: "));
-  assert.ok(line!.includes("some material could go") && line!.includes("pads with unused material"), line!);
+  assert.ok(line!.startsWith("parsimony: pads with unused material"), "the binding criterion comes first: " + line);
+  assert.ok(line!.includes("some material could go") && line!.includes("not satisfied: No included item repeats another."), line!);
   assert.ok(line!.length <= RATIONALE_MAX);
 
-  const clean = [
+  const cleanAnswers = [
     { probe: "redundant", answer: 0.9 },
     { probe: "deletable", answer: 2 },
     { probe: "main-issue", answer: "one-issue" },
   ];
-  assert.equal(rationaleFor(dimension, clean, false), undefined, "clean and above the bar: nothing to say");
+  assert.equal(rationaleFrom(dimension, cleanAnswers, "redundant"), undefined, "clean: nothing to say here");
+  assert.equal(rationaleFrom({ id: "grounded" }, cleanAnswers), undefined, "no criteria: never a clause");
   assert.equal(
-    rationaleFor(dimension, clean, true),
-    "parsimony: " + RATIONALE_DIVERGENCE,
-    "clean but below the bar: the divergence clause (D11)",
-  );
-  assert.equal(rationaleFor({ id: "grounded" }, clean, true), undefined, "no probes: never the divergence clause");
-  assert.equal(
-    rationaleFor(dimension, [{ probe: "redundant", answer: 0.1 }, { probe: "main-issue", answer: "nonsense" }], true),
+    rationaleFrom(dimension, [{ probe: "redundant", answer: 0.1 }, { probe: "main-issue", answer: "nonsense" }], "redundant"),
     "parsimony: not satisfied: No included item repeats another.",
     "an unknown answer is omitted, never invented",
   );
   // Three clauses at most.
-  const many = rationaleFor(
+  const many = rationaleFrom(
     { id: "d", probes: Array.from({ length: 6 }, (_, index) => ({ id: "p" + index, type: "noul" as const, instructions: "q" + index })) },
     Array.from({ length: 6 }, (_, index) => ({ probe: "p" + index, answer: 0.1 })),
-    false,
+    "p0",
   );
   assert.equal(many!.split("; ").length, 3, "never more than three clauses");
+  assert.ok(many!.length <= RATIONALE_MAX);
 });
 
 test("R6: the verdict carries diagnosis/rationale, and an OLD verdict still parses", async () => {
   const jev = fakeJev((id, request) => {
     const question = request.questions[id];
-    if (question.type !== "score" && question.type !== "choice" && !id.includes(".")) return { type: "noul", noul: 0.9 };
-    // The battery: one dirty probe of each kind, so a line is rendered.
+    // One dirty criterion of each kind, so a line is rendered from the answers that set the score.
     if (question.type === "score") return { type: "score", score: 0 };
     if (question.type === "choice") return { type: "choice", choice: "padded" };
     return { type: "noul", noul: 0.1 };
@@ -189,8 +173,9 @@ test("R6: the verdict carries diagnosis/rationale, and an OLD verdict still pars
   const verdict = await evaluateArtifact(jevScorer({ evaluateFn: jev.evaluateFn }), QUALITY, { goal: "g", artifact: {} });
   assert.ok(verdict.dimensions[0].rationale, "the rendered line is on the verdict");
   assert.ok(verdict.dimensions[0].diagnosis && verdict.dimensions[0].diagnosis.length === 3);
+  assert.equal(verdict.dimensions[0].score, 0, "the non-clean choice is the composed minimum");
   assert.equal(QualityVerdictSchema.safeParse(verdict).success, true);
-  // An old payload (no new fields) still parses, and the ruler digest ignores the evidence entirely.
+  // An old payload (no composed fields) still parses: recorded verdicts are never backfilled.
   const old = {
     decision: "pass",
     score: 0.9,
@@ -200,15 +185,15 @@ test("R6: the verdict carries diagnosis/rationale, and an OLD verdict still pars
     scorer: "fake/jev",
     source: "jev",
   };
-  assert.equal(QualityVerdictSchema.safeParse(old).success, true, "a pre-unit verdict parses unchanged");
-  // Probes ARE part of the ruler (D9), so a rubric with them digests differently from the same rubric
+  assert.equal(QualityVerdictSchema.safeParse(old).success, true, "a pre-compose verdict parses unchanged");
+  // Criteria ARE part of the ruler, so a rubric with them digests differently from the same rubric
   // without — while the verdict's evidence never enters the digest at all.
-  const withoutProbes = await evaluateArtifact(
-    jevScorer({ evaluateFn: fakeJev((id, request) => (request.questions[id].type === "noul" ? { type: "noul", noul: 0.9 } : { type: "noul", noul: 0.9 })).evaluateFn }),
+  const withoutCriteria = await evaluateArtifact(
+    jevScorer({ evaluateFn: fakeJev(clean).evaluateFn }),
     { ...QUALITY, dimensions: RUBRIC.map(({ id, statement, floor }) => ({ id, statement, floor })) },
     { goal: "g", artifact: {} },
   );
-  assert.notEqual(verdict.rubricDigest, withoutProbes.rubricDigest, "probes change the ruler digest");
+  assert.notEqual(verdict.rubricDigest, withoutCriteria.rubricDigest, "criteria change the ruler digest");
   assert.equal(verdict.rubricDigest, QualityVerdictSchema.parse(verdict).rubricDigest);
 });
 

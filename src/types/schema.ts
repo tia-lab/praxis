@@ -159,8 +159,20 @@ export const QualityVerdictSchema = z.strictObject({
     z.strictObject({
       id: z.string().min(1).max(64),
       score: z.number().min(0).max(1),
-      /** The dimension's identity key (id + statement) in force when it was judged (per-scope bars). */
+      /** The dimension's identity key (id + criteria, or id + statement) in force when it was judged. */
       key: z.string().min(1).max(64).optional(),
+      /**
+       * The criterion that produced the composed minimum, ties by declared order (compose slice R8).
+       * Absent on a dimension with no criteria, which is judged by its statement alone.
+       */
+      bound: z.string().min(1).max(64).optional(),
+      /**
+       * The statement witness's probability, recorded beside the composed score (R7). Evidence: it
+       * never enters the score, the mean, the decision or the bar.
+       */
+      statementScore: z.number().min(0).max(1).optional(),
+      /** The witness departed from the composed score by at least DIVERGENCE_MIN (0.20). */
+      divergence: z.boolean().optional(),
       /**
        * The jev battery's structured answers for this dimension (verdict-rationale D6): the evidence a
        * reader reasons from. Additive and optional — a verdict recorded before the battery has none.

@@ -1,6 +1,6 @@
 {
   "id": "plan",
-  "version": 2,
+  "version": 3,
   "state": "published",
   "gate": "section-requirements",
   "goal": "name every declaration touched, every check that proves it, the budget and the recovery path",
@@ -76,6 +76,14 @@
       {
         "id": "bounded",
         "statement": "Budget and recovery are concrete, not placeholders."
+      },
+      {
+        "id": "parsimony",
+        "statement": "Every included item earns its place: no padding, no redundant, off-topic, or unverifiable material. Breadth that does not serve the goal lowers the score."
+      },
+      {
+        "id": "alignment",
+        "statement": "The artifact directly serves the goal it was given, answering what was actually asked rather than a drifted, broadened, or adjacent interpretation of it."
       }
     ],
     "threshold": 0.6,

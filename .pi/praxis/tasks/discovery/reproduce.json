@@ -1,6 +1,6 @@
 {
   "id": "reproduce",
-  "version": 2,
+  "version": 3,
   "state": "published",
   "gate": "section-requirements",
   "goal": "reproduce the reported defect deterministically and capture the failing signal",
@@ -50,6 +50,14 @@
       {
         "id": "real-signal",
         "statement": "The captured command output is the actual failing signal, not a guess."
+      },
+      {
+        "id": "parsimony",
+        "statement": "Every included item earns its place: no padding, no redundant, off-topic, or unverifiable material. Breadth that does not serve the goal lowers the score."
+      },
+      {
+        "id": "alignment",
+        "statement": "The artifact directly serves the goal it was given, answering what was actually asked rather than a drifted, broadened, or adjacent interpretation of it."
       }
     ],
     "threshold": 0.6,

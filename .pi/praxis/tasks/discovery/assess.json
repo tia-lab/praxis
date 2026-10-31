@@ -1,6 +1,6 @@
 {
   "id": "assess",
-  "version": 2,
+  "version": 3,
   "state": "published",
   "gate": "section-requirements",
   "goal": "record the behaviour and structure a refactor must preserve; changing behaviour is out of scope",
@@ -51,6 +51,14 @@
       {
         "id": "scope-held",
         "statement": "No behaviour change is proposed; the work stays structural."
+      },
+      {
+        "id": "parsimony",
+        "statement": "Every included item earns its place: no padding, no redundant, off-topic, or unverifiable material. Breadth that does not serve the goal lowers the score."
+      },
+      {
+        "id": "alignment",
+        "statement": "The artifact directly serves the goal it was given, answering what was actually asked rather than a drifted, broadened, or adjacent interpretation of it."
       }
     ],
     "threshold": 0.6,

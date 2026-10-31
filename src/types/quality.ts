@@ -7,6 +7,7 @@
  * No behaviour, no shape change.
  */
 import { z } from "zod";
+import { RuleIdSchema, RulesetRefSchema } from "./rules.ts";
 
 /** A decomposed quality rubric a task is judged against (the quality floor). */
 /**
@@ -46,6 +47,12 @@ export const ProbeSchema = z
      * requires; the task schema refuses anything else (R4), so a target can never judge nothing.
      */
     sections: z.array(SectionNameSchema).min(1).max(6).optional(),
+    /**
+     * When present, this criterion judges a NAMED RULE: the rule-set file owns the statement and the
+     * resolve step composes it into this criterion's question. The criterion keeps no copy of the text,
+     * so editing the rule re-keys the dimension exactly as editing a criterion does.
+     */
+    rule: z.strictObject({ set: RulesetRefSchema, id: RuleIdSchema }).optional(),
   })
   .superRefine((probe, ctx) => {
     const issue = (path: string, message: string): void => {

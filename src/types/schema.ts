@@ -8,28 +8,18 @@
 import { z } from "zod";
 import { fail, type Code } from "./errors.ts";
 import { IssueConfigSchema } from "./issue.ts";
+import { KEBAB, pathUnder } from "./paths.ts";
+import { TaskRulesSchema } from "./rules.ts";
 
-const KEBAB = /^[a-z][a-z0-9-]{0,63}$/;
+// The path grammar moved to `paths.ts` (the file cap); re-exported so no importer moves.
+export { KEBAB, pathUnder } from "./paths.ts";
 
 /** Step identifiers used in the flow config, event payloads and artifacts. */
 export const StepIdSchema = z.string().regex(KEBAB, "expected a lower-case kebab name");
 export type StepId = z.infer<typeof StepIdSchema>;
 
-/**
- * The one rule both reference kinds obey (spec R1, R2): a root directory and one or more
- * lower-case kebab segments. The folder group is zero-or-more, so a flat
- * `tasks/research` and a nested `tasks/core/research` are the same grammar, and no
- * segment may be a dot or carry `.json`, so a path outside the root cannot be written.
- */
-const PATH_SEGMENTS = "([a-z][a-z0-9-]{0,63}/)*[a-z][a-z0-9-]{0,63}";
-
-/** The directory a task reference names; the loader reads everything below it. */
 const TASKS_ROOT = "tasks/";
 
-/** Build the path schema for one root: `tasks/<segments>` or `flows/<segments>`. */
-function pathUnder(root: "tasks" | "flows"): z.ZodString {
-  return z.string().regex(new RegExp("^" + root + "/" + PATH_SEGMENTS + "$"), "expected " + root + "/<path>");
-}
 
 /**
  * Flow identity: a path under `flows/`, e.g. `flows/workflow` or `flows/core/review`,
@@ -271,6 +261,11 @@ export const TaskConfigSchema = z.strictObject({
   role: RoleNameSchema.optional(),
   /** An optional quality floor: a typed judgment over the produced artifact (quality eval). */
   quality: QualitySchema.optional(),
+  /**
+   * Reusable guidance this task follows: file refs under `rules/`, optionally narrowed to named ids.
+   * Absent means none, and a task with none behaves exactly as it did before this field existed.
+   */
+  rules: TaskRulesSchema.optional(),
   /** A review must carry the digest of the version it judged (spec R6). */
   bindsSubject: z.boolean().optional(),
 }).superRefine((task, ctx) => {

@@ -15,7 +15,7 @@ import type { EngineOptions, HandoffRef, OpenedFlow } from "../runner/engine/ind
 import { withStore } from "../runner/engine/support.ts";
 import { ABSOLUTE_MIN } from "../runner/engine/types.ts";
 import { briefRecall, quantileBarsFor } from "../quality/index.ts";
-import { authoredQuality, judgeQuality } from "../runner/engine/rules.ts";
+import { authoredQuality, judgeQuality, resolveRules } from "../runner/engine/rules.ts";
 import { carriedPopulation, quantileOf } from "../quality/bar.ts";
 import { dimensionKey } from "../quality/scope.ts";
 import { noteStanding } from "../runner/note-gate.ts";
@@ -61,6 +61,8 @@ function criterionBrief(probe: Probe): Record<string, unknown> {
     // The sections this criterion judges, when it targets any (T1, R5): the same target the judge
     // will be given, so the agent can see what each criterion is measured against.
     ...(probe.sections === undefined ? {} : { sections: probe.sections }),
+    // The reference the composed instructions came from (task-rules S3).
+    ...(probe.rule === undefined ? {} : { rule: probe.rule }),
   };
 }
 
@@ -209,6 +211,7 @@ export function stepDescriptor(
   const grant = grantFor({ id: resolved.node.id, capabilities: resolved.task.capabilities });
   // The BRIEF shows the question the judge is asked, statement included: the one composed site (site 4).
   const quality = judgeQuality(flow, resolved.task);
+  const rules = resolved.task.rules === undefined ? [] : resolveRules(resolved.task, flow.rules);
   const ops: ("submit" | "read" | "note" | "check")[] = [];
   // A step that owes a note cannot submit: the reflection comes first (O3). The engine refuses the
   // submit anyway; saying so here means the agent learns it from the brief, not from a rejection.
@@ -262,6 +265,20 @@ export function stepDescriptor(
                 judging: JUDGING_STANCE,
                 ...(learning?.recall === undefined ? {} : { recall: learning.recall }),
               },
+            }),
+        // The rules this task follows (task-rules S3), in the plan 4 order: refs as declared, the
+        // set's own document order inside each. Absent for a task that references none, so its
+        // envelope is byte-identical to the one before this field existed (I1, R12).
+        ...(rules.length === 0
+          ? {}
+          : {
+              rules: rules.map((rule) => ({
+                set: rule.set,
+                version: rule.version,
+                digest: rule.setDigest,
+                id: rule.id,
+                statement: rule.statement,
+              })),
             }),
       },
     },

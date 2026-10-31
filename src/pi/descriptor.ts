@@ -77,7 +77,8 @@ export interface NoteJudgment {
     statementScore?: number;
     divergence?: boolean;
     rationale?: string;
-    diagnosis?: { probe: string; answer: string | number }[];
+    torn?: string[];
+    diagnosis?: { probe: string; answer: string | number; confidence?: number; pClean?: number; pTop?: number; spread?: number }[];
   }[];
 }
 
@@ -142,6 +143,7 @@ export function learningView(options: EngineOptions, flow: OpenedFlow, instance:
               ...(dimension.statementScore === undefined ? {} : { statementScore: dimension.statementScore }),
               ...(dimension.divergence === true ? { divergence: true } : {}),
               ...(dimension.rationale === undefined ? {} : { rationale: dimension.rationale }),
+              ...(dimension.torn === undefined ? {} : { torn: dimension.torn }),
               ...(dimension.diagnosis === undefined ? {} : { diagnosis: dimension.diagnosis }),
             })),
           };

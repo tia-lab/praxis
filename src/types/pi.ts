@@ -206,11 +206,17 @@ export const StepDescriptorSchema = z.strictObject({
                 /** The witness departed from the composed score by at least DIVERGENCE_MIN. */
                 divergence: z.boolean().optional(),
                 rationale: z.string().min(1).max(240).optional(),
+                /** Criterion ids the judge answered near its own boundary (S2). Disclosure, never a gate. */
+                torn: z.array(z.string().min(1).max(64)).max(48).optional(),
                 diagnosis: z
                   .array(
                     z.strictObject({
                       probe: z.string().min(1).max(128),
                       answer: z.union([z.string().min(1).max(80), z.number().min(0).max(10)]),
+                      confidence: z.number().min(0).max(1).optional(),
+                      pClean: z.number().min(0).max(1).optional(),
+                      pTop: z.number().min(0).max(1).optional(),
+                      spread: z.number().min(0).max(1).optional(),
                     }),
                   )
                   .max(48)

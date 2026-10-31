@@ -149,11 +149,21 @@ a learned bar may sit higher than `paretoThreshold` and the run is still accepte
 never refused merely because the ratchet climbed. The reported headline score is the MIN dimension;
 it is not part of the pass rule.
 
+**A criterion that must be graded is authored as a `score` criterion.** A `score` has ordered levels,
+so its answer keeps the position on that scale; a `choice` collapses the judge's distribution into
+one key and cannot express a degree. This is an authoring rule, not a code rule: nothing forbids a
+`choice` criterion, and no schema field can grade one. Praxis does record the distribution it was
+given — `pClean`, `pTop` and `spread` per criterion, the `torn` set when a judgment sat near the
+judge's own boundary — but that is **disclosure only**: it never enters the score, the mean, the
+decision or a bar.
+
 **What each bar tracks.** Bars are engine-computed folds of `bar.raised` events over the
 append-only log — never set by the agent. There is one **global** scope (keyed by the rubric's
-composition) and one scope **per dimension** (keyed by dimension id + statement). Per **genuine
-pass** (an `artifact.accepted` whose verdict at that version was `pass`) each scope records one
-value:
+composition) and one scope **per dimension** (keyed by the dimension id plus its **criteria** when
+the dimension is composed from criteria, or plus its statement when it is not: editing a criterion
+re-warms that dimension's bar, while rewording the prose of a composed dimension changes nothing).
+Per **genuine pass** (an `artifact.accepted` whose verdict at that version was `pass`) each scope
+records one value:
 
 - **global** ← the **mean** of that pass's dimension scores;
 - **a dimension** ← **that dimension's own** score.

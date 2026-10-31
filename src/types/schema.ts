@@ -182,18 +182,30 @@ export const QualityVerdictSchema = z.strictObject({
           z.strictObject({
             probe: z.string().min(1).max(128),
             answer: z.union([z.string().min(1).max(80), z.number().min(0).max(10)]),
+            /** The judge's own uncertainty (S2). Absent when the client reported none — never 0-filled. */
+            confidence: z.number().min(0).max(1).optional(),
+            pClean: z.number().min(0).max(1).optional(),
+            pTop: z.number().min(0).max(1).optional(),
+            spread: z.number().min(0).max(1).optional(),
           }),
         )
         .max(PROBES_TOTAL)
         .optional(),
       /** The rendered, bounded line the agent was shown for this dimension (D7). Evidence, never a gate input. */
       rationale: z.string().min(1).max(240).optional(),
+      /** Criterion ids this dimension's judge answered near its own boundary (S2, R17). */
+      torn: z.array(z.string().min(1).max(64)).max(PROBES_TOTAL).optional(),
     }),
   ),
   /** MEAN over the dimensions: the value the global bar gates on (stamped by the engine). */
   mean: z.number().min(0).max(1).optional(),
   /** Dimensions inside the tolerance band [b_i - 0.05, b_i): they passed but underperformed. */
   flagged: z.array(z.string().min(1).max(64)).max(8).optional(),
+  /**
+   * Every criterion the judge answered near its own boundary, keyed <dimension>.<criterion> (S2, R17).
+   * Recorded evidence: it never enters the score, the mean, the decision or a bar (R18, D10).
+   */
+  torn: z.array(z.string().min(1).max(129)).max(PROBES_TOTAL).optional(),
   rationale: z.string().max(2000),
   rubricDigest: DigestSchema,
   scorer: z.string().min(1).max(200),

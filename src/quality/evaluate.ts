@@ -17,10 +17,22 @@ import type { QualityAttempt } from "../runner/engine/index.ts";
 import { barsFromQuality, compoundDecision, effectiveBarsFor, type Bars } from "./bar.ts";
 import { RATIONALE_DIVERGENCE, RATIONALE_MAX } from "./jev-scorer.ts";
 
-/** One criterion's recorded answer: the evidence a composed score was computed from. */
+/**
+ * One criterion's recorded answer: the evidence a composed score was computed from, plus the judge's
+ * own uncertainty about it when pi-jev reported any (S2). Every uncertainty field is ABSENT when it
+ * was not reported — never zero-filled, never inferred — and a noul carries none at all.
+ */
 export interface CriterionAnswer {
   probe: string;
   answer: string | number;
+  /** The answer's own confidence, when the client reported one. */
+  confidence?: number;
+  /** choice: P(the declared clean option). */
+  pClean?: number;
+  /** score: P(the top level); choice: P(the most likely option). */
+  pTop?: number;
+  /** 1 − max(p): how widely the judge spread its mass. */
+  spread?: number;
 }
 
 /** One dimension's judgment: the composed score AND what produced it (D6, D7). */
@@ -35,6 +47,8 @@ export interface DimensionJudgment {
   divergence?: boolean;
   /** Every criterion's answer, in declared order (the recorded `diagnosis`). */
   diagnosis?: CriterionAnswer[];
+  /** Criterion ids the judge answered near its own boundary (S2, R17). Disclosure, never a gate. */
+  torn?: string[];
   /** The bounded line rendered from those answers (R9). */
   rationale?: string;
   /**
@@ -116,6 +130,8 @@ export async function evaluateArtifact(
   const compound = compoundDecision(judged, bars);
   const decision = compound.pass ? "pass" : "below";
   const weak = new Set([...compound.refused, ...compound.flagged]);
+  // The torn set, in the same flat namespace as the request: <dimension>.<criterion> (R17).
+  const torn = judged.flatMap((dimension) => (dimension.torn ?? []).map((criterion) => dimension.id + "." + criterion));
   const dimensions = judged.map((dimension) => {
     // The divergence wording (D5, R9): every criterion clean, yet the dimension missed its bar. The
     // scorer rendered no clause (there was nothing non-clean to name), so the evaluator supplies the
@@ -132,6 +148,7 @@ export async function evaluateArtifact(
       ...(dimension.statementScore === undefined ? {} : { statementScore: dimension.statementScore }),
       ...(dimension.divergence === true ? { divergence: true } : {}),
       ...(dimension.diagnosis === undefined || dimension.diagnosis.length === 0 ? {} : { diagnosis: dimension.diagnosis }),
+      ...(dimension.torn === undefined || dimension.torn.length === 0 ? {} : { torn: dimension.torn }),
       ...(rationale === undefined ? {} : { rationale }),
     };
   });
@@ -144,6 +161,7 @@ export async function evaluateArtifact(
       // Rounded: the recorded mean is audit evidence, not a float artefact.
       mean: Math.round(compound.mean * 10000) / 10000,
       flagged: compound.flagged,
+      ...(torn.length === 0 ? {} : { torn }),
       rationale: clip(raw.rationale),
       rubricDigest,
       scorer: raw.scorer,

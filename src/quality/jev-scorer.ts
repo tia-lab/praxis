@@ -24,6 +24,7 @@
 import { evaluate } from "pi-jev";
 import type { Answer, JevRequest, Question } from "pi-jev";
 import type { Probe } from "../types/quality.ts";
+import { TORN_CLEAN_BAND, TORN_NOUL_BAND, TORN_SPREAD } from "../runner/engine/types.ts";
 import type { CriterionAnswer, DimensionJudgment, Scorer } from "./evaluate.ts";
 
 /** The instruction the WITNESS question carries; the dimension's statement is appended (unchanged). */
@@ -79,7 +80,7 @@ function questionOf(probe: Probe): Question {
  * Read one criterion answer strictly: the declared type, an option the criterion names, a level on
  * its scale, a finite probability. Anything else throws, so a required floor stays fail-closed (R6).
  */
-function readAnswer(answer: Answer | undefined, key: string, probe: Probe): string | number {
+function readAnswer(answer: Answer | undefined, key: string, probe: Probe): { value: string | number; answer: Answer } {
   const label = "jev answer " + JSON.stringify(key);
   if (answer === undefined || answer.type !== probe.type) throw new Error(label + " is missing or mistyped");
   if (answer.type === "choice") {
@@ -87,17 +88,52 @@ function readAnswer(answer: Answer | undefined, key: string, probe: Probe): stri
     const known = typeof options === "object" && options !== null && !Array.isArray(options) &&
       Object.prototype.hasOwnProperty.call(options, answer.choice);
     if (!known) throw new Error(label + " picked an unknown option");
-    return answer.choice;
+    return { value: answer.choice, answer };
   }
   if (answer.type === "score") {
     const levels = Array.isArray(probe.criteria) ? probe.criteria.length : 0;
     if (!Number.isFinite(answer.score) || answer.score < 0 || answer.score > levels - 1) {
       throw new Error(label + " is off its scale");
     }
-    return answer.score;
+    return { value: answer.score, answer };
   }
   if (!Number.isFinite(answer.noul)) throw new Error(label + " is not a finite probability");
-  return clamp01(answer.noul);
+  return { value: clamp01(answer.noul), answer };
+}
+
+/**
+ * The judge's own uncertainty for one criterion (S2, R15-R17), read from what pi-jev actually
+ * returned and NOTHING more. A `choice`/`score` answer carries a distribution after slice 0: its
+ * spread (1 − max p), P(clean) for a choice, P(top level) for a score, and any `confidence`. A
+ * `noul` returns ONE probability, so it records no mass and no confidence, ever (D9) — its only
+ * signal is the value's distance from 0.5. A map that does not sum to 1 is treated as ABSENT rather
+ * than normalised by guesswork (plan K8), and absent mass is never zero-filled.
+ *
+ * This is disclosure only: the score was already computed from the answer, and mass never touches it.
+ */
+function uncertaintyOf(probe: Probe, answer: Answer, value: string | number): { fields: Omit<CriterionAnswer, "probe" | "answer">; torn: boolean } {
+  if (answer.type === "noul") {
+    const p = typeof value === "number" ? value : 0;
+    return { fields: {}, torn: p >= TORN_NOUL_BAND[0] && p <= TORN_NOUL_BAND[1] };
+  }
+  const fields: Omit<CriterionAnswer, "probe" | "answer"> = {};
+  if (answer.confidence !== undefined) fields.confidence = answer.confidence;
+  const mass = answer.probabilities;
+  if (mass === undefined) return { fields, torn: false };
+  const values = Array.isArray(mass) ? mass : Object.values(mass);
+  if (values.length === 0) return { fields, torn: false };
+  const sum = values.reduce((total, p) => total + p, 0);
+  if (sum < 0.99 || sum > 1.01) return { fields, torn: false };
+  const peak = Math.max(...values);
+  fields.spread = 1 - peak;
+  const pClean = answer.type === "choice" && probe.clean !== undefined
+    ? (mass as Record<string, number>)[probe.clean]
+    : undefined;
+  if (pClean !== undefined) fields.pClean = pClean;
+  fields.pTop = answer.type === "score" ? values[values.length - 1]! : peak;
+  const torn = fields.spread > TORN_SPREAD ||
+    (pClean !== undefined && pClean >= TORN_CLEAN_BAND[0] && pClean <= TORN_CLEAN_BAND[1]);
+  return { fields, torn };
 }
 
 /** How fully one criterion is satisfied, in [0,1] (D4). `choice` is categorical, never mass-weighted. */
@@ -195,13 +231,16 @@ export function jevScorer(opts: JevScorerOptions = {}): Scorer {
           return { id: dimension.id, score: noulOf(response.answers[dimension.id], dimension.id) };
         }
         const answers: CriterionAnswer[] = [];
+        const torn: string[] = [];
         let bound = probes[0]!.id;
         let weakest = Number.POSITIVE_INFINITY;
         let allClean = true;
         for (const probe of probes) {
           const key = criterionKey(dimension.id, probe.id);
-          const answer = readAnswer(response.answers[key], key, probe);
-          answers.push({ probe: probe.id, answer });
+          const { value: answer, answer: raw } = readAnswer(response.answers[key], key, probe);
+          const uncertainty = uncertaintyOf(probe, raw, answer);
+          answers.push({ probe: probe.id, answer, ...uncertainty.fields });
+          if (uncertainty.torn) torn.push(probe.id);
           const satisfaction = satisfactionOf(probe, answer);
           // Strictly less: the FIRST criterion in declared order wins a tie (R8).
           if (satisfaction < weakest) {
@@ -220,6 +259,7 @@ export function jevScorer(opts: JevScorerOptions = {}): Scorer {
           statementScore,
           ...(Math.abs(statementScore - composed) >= DIVERGENCE_MIN ? { divergence: true } : {}),
           diagnosis: answers,
+          ...(torn.length === 0 ? {} : { torn }),
           ...(rationale === undefined ? {} : { rationale }),
           allClean,
         };

@@ -38,6 +38,18 @@ export const DEFAULT_MAX_ATTEMPTS = 3;
 export const DEFAULT_PARETO_THRESHOLD = 0.8;
 
 /**
+ * Uncertainty thresholds (S2): code constants, never a task-document field (R36). A criterion is
+ * reported TORN — the judge itself was close to the boundary — when its answer distribution is wide
+ * or its clean-option mass sits near the split. A `noul` returns ONE probability and no mass, so its
+ * only within-judgment signal is the value's distance from 0.5.
+ */
+export const TORN_SPREAD = 0.35;
+/** The `noul` band: a single probability this close to 0.5 is a torn judgment (R16, R17). */
+export const TORN_NOUL_BAND = [0.45, 0.55] as const;
+/** The choice band: P(clean) inside it is a torn judgment (R17). */
+export const TORN_CLEAN_BAND = [0.4, 0.6] as const;
+
+/**
  * What a step does when it cannot reach its floor, unless the task or the flow says otherwise.
  * `continue` keeps the flow moving with the best attempt on the record; `escalate` halts the
  * instance in `failed` and records a needs-guidance signal. Escalation cannot route anywhere

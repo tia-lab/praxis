@@ -65,6 +65,55 @@ function noulOf(answer: Answer | undefined, id: string): number {
   return answer.noul;
 }
 
+/** One section as the task declares it: the id a criterion targets, and the judge-facing intent. */
+export interface SectionIntent {
+  id: string;
+  goal?: string;
+  rationale?: string;
+}
+
+/** The task's own intent, as the judge is told it. */
+export interface TaskIntent {
+  goal: string;
+  rationale?: string;
+  scope?: string;
+}
+
+/** A request-bound bound on the composed strings: the prefix adds at most a few hundred bytes per question. */
+const COMPOSED_MAX = 4096;
+const clipTo = (text: string, limit: number): string => (text.length <= limit ? text : text.slice(0, limit - 1) + "\u2026");
+
+/**
+ * The goal every question in the request shares (T3, R12): the ORDER first, then the task's own intent.
+ *
+ * With no order and no rationale/scope there is nothing to add, so the task's goal is returned VERBATIM
+ * - which is what keeps an unanchored call byte-identical to the request this adapter sent before
+ * (R19). The labels are added only when something is actually composed.
+ */
+export function composeGoal(order: string | undefined, task: TaskIntent): string {
+  const lines: string[] = [];
+  const trimmed = order === undefined ? "" : order.trim();
+  if (trimmed !== "") lines.push(clipTo(trimmed, 4000));
+  if (lines.length === 0 && task.rationale === undefined && task.scope === undefined) return task.goal;
+  lines.push("Task: " + clipTo(task.goal, 1000));
+  if (task.rationale !== undefined) lines.push("Why: " + clipTo(task.rationale, 1000));
+  if (task.scope !== undefined) lines.push("Scope: " + clipTo(task.scope, 1000));
+  return clipTo(lines.join("\n"), COMPOSED_MAX);
+}
+
+/**
+ * One criterion's question when it TARGETS sections (T3, R13): the question itself says which
+ * sections to judge and what those sections are for, so ONE request can carry differently scoped
+ * questions without slicing the artifact. A probe with no sections never reaches this function.
+ */
+export function composeQuestion(sections: readonly SectionIntent[], probe: Pick<Probe, "instructions">): string {
+  const ids = sections.map((section) => section.id).join("+");
+  const goals = sections.flatMap((section) => (section.goal === undefined ? [] : [section.goal]));
+  const whys = sections.flatMap((section) => (section.rationale === undefined ? [] : [section.rationale]));
+  const about = goals.length === 0 ? "" : " (" + goals.join("; ") + (whys.length === 0 ? "" : ". Why: " + whys.join("; ")) + ")";
+  return clipTo("Judge ONLY the " + ids + " section(s)" + about + ". Criterion: " + probe.instructions, COMPOSED_MAX);
+}
+
 /** The question a criterion asks: its own authored type, instructions and options, unchanged. */
 function questionOf(probe: Probe): Question {
   if (probe.type === "choice") {
@@ -208,9 +257,12 @@ export function rationaleFrom(
 export function jevScorer(opts: JevScorerOptions = {}): Scorer {
   const run = opts.evaluateFn ?? evaluate;
   return {
-    async score({ goal, rubric, artifact, subjectDigest }) {
+    async score({ goal, rubric, artifact, subjectDigest, context }) {
       // ONE request (R10): every criterion of every composed dimension, plus one witness per
       // dimension. A dimension without criteria keeps today's question, keyed by its own id.
+      // T3: ONE request, exactly today's shape. The only things that can differ are the composed GOAL
+      // and a targeted criterion's own instruction text; the subject is never sliced.
+      const intents = new Map((context?.sections ?? []).map((section) => [section.id, section] as const));
       const questions: Record<string, Question> = {};
       for (const dimension of rubric) {
         const probes = dimension.probes ?? [];
@@ -218,10 +270,20 @@ export function jevScorer(opts: JevScorerOptions = {}): Scorer {
           questions[dimension.id] = { type: "noul", instructions: JUDGE + dimension.statement };
           continue;
         }
-        for (const probe of probes) questions[criterionKey(dimension.id, probe.id)] = questionOf(probe);
+        for (const probe of probes) {
+          const key = criterionKey(dimension.id, probe.id);
+          if (probe.sections === undefined) {
+            // Untargeted: today's question, verbatim (R14").
+            questions[key] = questionOf(probe);
+            continue;
+          }
+          const targets = probe.sections.map((id) => intents.get(id) ?? { id });
+          questions[key] = { ...questionOf(probe), instructions: composeQuestion(targets, probe) };
+        }
         questions[dimension.id + "." + WITNESS] = { type: "noul", instructions: JUDGE + dimension.statement };
       }
-      const request: JevRequest = { state: { goal, artifact, subjectDigest }, questions, model: opts.model };
+      const composed = composeGoal(context?.order, { goal, ...(context?.task ?? {}) });
+      const request: JevRequest = { state: { goal: composed, artifact, subjectDigest }, questions, model: opts.model };
       const response = await run(request);
 
       const dimensions: DimensionJudgment[] = rubric.map((dimension) => {
@@ -239,7 +301,13 @@ export function jevScorer(opts: JevScorerOptions = {}): Scorer {
           const key = criterionKey(dimension.id, probe.id);
           const { value: answer, answer: raw } = readAnswer(response.answers[key], key, probe);
           const uncertainty = uncertaintyOf(probe, raw, answer);
-          answers.push({ probe: probe.id, answer, ...uncertainty.fields });
+          // The target is recorded with the answer, so the verdict shows WHAT was judged (R17).
+          answers.push({
+            probe: probe.id,
+            answer,
+            ...(probe.sections === undefined ? {} : { sections: [...probe.sections] }),
+            ...uncertainty.fields,
+          });
           if (uncertainty.torn) torn.push(probe.id);
           const satisfaction = satisfactionOf(probe, answer);
           // Strictly less: the FIRST criterion in declared order wins a tie (R8).

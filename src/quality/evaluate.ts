@@ -11,8 +11,8 @@
  * evaluator alone can render, because it alone knows the bar (the divergence clause, D5).
  */
 import { canonicalBytes, digest, digestOf } from "../runner/canonical.ts";
-import { advance, inspect, type AdvanceOptions } from "../runner/engine/index.ts";
-import { parseWith, QualityVerdictSchema, type Probe, type Quality, type QualityVerdict } from "../types/schema.ts";
+import { advance, inspect, orderFor, type AdvanceOptions } from "../runner/engine/index.ts";
+import { parseWith, QualityVerdictSchema, type Probe, type Quality, type QualityVerdict, type TaskConfig } from "../types/schema.ts";
 import type { QualityAttempt } from "../runner/engine/index.ts";
 import { barsFromQuality, compoundDecision, effectiveBarsFor, type Bars } from "./bar.ts";
 import { RATIONALE_DIVERGENCE, RATIONALE_MAX } from "./jev-scorer.ts";
@@ -25,6 +25,8 @@ import { RATIONALE_DIVERGENCE, RATIONALE_MAX } from "./jev-scorer.ts";
 export interface CriterionAnswer {
   probe: string;
   answer: string | number;
+  /** The artifact sections this criterion was asked to judge; absent means the whole artifact (R17). */
+  sections?: string[];
   /** The answer's own confidence, when the client reported one. */
   confidence?: number;
   /** choice: P(the declared clean option). */
@@ -64,12 +66,25 @@ export interface DimensionJudgment {
  * It sees the criteria because composition is the judge's arithmetic (D4); it never sees a bar, so
  * it cannot refuse — the engine and the compound decision own that.
  */
+/**
+ * What the judge is working ON (T3): the order the work was done for, the task's own intent, and the
+ * intent of each section a criterion targets. An INPUT to the scorer, never part of the request state:
+ * the state keeps exactly its three keys, so an order-less, untargeted call is byte-identical to today.
+ */
+export interface ScoringContext {
+  order?: string;
+  task?: { rationale?: string; scope?: string };
+  sections?: readonly { id: string; goal?: string; rationale?: string }[];
+}
+
 export interface Scorer {
   score(input: {
     goal: string;
     rubric: readonly { id: string; statement: string; probes?: readonly Probe[] }[];
     artifact: unknown;
     subjectDigest?: string;
+    /** The assignment, when the caller has one (T3). Absent means today's behaviour exactly. */
+    context?: ScoringContext;
   }): Promise<{ dimensions: DimensionJudgment[]; rationale: string; scorer: string }>;
 }
 
@@ -89,6 +104,15 @@ export function rulerDigest(quality: Quality, bars: Bars, formula: string = COMP
   return digestOf({ ruler: quality, floors: [...bars.perDimension], formula });
 }
 
+/**
+ * The score-cache key (T3, R18): the ruler AND the order the artifact was judged under. The same bytes
+ * submitted under a different order are a MISS, because the old verdict judged a different
+ * assignment. `rulerDigest` itself is untouched: the verdict still records the ruler alone.
+ */
+export function anchorKey(ruler: string, anchor: string | undefined): string {
+  return digestOf({ ruler, anchor: anchor ?? null });
+}
+
 const clamp01 = (n: number): number => (Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);
 const clip = (text: string, limit = 2000): string => (text.length <= limit ? text : text.slice(0, limit - 1) + "\u2026");
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
@@ -106,7 +130,7 @@ function degraded(rubricDigest: string, source: "unavailable" | "error", rationa
 export async function evaluateArtifact(
   scorer: Scorer | undefined,
   quality: Quality,
-  input: { goal: string; artifact: unknown; subjectDigest?: string },
+  input: { goal: string; artifact: unknown; subjectDigest?: string; context?: ScoringContext },
   /** The bars in force; absent means the rubric's own seed floors (no history consulted). */
   bars: Bars = barsFromQuality(quality),
 ): Promise<QualityVerdict> {
@@ -119,6 +143,7 @@ export async function evaluateArtifact(
       rubric: quality.dimensions,
       artifact: input.artifact,
       subjectDigest: input.subjectDigest,
+      ...(input.context === undefined ? {} : { context: input.context }),
     });
   } catch (error) {
     return degraded(rubricDigest, "error", "scorer error: " + messageOf(error));
@@ -180,6 +205,9 @@ export async function evaluateArtifact(
       flagged: compound.flagged,
       ...(torn.length === 0 ? {} : { torn }),
       ...(provisionalOn.length === 0 ? {} : { provisional: true, provisionalOn }),
+      // T3: was this artifact judged against an order, and which one? Absent when there was none, so a
+      // verdict recorded without an assignment parses and compares exactly as before.
+      ...(input.context?.order === undefined ? {} : { anchored: true, anchorDigest: digest(input.context.order) }),
       rationale: clip(raw.rationale),
       rubricDigest,
       scorer: raw.scorer,
@@ -188,6 +216,39 @@ export async function evaluateArtifact(
     "RESULT_INVALID",
     "quality verdict",
   );
+}
+
+/**
+ * The assignment for one submission (T3): the order it was done for, the task's own intent and the
+ * intent of every section it declares. `undefined` when there is nothing to say, so an unanchored
+ * submission sends exactly the request it always did (R19).
+ */
+function scoringContextOf(task: TaskConfig, order: string | undefined): ScoringContext | undefined {
+  const clauses = task.requires === undefined ? [] : Array.isArray(task.requires) ? task.requires : [task.requires];
+  const sections = clauses.flatMap((clause) =>
+    clause.goal === undefined && clause.rationale === undefined
+      ? []
+      : [
+          {
+            id: clause.section,
+            ...(clause.goal === undefined ? {} : { goal: clause.goal }),
+            ...(clause.rationale === undefined ? {} : { rationale: clause.rationale }),
+          },
+        ],
+  );
+  const intent =
+    task.rationale === undefined && task.scope === undefined
+      ? undefined
+      : {
+          ...(task.rationale === undefined ? {} : { rationale: task.rationale }),
+          ...(task.scope === undefined ? {} : { scope: task.scope }),
+        };
+  if (order === undefined && intent === undefined && sections.length === 0) return undefined;
+  return {
+    ...(order === undefined ? {} : { order }),
+    ...(intent === undefined ? {} : { task: intent }),
+    ...(sections.length === 0 ? {} : { sections }),
+  };
 }
 
 /**
@@ -200,12 +261,15 @@ export async function evaluateArtifact(
 function cachedVerdict(
   history: readonly QualityAttempt[],
   artifactDigest: string,
-  rubricDigest: string,
+  cacheKey: string,
 ): QualityVerdict | undefined {
   let found: QualityVerdict | undefined;
   for (const attempt of history) {
     if (attempt.artifactDigest !== artifactDigest) continue;
-    if (attempt.verdict.rubricDigest !== rubricDigest) continue;
+    // Both sides of the comparison are built the same way: the CURRENT ruler + order against the
+    // ruler + order the candidate verdict was RECORDED under (R18).
+    const recorded = anchorKey(attempt.verdict.rubricDigest, attempt.verdict.anchorDigest);
+    if (recorded !== cacheKey) continue;
     found = attempt.verdict;
   }
   return found;
@@ -235,12 +299,17 @@ export async function advanceEvaluated(
       const ruler = { ...effective, threshold: bars.global };
       const subjectDigest = view.handoffs.length === 1 ? view.handoffs[0].digest : undefined;
       const artifactDigest = digest(canonicalBytes(options.artifact === undefined ? {} : options.artifact));
-      const cached = cachedVerdict(view.qualityHistory, artifactDigest, rulerDigest(ruler, bars));
+      // T3: the assignment the judge is given. The reads here are pure and the store is already
+      // closed when the scorer runs, so no jev call happens inside a transaction.
+      const order = orderFor({ ...options });
+      const context = scoringContextOf(task, order);
+      const cacheKey = anchorKey(rulerDigest(ruler, bars), order === undefined ? undefined : digest(order));
+      const cached = cachedVerdict(view.qualityHistory, artifactDigest, cacheKey);
       if (cached !== undefined) return advance({ ...options, qualityVerdict: cached });
       const verdict = await evaluateArtifact(
         options.scorer,
         ruler,
-        { goal: task.goal, artifact: options.artifact, subjectDigest },
+        { goal: task.goal, artifact: options.artifact, subjectDigest, ...(context === undefined ? {} : { context }) },
         bars,
       );
       return advance({ ...options, qualityVerdict: verdict });

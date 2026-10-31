@@ -47,6 +47,10 @@ export function qualityHistory(store: Store, instance: string, step: string): Qu
           dimensions: payload.dimensions,
           // S2: the judge's uncertainty is recorded evidence; a re-read must not drop it (R14, R17).
           ...(payload.torn === undefined ? {} : { torn: payload.torn }),
+          // T3: the anchor is what the score cache compares, so a re-read that dropped it would make
+          // every anchored resubmit a miss (R18) and lose the anchor from the brief (R17).
+          ...(payload.anchored === undefined ? {} : { anchored: payload.anchored }),
+          ...(payload.anchorDigest === undefined ? {} : { anchorDigest: payload.anchorDigest }),
           // S6: the provisional report is recorded evidence too; a re-read must not drop it (R35).
           ...(payload.provisional === undefined ? {} : { provisional: payload.provisional }),
           ...(payload.provisionalOn === undefined ? {} : { provisionalOn: payload.provisionalOn }),

@@ -134,16 +134,29 @@ test("R10: the order alone changes no verdict", async () => {
     const payload = { schema: "praxis.artifact.make/v1", attempt: 1 };
     await submitJudged(ws, { instance: withOrder.instance.id, nonce: withOrder.instance.nonce }, tick(), 1, sequenceScorer([0.9]));
     await submitJudged(ws, { instance: withoutOrder.instance.id, nonce: withoutOrder.instance.nonce }, tick(), 1, sequenceScorer([0.9]));
-    const verdicts = [withOrder.instance.id, withoutOrder.instance.id].map((instance) => {
+    const payloads = [withOrder.instance.id, withoutOrder.instance.id].map((instance) => {
       const event = eventsOf(ws, instance).find((candidate) => candidate.type === "quality.verdict");
       assert.ok(event, "a verdict was recorded");
-      // artifactDigest covers the artifact, which carries each instance own nonce: it is the one
-      // field a DIFFERENT instance must change. Everything the JUDGE produced must be identical.
-      const { artifactDigest, ...rest } = event!.payload as { artifactDigest?: string };
-      void artifactDigest;
-      return JSON.stringify(rest);
+      return event!.payload as Record<string, unknown>;
     });
-    assert.equal(verdicts[0], verdicts[1], "the order alone changes nothing the judge produced");
+    // Two fields cannot be equal and must not be: artifactDigest covers the artifact, which carries
+    // each instance own nonce, and T3 records the ANCHOR MARKERS on an anchored verdict by design
+    // (R17). Everything else - the scoring arithmetic: composition, MIN, bound, statementScore - is
+    // unchanged under a fixed judge. Narrowed by the lead ruling of 2026-10-31 (R10 is T2 scaffolding
+    // and T3 legitimately makes the order change the verdict).
+    const scoring = payloads.map((recorded) => {
+      const copy = { ...recorded };
+      delete copy.artifactDigest;
+      delete copy.anchored;
+      delete copy.anchorDigest;
+      return JSON.stringify(copy);
+    });
+    assert.equal(scoring[0], scoring[1], "the order changes no field the scoring arithmetic produced");
+    // The ONLY difference is the anchor, and it appears exactly where an order exists.
+    assert.equal(payloads[0]!.anchored, true, "the anchored run records the anchor");
+    assert.equal(payloads[0]!.anchorDigest, digest(ORDER), "with the digest of the order it judged");
+    assert.equal(payloads[1]!.anchored, undefined, "the unanchored run records no anchor");
+    assert.equal(payloads[1]!.anchorDigest, undefined);
     void payload;
   } finally {
     restore();

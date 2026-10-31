@@ -147,7 +147,7 @@ export type TaskState = z.infer<typeof TaskStateSchema>;
  * here — edges carry both facts.
  */
 /** The quality rubric: probes, dimensions and the floor, defined once in `./quality.ts` (re-exported). */
-import { PROBES_TOTAL, QualitySchema } from "./quality.ts";
+import { PROBES_TOTAL, QualitySchema, SectionNameSchema } from "./quality.ts";
 export {
   PROBES_PER_DIMENSION,
   PROBES_TOTAL,
@@ -192,6 +192,8 @@ export const QualityVerdictSchema = z.strictObject({
           z.strictObject({
             probe: z.string().min(1).max(128),
             answer: z.union([z.string().min(1).max(80), z.number().min(0).max(10)]),
+            /** The sections this criterion was asked to judge; absent means the whole artifact (T3, R17). */
+            sections: z.array(SectionNameSchema).min(1).max(6).optional(),
             /** The judge's own uncertainty (S2). Absent when the client reported none — never 0-filled. */
             confidence: z.number().min(0).max(1).optional(),
             pClean: z.number().min(0).max(1).optional(),
@@ -221,6 +223,13 @@ export const QualityVerdictSchema = z.strictObject({
    * honest about being close, and still decides exactly as it would have (R35).
    */
   provisional: z.boolean().optional(),
+  /** True when this artifact was judged against an ORDER, not only the task goal (T3, R17). */
+  anchored: z.boolean().optional(),
+  /**
+   * The digest of the order it was judged against (T3, R18), the same value recorded on
+   * `instance.created`: two orders are two assignments, and the score cache must not fold them.
+   */
+  anchorDigest: DigestSchema.optional(),
   /** Which deciding criteria were torn, and which signal made them torn (S6, R34). */
   provisionalOn: z
     .array(

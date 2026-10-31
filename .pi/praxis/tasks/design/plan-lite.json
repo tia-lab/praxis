@@ -1,6 +1,6 @@
 {
   "id": "plan-lite",
-  "version": 3,
+  "version": 4,
   "state": "published",
   "gate": "section-requirements",
   "goal": "name the steps, the checks that prove them and the recovery path for a small, bounded change",
@@ -56,7 +56,6 @@
         "statement": "The artifact directly serves the goal it was given, answering what was actually asked rather than a drifted, broadened, or adjacent interpretation of it."
       }
     ],
-    "threshold": 0.6,
     "policy": "required"
   }
 }

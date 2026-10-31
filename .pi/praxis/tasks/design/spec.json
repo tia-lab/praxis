@@ -1,6 +1,6 @@
 {
   "id": "spec",
-  "version": 3,
+  "version": 4,
   "state": "published",
   "gate": "section-requirements",
   "goal": "state requirements with failure behaviour and an oracle, and the model behind them",
@@ -130,7 +130,6 @@
         "statement": "The artifact directly serves the goal it was given, answering what was actually asked rather than a drifted, broadened, or adjacent interpretation of it."
       }
     ],
-    "threshold": 0.6,
     "policy": "required"
   }
 }

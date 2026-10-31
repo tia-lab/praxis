@@ -1,6 +1,6 @@
 {
   "id": "assess",
-  "version": 3,
+  "version": 4,
   "state": "published",
   "gate": "section-requirements",
   "goal": "record the behaviour and structure a refactor must preserve; changing behaviour is out of scope",
@@ -61,7 +61,6 @@
         "statement": "The artifact directly serves the goal it was given, answering what was actually asked rather than a drifted, broadened, or adjacent interpretation of it."
       }
     ],
-    "threshold": 0.6,
     "policy": "required"
   }
 }

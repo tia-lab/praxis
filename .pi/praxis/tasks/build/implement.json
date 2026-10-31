@@ -1,6 +1,6 @@
 {
   "id": "implement",
-  "version": 3,
+  "version": 4,
   "state": "published",
   "gate": "section-requirements",
   "goal": "make the change the plan declares, and record what actually ran",
@@ -58,7 +58,6 @@
         "statement": "The artifact directly serves the goal it was given, answering what was actually asked rather than a drifted, broadened, or adjacent interpretation of it."
       }
     ],
-    "threshold": 0.6,
     "policy": "required"
   }
 }

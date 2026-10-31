@@ -1,11 +1,11 @@
 {
   "id": "research",
-  "version": 7,
+  "version": 8,
   "state": "published",
   "gate": "section-requirements",
   "goal": "establish what is true from sources and the code before anything is designed",
   "rationale": "A design decision made on unverified claims is the expensive failure this stage prevents; research exists so every later choice rests on checkable evidence rather than assumption.",
-  "scope": "Claims about this repository and its shipped code at the current working tree \u2014 not the roadmap, not other projects, and no design or implementation. Only what is true now, each claim anchored to a source or a path:line.",
+  "scope": "Claims about this repository and its shipped code at the current working tree — not the roadmap, not other projects, and no design or implementation. Only what is true now, each claim anchored to a source or a path:line.",
   "capabilities": [
     "artifact.write",
     "emit",
@@ -74,7 +74,6 @@
       {
         "id": "grounded",
         "statement": "Every claim rests on a cited source or code location, not on assertion.",
-        "floor": 0.6,
         "probes": [
           {
             "id": "supported",
@@ -95,7 +94,6 @@
       {
         "id": "covers-question",
         "statement": "The stated question and its boundary are fully answered.",
-        "floor": 0.6,
         "probes": [
           {
             "id": "within-boundary",
@@ -125,7 +123,6 @@
       {
         "id": "honest-uncertainty",
         "statement": "Real unknowns and competing explanations are named, and the stated confidence matches the evidence.",
-        "floor": 0.6,
         "probes": [
           {
             "id": "unknowns-named",
@@ -164,7 +161,6 @@
       {
         "id": "parsimony",
         "statement": "Every item serves the stated question; nothing is duplicated or off-topic.",
-        "floor": 0.6,
         "probes": [
           {
             "id": "distinct",
@@ -188,7 +184,6 @@
       {
         "id": "alignment",
         "statement": "The artifact directly serves the goal it was given, not a broadened or adjacent interpretation of it.",
-        "floor": 0.6,
         "probes": [
           {
             "id": "serves-goal",
@@ -198,7 +193,6 @@
         ]
       }
     ],
-    "threshold": 0.6,
     "policy": "required"
   }
 }

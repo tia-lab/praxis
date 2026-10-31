@@ -116,7 +116,7 @@ export const QualitySchema = z.strictObject({
    * @deprecated since quantile-bars: there is no global bar and no mean bar. Parsed and ignored,
    * kept so existing documents and pins still load.
    */
-  threshold: z.number().min(0).max(1),
+  threshold: z.number().min(0).max(1).default(0.5),
   policy: z.enum(["required", "advisory"]),
   /**
    * How many refused attempts one step may make before the onFailure policy applies (quality

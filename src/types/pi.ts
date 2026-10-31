@@ -125,7 +125,9 @@ export const StepDescriptorSchema = z.strictObject({
      */
     quality: z
       .strictObject({
-        dimensions: z.array(QualityDimensionSchema).min(1).max(8),
+        // The rubric as the BRIEF shows it: identity, statement and floor — never the probe battery,
+        // which is the judge's business and would only bloat the envelope.
+        dimensions: z.array(QualityDimensionSchema.omit({ probes: true })).min(1).max(8),
         /**
          * The threshold IN FORCE: the task's authored min_floor, or the higher bar the engine has
          * ratcheted to from stable history (O2). The agent never sets it and cannot see the code.
@@ -146,6 +148,35 @@ export const StepDescriptorSchema = z.strictObject({
             threshold: z.number().min(0).max(1),
             /** Per dimension id: `min(earnedBar_d, paretoThreshold)`. */
             dimensions: z.record(z.string().min(1).max(64), z.number().min(0).max(1)),
+          })
+          .optional(),
+        /**
+         * The RECORDED judgment this step already carries, for the note-owed step: its score, the
+         * flagged set and each dimension's structured diagnosis and rendered rationale
+         * (verdict-rationale D12b). Read from the log, never recomputed; absent until the step has a
+         * recorded verdict.
+         */
+        judgment: z
+          .strictObject({
+            score: z.number().min(0).max(1),
+            mean: z.number().min(0).max(1).optional(),
+            flagged: z.array(z.string().min(1).max(64)).max(8),
+            dimensions: z.array(
+              z.strictObject({
+                id: z.string().min(1).max(64),
+                score: z.number().min(0).max(1),
+                rationale: z.string().min(1).max(240).optional(),
+                diagnosis: z
+                  .array(
+                    z.strictObject({
+                      probe: z.string().min(1).max(128),
+                      answer: z.union([z.string().min(1).max(80), z.number().min(0).max(10)]),
+                    }),
+                  )
+                  .max(48)
+                  .optional(),
+              }),
+            ),
           })
           .optional(),
         /** The judging stance: what the judge does, in the agent's own terms (F1). */
@@ -238,6 +269,12 @@ export const RecallCaseSchema = z.strictObject({
     at: TimestampSchema,
   }),
   outcome: z.literal("pass"),
+  /**
+   * The recorded rationale of THIS exemplar's verdict for the dimension the query is about — by
+   * reference from the `quality.verdict` event, never a third stored copy (verdict-rationale D12c).
+   * Absent when that dimension carries no rationale.
+   */
+  rationale: z.string().min(1).max(240).optional(),
   lesson: z.strictObject({
     whatWrong: z.string().max(400),
     whatRight: z.string().max(400),

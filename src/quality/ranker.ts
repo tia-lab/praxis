@@ -55,12 +55,16 @@ export interface ExperienceCase {
   writtenBy: string;
   at: string;
   lesson: { whatWrong: string; whatRight: string; whatBetter: string; tags: { dimension: string; lesson: string }[] };
+  /** The recorded per-dimension rationale of this case's verdict, keyed by dimension id (D12c). */
+  rationales: Map<string, string>;
   /** Not returned to the caller; the ranking's inputs only. */
   signals: CaseSignals;
 }
 
 /** One ranked case: the case, the weighted score, the signal breakdown and why it won. */
 export interface RankedCase extends ExperienceCase {
+  /** The ONE relevant dimension's rationale for this query, when the verdict has one (D12c). */
+  rationale?: string;
   score2: number;
   relevance: { need: number; outcome: number; corroboration: number; recency: number; margin: number };
   reason: string;
@@ -73,13 +77,29 @@ export interface RankerPort {
 
 const clip = (text: string, limit: number): string => (text.length <= limit ? text : text.slice(0, limit - 1) + "\u2026");
 
+/**
+ * The rationale to show for a case: the ONE relevant dimension's — the first query tag whose verdict
+ * carries one, in the caller's tag order (refusal passes the refused set, the brief its rubric). No
+ * fallback to another dimension: showing the wrong dimension's why would be worse than none (D12c).
+ */
+function relevantRationale(tags: readonly string[], rationales: Map<string, string>): string | undefined {
+  for (const tag of tags) {
+    const line = rationales.get(tag);
+    if (line !== undefined) return line;
+  }
+  return undefined;
+}
+
 /** The rough token cost of one lesson, used only to respect the payload budget. */
 function lessonTokens(candidate: ExperienceCase): number {
+  const rationale = (candidate as { rationale?: string }).rationale;
   const chars =
     candidate.lesson.whatWrong.length +
     candidate.lesson.whatRight.length +
     candidate.lesson.whatBetter.length +
-    candidate.lesson.tags.reduce((sum, tag) => sum + tag.lesson.length + tag.dimension.length, 0);
+    candidate.lesson.tags.reduce((sum, tag) => sum + tag.lesson.length + tag.dimension.length, 0) +
+    // The exemplar's rationale travels with it, so the budget must count it (D12c).
+    (rationale === undefined ? 0 : rationale.length);
   return Math.ceil(chars / 4) + 8;
 }
 
@@ -107,8 +127,11 @@ export function deterministicRanker(): RankerPort {
         const strongest = (["coverage", "outcome", "corroboration", "recency", "margin"] as const)
           .map((name) => ({ name, value: breakdown[name] }))
           .sort((left, right) => right.value - left.value || left.name.localeCompare(right.name))[0];
+        // The ONE relevant dimension's rationale: the first query tag this verdict explains (D12c).
+        const rationale = relevantRationale(need.tags, candidate.rationales);
         return {
           ...candidate,
+          ...(rationale === undefined ? {} : { rationale }),
           score2: scored.relevance,
           relevance: {
             need: breakdown.coverage,
@@ -159,7 +182,7 @@ function pinnedQuality(store: Store, instance: string, task: string): TaskConfig
 export function collectCases(store: Store): ExperienceCase[] {
   const events = scanEvents(store, [EVENT.artifactAccepted, EVENT.qualityVerdict, EVENT.learningNote, EVENT.barRaised]);
   const notes = new Map<string, { agent: string; at: string; note: ReturnType<typeof LearningNoteSchema.parse> }>();
-  const verdicts = new Map<string, { score: number; mean: number; flagged: string[] }>();
+  const verdicts = new Map<string, { score: number; mean: number; flagged: string[]; rationales: Map<string, string> }>();
   const authorities = new Map<string, Set<string>>();
   const raisesByTask = new Map<string, { to: number; at: string }[]>();
   for (const event of events) {
@@ -180,6 +203,14 @@ export function collectCases(store: Store): ExperienceCase[] {
           score: Number(payload.score),
           mean: typeof payload.mean === "number" ? payload.mean : Number(payload.score),
           flagged: Array.isArray(payload.flagged) ? payload.flagged.map(String) : [],
+          // The battery's rendered why per dimension, read BY REFERENCE from the verdict (D12c): the
+          // note event stays the one owner of lesson text, and this is the verdict's own evidence.
+          rationales: new Map(
+            (Array.isArray(payload.dimensions) ? payload.dimensions : []).flatMap((entry) => {
+              const cell = entry as { id?: unknown; rationale?: unknown };
+              return typeof cell.id === "string" && typeof cell.rationale === "string" ? [[cell.id, cell.rationale]] : [];
+            }),
+          ),
         },
       );
     } else if (event.type === EVENT.barRaised) {
@@ -221,6 +252,7 @@ export function collectCases(store: Store): ExperienceCase[] {
       score: verdict.score,
       mean: verdict.mean,
       flagged: verdict.flagged,
+      rationales: verdict.rationales,
       writtenBy: note.agent,
       at: event.at,
       lesson: {
@@ -255,6 +287,8 @@ export interface RecallPayload {
     relevance: RankedCase["relevance"];
     provenance: { instance: string; task: string; taskVersion: number; step: string; version: number; digest: string; writtenBy: string; at: string };
     outcome: string;
+    /** The relevant dimension's rationale, by reference from the verdict (verdict-rationale D12c). */
+    rationale?: string;
     lesson: ExperienceCase["lesson"];
   }>;
 }
@@ -282,6 +316,7 @@ export function applyBounds(ranked: readonly RankedCase[], max: number, budget =
         at: candidate.at,
       },
       outcome: candidate.outcome,
+      ...(candidate.rationale === undefined ? {} : { rationale: candidate.rationale }),
       lesson: candidate.lesson,
     });
   }

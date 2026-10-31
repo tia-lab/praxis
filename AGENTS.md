@@ -762,6 +762,27 @@ acceptance here before building.
   a 'Recall — exact' subsection with numbers matching code. jev-ranked results are recorded but not reproducible
   (stated plainly). Committed through the husky hook. This completes the recall/quality arc; Lever A (weak-set
   recency bug) remains the one separate follow-up.
+- **2026-10-31 — verdict-rationale (G2 PASS, implementation authorized).** Owner approved directly after a
+  design round that replaced a single-label rationale with a per-dimension **jev probe battery** (the owner's
+  design: compose each dimension as jev logic). Doc: `docs/verdict-rationale-ad85142e/` (research + spec +
+  review). Scope: `src/types/schema.ts` (`QualityDimensionSchema.probes?`; `QualityVerdictSchema.dimensions[]`
+  gains additive-optional `diagnosis?`/`rationale?`), `src/quality/evaluate.ts` (the `Scorer` port gains an
+  OPTIONAL `explain?`; the verdict is computed exactly as today and the rationale filled afterward),
+  `src/quality/jev-scorer.ts` (the explain-only battery call + code-owned rendering, `RATIONALE_MAX`),
+  the three surfaces (`src/pi/operations.ts` refusal handback, `src/pi/descriptor.ts` + `src/types/pi.ts`
+  pre-note `brief.quality.judgment`, `src/quality/ranker.ts` recall `RecallCase.rationale` by reference),
+  the research task rubric's probe batteries, and `tests/`. Acceptance: the scoring `noul` request is
+  byte-identical (zero drift, pinned test + a golden); the battery is ONE explain-only `evaluate` call that
+  never feeds the gate/score/mean/flagged/bars and whose throw/timeout leaves the verdict byte-identical;
+  probes cap 6/dimension and 48/rubric, `CONFIG_INVALID` at parse; `diagnosis`/`rationale` are
+  additive-optional and NOT in `rulerDigest`; the rationale surfaces in the refusal handback, the pre-note
+  brief and recall (relevant dimension, by reference, inside the token budget); the D11 divergence clause
+  fires on score-below-bar-but-probes-clean; old verdicts parse unchanged; no table/migration/STORE_SCHEMA
+  bump/dependency; `tsc` clean and the suite green. Not authorized: free-text/LLM-prose rationale (a separate
+  dependency), rationale in `Quality`/`rulerDigest`/the floor, backfilling old verdicts, a new table/event/
+  migration, recomputing the score from the battery, or authoring probes for tasks beyond `research` in this
+  unit (other tasks' probes are a later data pass). **G3 PASS (2026-10-31, verified by running): tsc 0, suite 301/301, scoring request byte-identical (zero drift, pinned), explain never a gate input, store `praxis.store/v2` untouched, `research.json` v5 / 19 probes. Engineer commits; the lead never commits.**
+
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a
 tool denies it, stop and correct host rooting rather than bypass the denial.

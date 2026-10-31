@@ -10,7 +10,9 @@ import { parseWith, type Artifact, type Instance, type Quality, type ResolvedNod
 import { ArtifactSummarySchema, StepDescriptorSchema, type ArtifactSummary, type StepDescriptor } from "../types/pi.ts";
 import type { RecallSet } from "../types/learning.ts";
 import { CAPABILITY_NAMES, grantFor } from "../runner/capabilities.ts";
+import { qualityHistory } from "../runner/engine/index.ts";
 import type { EngineOptions, HandoffRef, OpenedFlow } from "../runner/engine/index.ts";
+import { withStore } from "../runner/engine/support.ts";
 import { briefRecall, effectiveBarsFor, gateBar } from "../quality/index.ts";
 import { noteStanding } from "../runner/note-gate.ts";
 
@@ -45,8 +47,18 @@ export const JUDGING_STANCE =
 
 /** What the brief discloses about the standard plus what the past teaches (F1, F3, F7). */
 
+/** The recorded judgment of the step that owes a note, so the note is evidence-backed (D12b). */
+export interface NoteJudgment {
+  score: number;
+  mean?: number;
+  flagged: string[];
+  dimensions: { id: string; score: number; rationale?: string; diagnosis?: { probe: string; answer: string | number }[] }[];
+}
+
 interface LearningView {
   bar: number | undefined;
+  /** The recorded verdict of the note-owed step, when there is one. */
+  judgment: NoteJudgment | undefined;
   /**
    * The gate actually applied, per scope: `gateBar(earnedBar, pareto)`. Reported BESIDE the earned
    * bar so the agent sees the aspiration and the standard the gate enforces, and never over-works to
@@ -82,8 +94,30 @@ export function learningView(options: EngineOptions, flow: OpenedFlow, instance:
   // The same effective bars the gate and the recorded bar are derived from, capped at the Pareto
   // point: one formula (`gateBar`), so the brief cannot disagree with the gate.
   const bars = quality === undefined ? undefined : effectiveBarsFor(options, resolved.node.task, quality);
+  // The judgment the note must be evidence-backed by: the RECORDED verdict of the step that owes it.
+  // One existing read (qualityHistory), no new store path, no recomputation.
+  const judgment =
+    standing.pending === undefined
+      ? undefined
+      : withStore(options, (store) => {
+          const attempts = qualityHistory(store, instance.id, standing.pending === undefined ? "" : standing.pending.step);
+          const recorded = attempts.length === 0 ? undefined : attempts[attempts.length - 1].verdict;
+          if (recorded === undefined) return undefined;
+          return {
+            score: recorded.score,
+            ...(recorded.mean === undefined ? {} : { mean: recorded.mean }),
+            flagged: recorded.flagged ?? [],
+            dimensions: recorded.dimensions.map((dimension) => ({
+              id: dimension.id,
+              score: dimension.score,
+              ...(dimension.rationale === undefined ? {} : { rationale: dimension.rationale }),
+              ...(dimension.diagnosis === undefined ? {} : { diagnosis: dimension.diagnosis }),
+            })),
+          };
+        });
   return {
     bar: recall?.bar,
+    judgment,
     gate:
       bars === undefined
         ? undefined
@@ -148,9 +182,15 @@ export function stepDescriptor(
           ? {}
           : {
               quality: {
-                dimensions: quality.dimensions,
+                // The brief shows the rubric, not the judge's battery: identity, statement and floor.
+                dimensions: quality.dimensions.map((dimension) => ({
+                  id: dimension.id,
+                  statement: dimension.statement,
+                  ...(dimension.floor === undefined ? {} : { floor: dimension.floor }),
+                })),
                 threshold: learning?.bar ?? quality.threshold,
                 ...(learning?.gate === undefined ? {} : { gate: learning.gate }),
+                ...(learning?.judgment === undefined ? {} : { judgment: learning.judgment }),
                 policy: quality.policy,
                 aggregation: "min" as const,
                 judging: JUDGING_STANCE,

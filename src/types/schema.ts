@@ -139,9 +139,69 @@ export type TaskState = z.infer<typeof TaskStateSchema>;
  * here — edges carry both facts.
  */
 /** A decomposed quality rubric a task is judged against (the quality floor). */
+/**
+ * One jev probe: an independent, calibrated question whose answer helps explain why a dimension
+ * scored what it scored (verdict-rationale D4). Phrased POSITIVELY for `noul` (the probability that
+ * the property holds), `choice` names its options and says which one is the satisfied answer,
+ * `score` lists its ordered levels worst-first. A dimension without probes has no structured why.
+ */
+export const ProbeSchema = z
+  .strictObject({
+    id: z.string().min(1).max(64).regex(/^[a-z0-9-]+$/, "expected a lower-case kebab probe id"),
+    type: z.enum(["choice", "noul", "score"]),
+    instructions: z.string().min(1).max(500),
+    /** `choice`: 2-8 named options (the answer is one key). `score`: 2-10 ordered levels, worst first. */
+    criteria: z
+      .union([
+        z.record(z.string().min(1).max(64), z.string().min(1).max(200)),
+        z.array(z.string().min(1).max(200)),
+      ])
+      .optional(),
+    /** `choice` only: the option key that counts as satisfied (the clean answer). */
+    clean: z.string().min(1).max(64).optional(),
+  })
+  .superRefine((probe, ctx) => {
+    const issue = (path: string, message: string): void => {
+      ctx.addIssue({ code: "custom", path: [path], message });
+    };
+    if (probe.type === "noul") {
+      if (probe.criteria !== undefined) issue("criteria", "a noul probe carries no criteria");
+      if (probe.clean !== undefined) issue("clean", "a noul probe has no clean option");
+      return;
+    }
+    if (probe.type === "choice") {
+      if (probe.criteria === undefined || Array.isArray(probe.criteria)) {
+        issue("criteria", "a choice probe needs a criteria map of named options");
+        return;
+      }
+      const options = Object.keys(probe.criteria);
+      if (options.length < 2 || options.length > 8) issue("criteria", "a choice probe needs 2-8 options");
+      if (probe.clean === undefined) issue("clean", "a choice probe must name its clean option");
+      else if (!options.includes(probe.clean)) issue("clean", "the clean option must be one of the criteria keys");
+      return;
+    }
+    if (!Array.isArray(probe.criteria)) {
+      issue("criteria", "a score probe needs 2-10 ordered levels");
+      return;
+    }
+    if (probe.criteria.length < 2 || probe.criteria.length > 10) issue("criteria", "a score probe needs 2-10 levels");
+    if (probe.clean !== undefined) issue("clean", "a score probe is clean at its top level, not by name");
+  });
+export type Probe = z.infer<typeof ProbeSchema>;
+
+/** How many probes one dimension may declare (allowed by parse, not by hope). */
+export const PROBES_PER_DIMENSION = 6;
+/** How many probes a whole rubric may declare: 8 dimensions x 6, far under pi-jev's 128-question limit. */
+export const PROBES_TOTAL = 48;
+
 export const QualityDimensionSchema = z.strictObject({
   id: z.string().min(1).max(64),
   statement: z.string().min(1).max(500),
+  /**
+   * This dimension's composed jev battery: the probes that diagnose WHY it scored what it scored
+   * (verdict-rationale D1). Optional: a dimension without probes simply has no structured why.
+   */
+  probes: z.array(ProbeSchema).min(1).max(PROBES_PER_DIMENSION).optional(),
   /**
    * This dimension's own floor. Omitted means it seeds from the task's `threshold`, so an existing
    * rubric keeps working unchanged. Each floor ratchets independently of the others and of the
@@ -173,6 +233,25 @@ export const QualitySchema = z.strictObject({
    * and the pin; the ratchet itself is unaffected.
    */
   paretoThreshold: z.number().min(0).max(1).optional(),
+}).superRefine((quality, ctx) => {
+  // A rubric's probe batteries must be answerable in ONE jev request (spec D4): unique probe ids per
+  // dimension, and at most PROBES_TOTAL across the rubric — so a VALID task can never overflow pi-jev's
+  // own limits at runtime.
+  let total = 0;
+  for (const dimension of quality.dimensions) {
+    const probes = dimension.probes ?? [];
+    total += probes.length;
+    const seen = new Set<string>();
+    for (const probe of probes) {
+      if (seen.has(probe.id)) {
+        ctx.addIssue({ code: "custom", path: ["dimensions", dimension.id, "probes"], message: "duplicate probe id " + JSON.stringify(probe.id) });
+      }
+      seen.add(probe.id);
+    }
+  }
+  if (total > PROBES_TOTAL) {
+    ctx.addIssue({ code: "custom", path: ["dimensions"], message: "at most " + PROBES_TOTAL + " probes per rubric, found " + total });
+  }
 });
 export type Quality = z.infer<typeof QualitySchema>;
 
@@ -187,6 +266,21 @@ export const QualityVerdictSchema = z.strictObject({
       score: z.number().min(0).max(1),
       /** The dimension's identity key (id + statement) in force when it was judged (per-scope bars). */
       key: z.string().min(1).max(64).optional(),
+      /**
+       * The jev battery's structured answers for this dimension (verdict-rationale D6): the evidence a
+       * reader reasons from. Additive and optional — a verdict recorded before the battery has none.
+       */
+      diagnosis: z
+        .array(
+          z.strictObject({
+            probe: z.string().min(1).max(128),
+            answer: z.union([z.string().min(1).max(80), z.number().min(0).max(10)]),
+          }),
+        )
+        .max(PROBES_TOTAL)
+        .optional(),
+      /** The rendered, bounded line the agent was shown for this dimension (D7). Evidence, never a gate input. */
+      rationale: z.string().min(1).max(240).optional(),
     }),
   ),
   /** MEAN over the dimensions: the value the global bar gates on (stamped by the engine). */

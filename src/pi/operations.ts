@@ -266,6 +266,10 @@ function qualityFeedback(error: unknown, options: EngineOptions & { instance: st
       score: dimension.score,
       statement: statements.get(dimension.id) ?? "",
       belowThreshold: dimension.score < bar,
+      // The battery's structured why for this dimension, beside the recalled exemplars (D12a). Absent
+      // when the task declares no probes or the battery was unavailable — never an empty object.
+      ...(dimension.rationale === undefined ? {} : { rationale: dimension.rationale }),
+      ...(dimension.diagnosis === undefined ? {} : { diagnosis: dimension.diagnosis }),
     }));
     const weakest = dimensions.length === 0 ? undefined : dimensions.reduce((low, current) => (current.score < low.score ? current : low));
     // Escalating re-injection (O1): the refusal points at the single best-recorded lesson for the

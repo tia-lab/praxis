@@ -212,6 +212,31 @@ ranker answers that call and **nothing is cached**, so the next jev-up recall re
 envelope is unchanged — same `{need, count, truncated, cases}` — and a jev-ranked set is recorded
 with its model and token spend; like the alignment judgment it is recorded, not reproducible.
 
+**The why on a verdict — the probe battery.** A score alone does not say *why*. Each rubric dimension
+may therefore declare a **battery** of jev probes in the task document (`quality.dimensions[].probes`):
+typed `choice` / `noul` / `score` questions, at most **6 per dimension** and **48 per rubric**
+(`PROBES_PER_DIMENSION`, `PROBES_TOTAL`), refused at parse beyond that. The probes are **calibrated
+jev judgments, never model prose**: pi-jev answers in labels, probabilities and levels only.
+
+**The score is unchanged.** The battery is a SECOND, explain-only `evaluate` call whose request
+carries every dimension's probes keyed `<dimension>.<probe>` and — deliberately — **no scores**; the
+scoring call itself is byte-for-byte what it always was, so there is **zero score drift**. The battery
+never feeds the gate, the bars or the decision: if it throws, times out or answers unreadably, the
+verdict is byte-identical and simply carries no why.
+
+The answers are stored on the recorded `quality.verdict` as per-dimension `diagnosis` (the structured
+evidence) and `rationale` (the line rendered from it: at most **3 clauses**, clipped to **240
+characters**, built only from the authored option and level text — nothing invented). They appear in
+three places: the **refusal handback** (`detail.quality.dimensions[].rationale`, beside the recalled
+exemplars), the **brief before `op=note`** (`brief.quality.judgment`, read from the record, so the
+note is evidence-backed), and **recall** (the relevant dimension's line only, by reference from the
+verdict and counted in the token budget).
+
+One signal is worth naming: when a dimension scores **below its bar while every probe is clean**, the
+rendered line says so — `/ the score is below the bar but every probe is clean: the dimension statement
+may be too vague`. That makes a vague rubric statement directly verifiable from the record; it changes
+no score and no bar.
+
 ## Configuration
 
 Flows and tasks are plain JSON under `.pi/praxis/`. The active flow is selected by the

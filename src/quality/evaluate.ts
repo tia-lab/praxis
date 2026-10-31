@@ -7,11 +7,23 @@
  */
 import { canonicalBytes, digest, digestOf } from "../runner/canonical.ts";
 import { advance, inspect, type AdvanceOptions } from "../runner/engine/index.ts";
-import { parseWith, QualityVerdictSchema, type Quality, type QualityVerdict } from "../types/schema.ts";
+import { parseWith, QualityVerdictSchema, type Probe, type Quality, type QualityVerdict } from "../types/schema.ts";
 import type { QualityAttempt } from "../runner/engine/index.ts";
 import { barsFromQuality, compoundDecision, effectiveBarsFor, type Bars } from "./bar.ts";
 
-/** The injected typed-judgment port. Returns a per-dimension score in [0,1] and its own id. */
+/** One dimension's structured why: the battery's answers, and the line rendered from them. */
+export interface ExplainedDimension {
+  id: string;
+  diagnosis: { probe: string; answer: string | number }[];
+  rationale?: string;
+}
+
+/**
+ * The injected typed-judgment port. Returns a per-dimension score in [0,1] and its own id — and,
+ * OPTIONALLY, a second explain-only pass over the rubric's probe batteries (verdict-rationale D3).
+ * `explain` never sees or changes a score: it is evidence, and a throw from it leaves the verdict
+ * exactly as the scoring pass produced it.
+ */
 export interface Scorer {
   score(input: {
     goal: string;
@@ -19,6 +31,14 @@ export interface Scorer {
     artifact: unknown;
     subjectDigest?: string;
   }): Promise<{ dimensions: { id: string; score: number }[]; rationale: string; scorer: string }>;
+  explain?(input: {
+    goal: string;
+    rubric: readonly { id: string; statement: string; probes?: readonly Probe[] }[];
+    artifact: unknown;
+    subjectDigest?: string;
+    /** Dimensions that did not clear their bar (refused or flagged), for the divergence clause (D11). */
+    weak: readonly string[];
+  }): Promise<{ dimensions: ExplainedDimension[]; scorer: string }>;
 }
 
 /**
@@ -33,6 +53,20 @@ function rulerDigest(quality: Quality, bars: Bars): string {
 const clamp01 = (n: number): number => (Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);
 const clip = (text: string, limit = 2000): string => (text.length <= limit ? text : text.slice(0, limit - 1) + "\u2026");
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/** Run the explain pass, swallowing EVERY failure: the why is evidence, never a gate input (D3). */
+async function explainQuietly(
+  scorer: Scorer,
+  input: Parameters<NonNullable<Scorer["explain"]>>[0],
+): Promise<Map<string, ExplainedDimension> | undefined> {
+  if (scorer.explain === undefined) return undefined;
+  try {
+    const explained = await scorer.explain(input);
+    return new Map(explained.dimensions.map((dimension) => [dimension.id, dimension]));
+  } catch {
+    return undefined;
+  }
+}
 
 /** An unavailable/error verdict carrying the pinned ruler, so the record stays auditable. */
 function degraded(rubricDigest: string, source: "unavailable" | "error", rationale: string): QualityVerdict {
@@ -70,12 +104,34 @@ export async function evaluateArtifact(
   const score = dimensions.length === 0 ? 0 : Math.min(...dimensions.map((d) => d.score));
   const compound = compoundDecision(dimensions, bars);
   const decision = compound.pass ? "pass" : "below";
+  // The battery runs AFTER the verdict is decided and never touches it: a throw, a timeout or an
+  // unreadable answer costs the structured why, never the score (spec D3, R7).
+  const explained = scorer.explain === undefined
+    ? undefined
+    : await explainQuietly(scorer, {
+        goal: input.goal,
+        rubric: quality.dimensions,
+        artifact: input.artifact,
+        ...(input.subjectDigest === undefined ? {} : { subjectDigest: input.subjectDigest }),
+        weak: [...compound.refused, ...compound.flagged],
+      });
+  const judged = explained === undefined
+    ? dimensions
+    : dimensions.map((dimension) => {
+        const why = explained.get(dimension.id);
+        if (why === undefined || why.diagnosis.length === 0) return dimension;
+        return {
+          ...dimension,
+          diagnosis: why.diagnosis,
+          ...(why.rationale === undefined ? {} : { rationale: why.rationale }),
+        };
+      });
   return parseWith(
     QualityVerdictSchema,
     {
       decision,
       score,
-      dimensions,
+      dimensions: judged,
       // Rounded: the recorded mean is audit evidence, not a float artefact.
       mean: Math.round(compound.mean * 10000) / 10000,
       flagged: compound.flagged,

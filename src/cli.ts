@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import { asAppError, fail } from "./types/errors.ts";
 import { advance, inspect, readStepArtifact, start, type EngineOptions } from "./runner/engine/index.ts";
 import { projectMaxAttempts } from "./runner/engine/support.ts";
+import { formatMetrics, metricsFor } from "./quality/metrics.ts";
 
 interface Parsed {
   positionals: string[];
@@ -161,7 +162,14 @@ function main(argv: readonly string[]): number {
     return 0;
   }
 
-  throw fail("CONFIG_INVALID", "usage: run | resume | status | artifact read");
+  // The metrics read-model: a READ-ONLY projection over the events already stored. It prints tables
+  // (not the six-key result), because its whole purpose is to be read by a person. `metrics [task]`
+  // narrows to one task ref such as `tasks/research`.
+  if (command === "metrics") {
+    process.stdout.write(formatMetrics(metricsFor(options, positionals[1])));
+    return 0;
+  }
+  throw fail("CONFIG_INVALID", "usage: run | resume | status | artifact read | metrics [task]");
 }
 
 try {

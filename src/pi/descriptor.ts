@@ -86,7 +86,7 @@ export interface NoteJudgment {
     torn?: string[];
     provisional?: boolean;
     provisionalOn?: { dimension: string; criterion: string; signal: "mass" | "confidence" | "noul-band" }[];
-    diagnosis?: { probe: string; answer: string | number; confidence?: number; pClean?: number; pTop?: number; spread?: number }[];
+    diagnosis?: { probe: string; answer: string | number; sections?: string[]; confidence?: number; pClean?: number; pTop?: number; spread?: number }[];
   }[];
 }
 

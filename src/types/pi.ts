@@ -237,6 +237,13 @@ export const StepDescriptorSchema = z.strictObject({
                     z.strictObject({
                       probe: z.string().min(1).max(128),
                       answer: z.union([z.string().min(1).max(80), z.number().min(0).max(10)]),
+                      /**
+                       * The sections this criterion was asked to judge, exactly as the scorer records them
+                       * (src/quality/jev-scorer.ts): a targeted criterion keeps its target on the answer.
+                       * Absent on an untargeted criterion. Mirrored here because the descriptor is a
+                       * strictObject - an unmirrored key makes the whole descriptor invalid.
+                       */
+                      sections: z.array(z.string().min(1).max(64)).min(1).max(6).optional(),
                       confidence: z.number().min(0).max(1).optional(),
                       pClean: z.number().min(0).max(1).optional(),
                       pTop: z.number().min(0).max(1).optional(),

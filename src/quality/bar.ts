@@ -29,7 +29,7 @@ import { parseWith, type Quality } from "../types/schema.ts";
 import type { Store } from "../store/db.ts";
 import { appendEvent } from "../store/events.ts";
 import { EVENT } from "../runner/engine/types.ts";
-import { DEFAULT_PARETO_THRESHOLD } from "../runner/engine/types.ts";
+import { ABSOLUTE_MIN, DEFAULT_PARETO_THRESHOLD } from "../runner/engine/types.ts";
 import { digest } from "../runner/canonical.ts";
 
 /** The frozen formula identity, recorded on every raise so the record is reproducible. */
@@ -488,4 +488,87 @@ function decideContest(
   );
   appendEvent(store, verdicts[verdicts.length - 1].instance, { type: EVENT.barContested, payload: contested, at });
   return contested;
+}
+
+// ---------------------------------------------------------------------------------------------
+// The quantile machinery (quantile-bars S1): pure, and called by nothing yet.
+//
+// The population is ONE observation per instance - the dimension score of the version the instance
+// CARRIED - so failing work is never weighted by its retries. The bar is a percentile of that
+// population, floored at ABSOLUTE_MIN, and monotone because the fold takes the maximum. None of this
+// stores anything: every value is a read over the event log (A4).
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * One criterion's quantile, lower definition: the value at rank floor(p/100 * (n - 1)) of the
+ * SORTED population (spec 3.3). Lower-side by construction, so a quantile never overstates the work.
+ */
+export function quantileOf(sorted: readonly number[], percentile: number): number | undefined {
+  if (sorted.length === 0) return undefined;
+  const rank = Math.floor((percentile / 100) * (sorted.length - 1));
+  return sorted[Math.min(sorted.length - 1, Math.max(0, rank))];
+}
+
+/**
+ * The level a population would justify: its percentile, quantized DOWN to two decimals and floored at
+ * ABSOLUTE_MIN (spec 3.5). Pure: the caller decides whether it is a raise (the window, the step and
+ * the stability sample), so this function cannot move a bar by itself.
+ */
+export function raiseCandidate(
+  population: readonly number[],
+  percentile: number,
+  floor: number = ABSOLUTE_MIN,
+): number | undefined {
+  const sorted = [...population].sort((left, right) => left - right);
+  const quantile = quantileOf(sorted, percentile);
+  if (quantile === undefined) return undefined;
+  return Math.max(floor, Math.floor(quantile * 100) / 100);
+}
+
+/**
+ * The carried population of one (task, dimension) scope: ONE observation per instance (spec 3.1).
+ *
+ * The observation is the dimension score of the version the instance CARRIED: the accepted version
+ * when the step was accepted, the best-scoring version when a carried failure was accepted, and the
+ * last scored version when nothing was carried. Verdicts with no score (unavailable/error) are not
+ * observations, and neither is any attempt other than the carried one: one work unit, one value.
+ */
+export function carriedPopulation(store: Store, task: string, dimensionId: string, key?: string): number[] {
+  const events = scanEvents(store, [EVENT.qualityVerdict, EVENT.artifactAccepted]);
+  const accepted = new Map<string, { version: number; failed: boolean }>();
+  const scored = new Map<string, { version: number; score: number; overall: number }[]>();
+  for (const event of events) {
+    const payload = event.payload as Record<string, unknown>;
+    if (String(payload.task ?? "") !== task) continue;
+    if (event.type === EVENT.artifactAccepted) {
+      const version = Number(payload.version);
+      const current = accepted.get(event.instance);
+      if (current === undefined || version >= current.version) {
+        accepted.set(event.instance, { version, failed: payload.failed !== undefined });
+      }
+      continue;
+    }
+    if (payload.source !== "jev") continue;
+    const dimensions = Array.isArray(payload.dimensions) ? payload.dimensions : [];
+    const cell = dimensions.find((entry) => (entry as { id?: unknown }).id === dimensionId) as
+      | { score?: unknown; key?: unknown }
+      | undefined;
+    if (cell === undefined || typeof cell.score !== "number") continue;
+    if (key !== undefined && typeof cell.key === "string" && cell.key !== key) continue;
+    const list = scored.get(event.instance) ?? [];
+    list.push({ version: Number(payload.version), score: cell.score, overall: Number(payload.score) });
+    scored.set(event.instance, list);
+  }
+  const population: number[] = [];
+  for (const [instance, verdicts] of scored) {
+    const carried = accepted.get(instance);
+    if (carried === undefined) continue;
+    // A carried failure picks ONE version - the best-scoring one by its headline - and the dimension
+    // is read from THAT version, never per dimension (spec 3.1: one observation, one version).
+    const chosen = carried.failed
+      ? verdicts.reduce((best, entry) => (entry.overall > best.overall ? entry : best), verdicts[0]!)
+      : verdicts.find((entry) => entry.version === carried.version);
+    if (chosen !== undefined) population.push(chosen.score);
+  }
+  return population;
 }

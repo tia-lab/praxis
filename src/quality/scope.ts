@@ -10,7 +10,7 @@ import { parseWith, type Probe, type Quality } from "../types/schema.ts";
 import { storeCall, type Store } from "../store/db.ts";
 import { withStore } from "../runner/engine/support.ts";
 import type { EngineOptions } from "../runner/engine/types.ts";
-import { DEFAULT_PARETO_THRESHOLD, EVENT } from "../runner/engine/types.ts";
+import { ABSOLUTE_MIN, DEFAULT_PARETO_THRESHOLD, EVENT } from "../runner/engine/types.ts";
 import { digest } from "../runner/canonical.ts";
 
 export const GLOBAL_SCOPE = "global";
@@ -149,14 +149,35 @@ export function raisesFor(store: Store, task: string, scope: string, key: string
     .map((raise) => ({ to: raise.to, at: raise.at }));
 }
 
-/** The floor in force at an instant: the seed folded through every raise recorded up to \`at\`. */
+/**
+ * The floor in force at an instant: the seed folded through every raise recorded up to `at`.
+ *
+ * A MAX fold floored at ABSOLUTE_MIN (spec 3.5, 3.7): the fold takes the greatest raise rather than
+ * the last one, so even a legacy decreasing sequence cannot lower the bar; and no result - seed or
+ * fold - may sit below the floor, which is what makes every bar reachable by good work (A1).
+ */
+/**
+ * The floor in force at an instant: the seed folded through every raise recorded up to `at`.
+ *
+ * A MAX fold: the greatest raise wins, so even a legacy decreasing sequence cannot lower the bar
+ * (spec 3.7). The ABSOLUTE_MIN floor is applied by `flooredBar`, because the legacy seed path must
+ * keep its exact value until the cutover rewrites its callers (S1 changes no behaviour).
+ */
 export function barAt(raises: readonly { to: number; at: string }[], seed: number, at?: string): number {
   let bar = seed;
   for (const raise of raises) {
     if (at !== undefined && raise.at > at) continue;
-    bar = raise.to;
+    bar = Math.max(bar, raise.to);
   }
   return bar;
+}
+
+/**
+ * The bar in force for a quantile scope: the fold, floored at ABSOLUTE_MIN, so no bar - authored,
+ * measured or carried over from a legacy record - can sit below the floor good work must clear (A1).
+ */
+export function flooredBar(raises: readonly { to: number; at: string }[], seed: number, at?: string): number {
+  return Math.max(ABSOLUTE_MIN, barAt(raises, seed, at));
 }
 
 /** The bars for a task right now: each dimension folded through its own identity's raises. */
@@ -170,6 +191,27 @@ export function effectiveBars(store: Store, task: string, quality: Quality): Bar
 }
 
 /** \`effectiveBars\` for a caller that holds options rather than an open store (score, brief, recall). */
+/**
+ * The bars a quantile gate reads: one per dimension, each the max fold of its own identity's raises,
+ * floored at ABSOLUTE_MIN. There is no authored seed and no global scope: the floor is the default
+ * (A7) and strictness comes only from what the population measured (spec 3.5).
+ */
+export interface QuantileBars {
+  /** One bar per dimension id, always >= ABSOLUTE_MIN. */
+  perDimension: Map<string, number>;
+  /** Each dimension's identity key, so a caller can stamp what judged it. */
+  keys: Map<string, string>;
+}
+
+export function quantileBars(store: Store, task: string, quality: Quality): QuantileBars {
+  const seeds = barsFromQuality(quality);
+  const perDimension = new Map<string, number>();
+  for (const [id, key] of seeds.keys) {
+    perDimension.set(id, flooredBar(raisesFor(store, task, id, key), ABSOLUTE_MIN));
+  }
+  return { perDimension, keys: new Map(seeds.keys) };
+}
+
 export function effectiveBarsFor(options: EngineOptions, task: string, quality: Quality): Bars {
   return withStore(options, (store) => effectiveBars(store, task, quality));
 }

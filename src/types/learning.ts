@@ -110,7 +110,15 @@ export const BarRaisedSchema = z.strictObject({
   key: z.string().min(1).max(64).optional(),
   from: z.number().min(0).max(1),
   to: z.number().min(0).max(1),
-  window: BarWindowSchema,
+  /**
+   * The evidence window that decided the raise. OPTIONAL because the quantile ratchet records a
+   * percentile and an `n` instead; a record written by either path parses under both (spec 3.7).
+   */
+  window: BarWindowSchema.optional(),
+  /** The percentile the raise was computed at (quantile bars, A2). Absent on an EMA-era record. */
+  percentile: z.int().min(1).max(99).optional(),
+  /** How many observations the raise was computed from. Absent on an EMA-era record. */
+  n: z.int().min(1).optional(),
   /**
    * The exponential moving average that decided this raise: the smoothed level of the scope's genuine
    * passes (see `emaOf` in `src/quality/bar.ts`). Optional because records written before the EMA
@@ -143,7 +151,12 @@ export const BarRaisedSchema = z.strictObject({
     })
     .optional(),
   at: TimestampSchema,
-});
+}).refine((raise) => raise.to >= raise.from, {
+    // Monotonicity is a DECISION, so the record refuses a decrease: no path may lower a bar, and a
+    // hand-written or buggy decrease fails to parse instead of silently winning (spec 3.7, F6).
+    message: "a raise must not lower the bar (to < from)",
+    path: ["to"],
+  });
 export type BarRaised = z.infer<typeof BarRaisedSchema>;
 
 /**

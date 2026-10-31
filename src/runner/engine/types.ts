@@ -42,6 +42,29 @@ export const DEFAULT_MAX_ATTEMPTS = 3;
 export const DEFAULT_PARETO_THRESHOLD = 0.8;
 
 /**
+ * The quantile bar (quantile-bars A1-A7). One observation per instance, a percentile of the carried
+ * population, a floor no bar may sit below, and a window of two halves.
+ *
+ * NAMES: the plan names the window and the formula `BAR_WINDOW` / `BAR_FORMULA_ID`, but those two
+ * identifiers still belong to the live EMA ratchet (BAR_WINDOW = 5, praxis.bar.ema/v3) until that
+ * machinery is deleted; existing assertions import them. So S1 adds the quantile pair under its own
+ * names and the deletion step takes the canonical names over.
+ */
+/** No bar - authored, measured or legacy - may sit below this (A1). */
+export const ABSOLUTE_MIN = 0.5;
+/** Observations a (task, dimension) scope needs before a measured bar exists (spec 3.5). */
+export const CALIBRATION_MIN = 20;
+/** The quantile bar's window: two halves of HALF_WINDOW (spec 3.4). */
+export const QUANTILE_WINDOW = 40;
+export const HALF_WINDOW = QUANTILE_WINDOW / 2;
+/** The smallest raise worth recording (spec 3.6). */
+export const RAISE_STEP = 0.02;
+/** The percentile a dimension gates at when it declares no `quantileGate` (A2). */
+export const DEFAULT_QUANTILE = 25;
+/** The formula id the quantile ratchet records on every raise (spec 3.6). */
+export const QUANTILE_FORMULA_ID = "praxis.bar.quantile/v1";
+
+/**
  * Uncertainty thresholds (S2): code constants, never a task-document field (R36). A criterion is
  * reported TORN — the judge itself was close to the boundary — when its answer distribution is wide
  * or its clean-option mass sits near the split. A `noul` returns ONE probability and no mass, so its

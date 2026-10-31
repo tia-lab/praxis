@@ -212,6 +212,10 @@ export const StepDescriptorSchema = z.strictObject({
                 /** The witness departed from the composed score by at least DIVERGENCE_MIN. */
                 divergence: z.boolean().optional(),
                 rationale: z.string().min(1).max(240).optional(),
+                /** The dimension's own Q50 of the carried population (A3): the median a pass must reach. */
+                q50: z.number().min(0).max(1).optional(),
+                /** How far below its Q50 a FLAGGED dimension sat (Q50 minus score). */
+                gap: z.number().min(0).max(1).optional(),
                 /** Criterion ids the judge answered near its own boundary (S2). Disclosure, never a gate. */
                 torn: z.array(z.string().min(1).max(64)).max(48).optional(),
                 /** The deciding criterion was torn, so the verdict is provisional (S6, R33-R35). */

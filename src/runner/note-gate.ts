@@ -119,15 +119,15 @@ export function noteGate(
       missing.push("tags: " + JSON.stringify(tag.dimension) + " is not a rubric dimension");
     }
   }
-  // The weakest dimension always needs a lesson; so does every dimension that passed only by
-  // riding the 5-point band. A flagged dimension is under its own bar — silence about it is exactly
-  // the mediocrity the compound gate exists to catch, so the note cannot close the step without it.
+  // The weakest dimension always needs a lesson; so does every dimenion the verdict FLAGGED. A flag
+  // means the dimension passed but sat below its own Q50 of the carried population (A3), so silence
+  // about it is exactly the mediocrity the note exists to catch: the note cannot close without it.
   for (const dimension of [weakest, ...flagged.filter((id) => id !== weakest)]) {
     if (subjective.tags.some((tag) => tag.dimension === dimension)) continue;
     missing.push(
       dimension === weakest
         ? "tags: expected at least one lesson on the weakest dimension " + JSON.stringify(dimension)
-        : "tags: " + JSON.stringify(dimension) + " passed only inside the tolerance band, so it needs a lesson of its own",
+        : "tags: " + JSON.stringify(dimension) + " passed below its own Q50, so it needs a lesson of its own",
     );
   }
   return missing;

@@ -15,6 +15,8 @@ import type { EngineOptions, HandoffRef, OpenedFlow } from "../runner/engine/ind
 import { withStore } from "../runner/engine/support.ts";
 import { ABSOLUTE_MIN } from "../runner/engine/types.ts";
 import { briefRecall, quantileBarsFor } from "../quality/index.ts";
+import { carriedPopulation, quantileOf } from "../quality/bar.ts";
+import { dimensionKey } from "../quality/scope.ts";
 import { noteStanding } from "../runner/note-gate.ts";
 
 export function currentStepOf(flow: OpenedFlow, instance: Instance): ResolvedNode {
@@ -139,6 +141,16 @@ export function learningView(options: EngineOptions, flow: OpenedFlow, instance:
           const attempts = qualityHistory(store, instance.id, standing.pending === undefined ? "" : standing.pending.step);
           const recorded = attempts.length === 0 ? undefined : attempts[attempts.length - 1].verdict;
           if (recorded === undefined) return undefined;
+          // The Q50 of the SAME carried population the bar reads (A3, A4): a passing dimension below
+          // its own median is flagged, and the gap is how far below it sat. Derived, never stored.
+          const flaggedIds = new Set(recorded.flagged ?? []);
+          const declared = new Map((standing.pending?.quality.dimensions ?? []).map((dimension) => [dimension.id, dimension]));
+          const q50Of = (id: string): number | undefined => {
+            const dimension = declared.get(id);
+            if (dimension === undefined) return undefined;
+            const values = carriedPopulation(store, String(standing.pending?.task ?? ""), id, dimensionKey(dimension));
+            return quantileOf([...values].sort((left, right) => left - right), 50);
+          };
           return {
             score: recorded.score,
             ...(recorded.mean === undefined ? {} : { mean: recorded.mean }),
@@ -156,6 +168,10 @@ export function learningView(options: EngineOptions, flow: OpenedFlow, instance:
               ...(recorded.provisional === undefined ? {} : { provisional: recorded.provisional }),
               ...(recorded.provisionalOn === undefined ? {} : { provisionalOn: recorded.provisionalOn }),
               ...(dimension.diagnosis === undefined ? {} : { diagnosis: dimension.diagnosis }),
+              ...(q50Of(dimension.id) === undefined ? {} : { q50: q50Of(dimension.id)! }),
+              ...(flaggedIds.has(dimension.id) && q50Of(dimension.id) !== undefined
+                ? { gap: Math.round((q50Of(dimension.id)! - dimension.score) * 10000) / 10000 }
+                : {}),
             })),
           };
         });

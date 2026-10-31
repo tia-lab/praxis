@@ -128,11 +128,11 @@ test("flag -> record -> steer: a band pass is recorded, enforced by the note gat
         return error;
       }
     })();
-    assert.ok(offTarget, "a note that names only the weakest dimension is REFUSED");
+    assert.ok(offTarget, "a note that ignores the flagged dimension is REFUSED");
     assert.equal(offTarget.code, "ARTIFACT_INVALID");
     const gaps = (offTarget.detail as { missing: string[] }).missing;
     assert.ok(
-      gaps.some((gap) => gap.includes("grounded") && gap.includes("tolerance band")),
+      gaps.some((gap) => gap.includes("grounded") && gap.includes("Q50")),
       "the refusal names the flagged dimension as the reason: " + gaps.join(" | "),
     );
     assert.equal(

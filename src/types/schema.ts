@@ -211,7 +211,10 @@ export const QualityVerdictSchema = z.strictObject({
   ),
   /** MEAN over the dimensions: the value the global bar gates on (stamped by the engine). */
   mean: z.number().min(0).max(1).optional(),
-  /** Dimensions inside the tolerance band [b_i - 0.05, b_i): they passed but underperformed. */
+  /**
+   * Dimensions that PASSED but sat below their own Q50 of the carried population (A3): where the
+   * next lesson comes from. Derived on demand, no gate effect, nothing stored.
+   */
   flagged: z.array(z.string().min(1).max(64)).max(8).optional(),
   /**
    * Every criterion the judge answered near its own boundary, keyed <dimension>.<criterion> (S2, R17).

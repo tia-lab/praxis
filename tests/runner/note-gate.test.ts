@@ -143,7 +143,7 @@ test("the note gate itself is a deterministic adequacy check", () => {
 });
 
 test("a flagged dimension needs its own tag even when it is not the weakest", () => {
-  // The compound gate lets a dimension pass inside its tolerance band and records it as flagged; the
+  // The compound gate lets a dimension pass inside its Q50 and records it as flagged; the
   // reflection has to address it, because silence about an under-bar dimension is the mediocrity the
   // gate exists to catch.
   const wantsFlagged = noteGate(
@@ -154,7 +154,7 @@ test("a flagged dimension needs its own tag even when it is not the weakest", ()
   );
   assert.equal(wantsFlagged.length, 1);
   assert.match(wantsFlagged[0], /evidence/);
-  assert.match(wantsFlagged[0], /tolerance band/);
+  assert.match(wantsFlagged[0], /Q50/);
   const addressed = noteGate(
     {
       whatWrong: "one claim was thin",

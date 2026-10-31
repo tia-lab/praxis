@@ -1,5 +1,19 @@
 /** The quality-evaluation surface (quality eval): the scorer port, the two entry points, the pi-jev adapter. */
-export { DEFAULT_PARETO_THRESHOLD, SAMPLE_AGREEMENT_MIN, SAMPLE_RANGE_MAX, SAMPLE_REPEATS } from "../runner/engine/types.ts";
+export {
+  ABSOLUTE_MIN,
+  CALIBRATION_MIN,
+  DEFAULT_PARETO_THRESHOLD,
+  DEFAULT_QUANTILE,
+  FIRST_HALF,
+  FIRST_RAISE_MIN,
+  HALF_WINDOW,
+  QUANTILE_FORMULA_ID,
+  QUANTILE_WINDOW,
+  RAISE_STEP,
+  SAMPLE_AGREEMENT_MIN,
+  SAMPLE_RANGE_MAX,
+  SAMPLE_REPEATS,
+} from "../runner/engine/types.ts";
 export { advanceEvaluated, evaluateArtifact, type Scorer } from "./evaluate.ts";
 export { jevScorer, type JevScorerOptions } from "./jev-scorer.ts";
 /** The rubric sampler (S3): repeat-N agreement before a bar may raise. */
@@ -20,17 +34,21 @@ export {
   barAt,
   barsFromQuality,
   compoundDecision,
+  perDimensionDecision,
   compositionKey,
   dimensionKey,
   effectiveBar,
   effectiveBarFor,
   effectiveBars,
   effectiveBarsFor,
+  flooredBar,
   emaOf,
   gateBar,
   genuinePasses,
   lowerQuartile,
   ofTask,
+  quantileBars,
+  quantileBarsFor,
   raisesOf,
   recomputeBar,
   sampleFor,

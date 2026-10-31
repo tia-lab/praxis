@@ -7,7 +7,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { SAMPLE_REPEATS, advanceEvaluated, agreeOn, sampleIfDue, type Scorer } from "../../src/quality/index.ts";
-import { LEARNING_RUBRIC, clock, dispose, eventsOf, judgedFlow, learningOptions, sequenceScorer, startJudged, workspace, type JudgedRun, type Workspace } from "../testkit.ts";
+import { withStore } from "../../src/runner/engine/support.ts";
+import { LEARNING_RUBRIC, clock, dispose, eventsOf, judgedFlow, learningOptions, population, sequenceScorer, startJudged, workspace, type JudgedRun, type Workspace } from "../testkit.ts";
 
 const TASK = "tasks/make";
 const QUALITY = { dimensions: LEARNING_RUBRIC, threshold: 0.6, policy: "required" as const };
@@ -35,13 +36,16 @@ test("R20: samples once per task, key and version, at the boundary", async () =>
   try {
     judgedFlow(ws);
     const tick = clock().next;
-    const runs: JudgedRun[] = [];
-    for (let index = 1; index <= 10; index += 1) {
-      runs.push(await passInstance(ws, tick, "sample-" + index, sequenceScorer([0.95])));
-    }
-    assert.equal(sampled(ws, runs).length, 0, "the engine path never samples by itself (R24)");
+    // One REAL pass, so the sampler has a frozen accepted artifact to re-judge.
+    const run = await passInstance(ws, tick, "sample-anchor", sequenceScorer([0.95]));
+    // Seed the 28 carried observations a FIRST raise needs (spec 3.6.1), so a raise is due and the
+    // identity is still unsampled - which is exactly when the boundary must sample.
+    const dimension = LEARNING_RUBRIC[0]!.id;
+    withStore(learningOptions(ws, tick()), (store) =>
+      population(store, TASK, dimension, Array.from({ length: 28 }, () => 0.95), tick()),
+    );
+    assert.equal(sampled(ws, [run]).length, 0, "the engine path never samples by itself (R24)");
 
-    const run = runs[runs.length - 1]!;
     const options = learningOptions(ws, tick());
     const scorer = sequenceScorer([0.95]);
     const args = { options, instance: run.instance, step: "make", task: TASK, taskVersion: 1, quality: QUALITY, scorer, goal: "do make" };
@@ -65,7 +69,6 @@ test("R20: samples once per task, key and version, at the boundary", async () =>
     dispose(ws);
   }
 });
-
 test("R21: agreement is per criterion, and repeat-N is the only noul signal", () => {
   const noul = { dimension: "d", criterion: "n1", type: "noul" as const };
   const choice = { dimension: "d", criterion: "c1", type: "choice" as const };

@@ -13,7 +13,8 @@ import { CAPABILITY_NAMES, grantFor } from "../runner/capabilities.ts";
 import { qualityHistory } from "../runner/engine/index.ts";
 import type { EngineOptions, HandoffRef, OpenedFlow } from "../runner/engine/index.ts";
 import { withStore } from "../runner/engine/support.ts";
-import { briefRecall, effectiveBarsFor, gateBar } from "../quality/index.ts";
+import { ABSOLUTE_MIN } from "../runner/engine/types.ts";
+import { briefRecall, quantileBarsFor } from "../quality/index.ts";
 import { noteStanding } from "../runner/note-gate.ts";
 
 export function currentStepOf(flow: OpenedFlow, instance: Instance): ResolvedNode {
@@ -125,7 +126,10 @@ export function learningView(options: EngineOptions, flow: OpenedFlow, instance:
         });
   // The same effective bars the gate and the recorded bar are derived from, capped at the Pareto
   // point: one formula (`gateBar`), so the brief cannot disagree with the gate.
-  const bars = quality === undefined ? undefined : effectiveBarsFor(options, resolved.node.task, quality);
+
+  // S2: the gate the agent must clear is the MEASURED per-dimension bar, uncapped - there is no
+  // Pareto point left to cap it with, and no global bar. The floor is the default.
+  const measured = quality === undefined ? undefined : quantileBarsFor(options, resolved.node.task, quality);
   // The judgment the note must be evidence-backed by: the RECORDED verdict of the step that owes it.
   // One existing read (qualityHistory), no new store path, no recomputation.
   const judgment =
@@ -159,12 +163,9 @@ export function learningView(options: EngineOptions, flow: OpenedFlow, instance:
     bar: recall?.bar,
     judgment,
     gate:
-      bars === undefined
+      measured === undefined
         ? undefined
-        : {
-            threshold: gateBar(bars.global, bars.pareto),
-            dimensions: Object.fromEntries([...bars.perDimension].map(([id, bar]) => [id, gateBar(bar, bars.pareto)])),
-          },
+        : { threshold: ABSOLUTE_MIN, dimensions: Object.fromEntries([...measured.perDimension]) },
     recall,
     pending: standing.pending?.step,
     attempts: standing.attempts,

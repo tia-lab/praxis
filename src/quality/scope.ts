@@ -203,6 +203,11 @@ export interface QuantileBars {
   keys: Map<string, string>;
 }
 
+/** `quantileBars` for a caller that holds options rather than an open store (brief, refusal). */
+export function quantileBarsFor(options: EngineOptions, task: string, quality: Quality): QuantileBars {
+  return withStore(options, (store) => quantileBars(store, task, quality));
+}
+
 export function quantileBars(store: Store, task: string, quality: Quality): QuantileBars {
   const seeds = barsFromQuality(quality);
   const perDimension = new Map<string, number>();

@@ -29,8 +29,17 @@ import { parseWith, type Quality } from "../types/schema.ts";
 import type { Store } from "../store/db.ts";
 import { appendEvent } from "../store/events.ts";
 import { EVENT } from "../runner/engine/types.ts";
-import { ABSOLUTE_MIN, DEFAULT_PARETO_THRESHOLD } from "../runner/engine/types.ts";
-import { digest } from "../runner/canonical.ts";
+import {
+  ABSOLUTE_MIN,
+  DEFAULT_PARETO_THRESHOLD,
+  DEFAULT_QUANTILE,
+  FIRST_HALF,
+  FIRST_RAISE_MIN,
+  HALF_WINDOW,
+  QUANTILE_FORMULA_ID,
+  QUANTILE_WINDOW,
+  RAISE_STEP,
+} from "../runner/engine/types.ts";
 
 /** The frozen formula identity, recorded on every raise so the record is reproducible. */
 export const BAR_FORMULA_ID = "praxis.bar.ema/v3";
@@ -53,10 +62,9 @@ export const BAR_MIN_STEP = 0.01;
 /** The scope name of the global (MEAN) bar. */
 // The read layer lives in `scope.ts` (a MOVE): imported for the ratchet, re-exported for every importer.
 import {
-  GLOBAL_SCOPE,
-  barAt,
-  barsFromQuality,
   compositionKey,
+  dimensionKey,
+  flooredBar,
   ofTask,
   raisesFor,
   sampleFor,
@@ -66,6 +74,10 @@ import {
 } from "./scope.ts";import { DIMENSION_TOLERANCE } from "./scope.ts";
 export {
   GLOBAL_SCOPE,
+  flooredBar,
+  quantileBars,
+  quantileBarsFor,
+  type QuantileBars,
   DIMENSION_TOLERANCE,
   scanEvents,
   ofTask,
@@ -229,66 +241,6 @@ export type BarDecision =
 const round4 = (value: number): number => Math.round(value * 10000) / 10000;
 
 /** One scope's observation count and its genuine-pass values, in log order. */
-interface Scope {
-  name: string;
-  key: string;
-  seed: number;
-  observations: number;
-  passes: { value: number; attempts: number; at: string; instance: string }[];
-}
-
-/** The scopes of a rubric, each with its own observations and its own pass values. */
-function scopesOf(store: Store, task: string, quality: Quality): Scope[] {
-  const seeds = barsFromQuality(quality);
-  const verdicts = scanEvents(store, [EVENT.qualityVerdict]).filter((event) => ofTask(event, task));
-  const passes = genuinePasses(store, task);
-  const globalObservations = verdicts.filter((event) => {
-    const keys = new Set<string>();
-    for (const entry of Array.isArray(event.payload.dimensions) ? event.payload.dimensions : []) {
-      const cell = entry as { key?: unknown };
-      if (typeof cell.key === "string") keys.add(cell.key);
-    }
-    if (keys.size !== seeds.keys.size) return false;
-    return [...seeds.keys.values()].every((key) => keys.has(key));
-  }).length;
-  const scopes: Scope[] = [
-    {
-      name: GLOBAL_SCOPE,
-      key: seeds.composition,
-      seed: seeds.global,
-      observations: globalObservations,
-      passes: passes
-        .filter((pass) => passCompositionOf(pass) === seeds.composition)
-        .map((pass) => ({ value: pass.mean, attempts: pass.attempts, at: pass.at, instance: pass.instance })),
-    },
-  ];
-  for (const [id, key] of seeds.keys) {
-    const seed = seeds.perDimension.get(id) ?? seeds.global;
-    scopes.push({
-      name: id,
-      key,
-      seed,
-      observations: verdicts.filter((event) => (Array.isArray(event.payload.dimensions) ? event.payload.dimensions : []).some((entry) => (entry as { key?: unknown }).key === key)).length,
-      passes: passes
-        .filter((pass) => pass.dimensions.get(id)?.key === key)
-        .map((pass) => ({ value: pass.dimensions.get(id)?.score ?? 0, attempts: pass.attempts, at: pass.at, instance: pass.instance })),
-    });
-  }
-  return scopes;
-}
-
-/** The composition a pass was judged under: the sorted identity keys of its dimensions. */
-function passCompositionOf(pass: GenuinePass): string {
-  const keys = [...pass.dimensions.values()].map((dimension) => dimension.key ?? "").sort();
-  return digest("rubric:" + keys.join(",")).slice(7, 23);
-}
-
-/**
- * Re-evaluate the ratchet for EVERY scope after one terminal task outcome. Cheap to call every
- * time: a scope only acts once it has warmed up and a full qualifying window exists. Each raise and
- * contest is appended with its scope and identity key, so the record explains itself.
- */
-
 /** A scope whose raise is due but which no sample vouches for: what the sampler has to judge. */
 export interface DueScope {
   scope: string;
@@ -296,66 +248,108 @@ export interface DueScope {
 }
 
 /**
- * The scopes that are due a raise yet unsampled (S3, R20-R22). Read-only, and the ONLY way the tool
- * boundary learns it has work to do: it runs the same window arithmetic as the ratchet itself, so
- * the sampler and the hold cannot disagree about what is due.
+ * The dimensions whose raise is due yet unsampled (S3 guard). Read-only, and the ONLY way the tool
+ * boundary learns it has work to do: it runs the same rule the ratchet runs, so the sampler and the
+ * hold cannot disagree about what is due.
  */
 export function unsampledDueScopes(store: Store, task: string, taskVersion: number, quality: Quality, at: string): DueScope[] {
   const composition = compositionKey(quality);
-  // One sample per (task, version, composition): a second attempt records and asks for nothing.
   if (sampleFor(store, task, taskVersion, composition) !== undefined) return [];
   const due: DueScope[] = [];
-  for (const scope of scopesOf(store, task, quality)) {
-    if (scope.observations < WARMUP_MIN) continue;
-    if (raiseFor(store, task, taskVersion, scope, quality, at) === undefined) continue;
-    due.push({ scope: scope.name, ...(scope.key === undefined ? {} : { key: scope.key }) });
+  for (const dimension of quality.dimensions) {
+    const key = dimensionKey(dimension);
+    const observations = carriedObservations(store, task, dimension.id, key);
+    const raises = raisesFor(store, task, dimension.id, key);
+    const current = flooredBar(raises, ABSOLUTE_MIN);
+    // The selector lands as a task field in S4; until then every dimension uses the default rank.
+    const percentile = (dimension as GatedDimension).quantileGate ?? DEFAULT_QUANTILE;
+    const target = raiseTarget(observations.map((observation) => observation.score), percentile, raises.length > 0);
+    if (target === undefined || !(target >= current + RAISE_STEP)) continue;
+    due.push({ scope: dimension.id, key });
   }
+  void at;
   return due;
 }
 
 /**
- * Re-evaluate the ratchet for EVERY scope after one terminal task outcome. Cheap to call every
- * time: a scope only acts once it has warmed up and a full qualifying window exists. Each raise and
- * contest is appended with its scope and identity key, so the record explains itself.
+ * Does a confirmation half support the candidate (spec 3.6.1)? At most floor(p * |H| / 100) of its
+ * observations may sit BELOW it - at p=25 and four observations that is one below, i.e. three of four
+ * at or above. The support test reuses the bar's own percentile, so a stricter knob confirms harder.
  */
-export function recomputeBar(store: Store, task: string, taskVersion: number, quality: Quality, at: string): BarDecision[] {
-  const decisions: BarDecision[] = [];
-  for (const scope of scopesOf(store, task, quality)) {
-    decisions.push(evaluateScope(store, task, taskVersion, scope, quality, at));
-  }
-  return decisions;
+export function supported(half: readonly number[], candidate: number, percentile: number): boolean {
+  const tolerated = Math.floor((percentile * half.length) / 100);
+  return half.filter((value) => value < candidate).length <= tolerated;
 }
 
 /**
- * The raise this scope is due, if any: the same window arithmetic the ratchet has always used. Pure
- * — `decideRaise` only computes — so the read-only due check and the write path share it exactly.
+ * The level this population justifies right now, chosen by STATE and not by n (spec 3.6.3).
+ *
+ * No raise yet: the FIRST raise (3.6.1) is eligible at n >= 28 over the last 28 observations - a
+ * 20-observation estimate and two 4-observation confirmation halves the estimate never saw. Once a
+ * raise exists: the STEADY rule (3.6.2) over two 20-observation halves, adopting the LOWER half's
+ * quantile so a lucky newest batch cannot carry the bar on its own.
  */
+export function raiseTarget(population: readonly number[], percentile: number, hasRaise: boolean): number | undefined {
+  const n = population.length;
+  if (!hasRaise) {
+    if (n < FIRST_RAISE_MIN) return undefined;
+    const estimate = population.slice(n - FIRST_RAISE_MIN, n - 2 * FIRST_HALF);
+    const candidate = raiseCandidate(estimate, percentile);
+    if (candidate === undefined) return undefined;
+    const first = population.slice(n - 2 * FIRST_HALF, n - FIRST_HALF);
+    const second = population.slice(n - FIRST_HALF);
+    if (!supported(first, candidate, percentile) || !supported(second, candidate, percentile)) return undefined;
+    return candidate;
+  }
+  if (n < QUANTILE_WINDOW) return undefined;
+  const newest = population.slice(n - HALF_WINDOW);
+  const previous = population.slice(n - QUANTILE_WINDOW, n - HALF_WINDOW);
+  const left = raiseCandidate(newest, percentile);
+  const right = raiseCandidate(previous, percentile);
+  if (left === undefined || right === undefined) return undefined;
+  return Math.floor(Math.min(left, right) * 100) / 100;
+}
+
+/** The part of a dimension the ratchet reads: identity, criteria (for the key) and the selector. */
+type GatedDimension = { id: string; statement: string; probes?: readonly import("../types/schema.ts").Probe[]; quantileGate?: number };
+
+/** The raise this dimension is due, if any: the target, attributed to the instance that produced it. */
 function raiseFor(
   store: Store,
   task: string,
-  taskVersion: number,
-  scope: Scope,
-  quality: Quality,
-  at: string,
-): { raised: z.infer<typeof BarRaisedSchema>; instance: string; current: number; raises: { to: number; at: string }[] } | undefined {
-  const raises = raisesFor(store, task, scope.name, scope.key);
-  const current = barAt(raises, scope.seed);
-  const lastRaise = raises.length === 0 ? undefined : raises[raises.length - 1].at;
-  const window = scope.passes.filter((pass) => lastRaise === undefined || pass.at > lastRaise).slice(-BAR_WINDOW);
-  const raised = decideRaise(task, taskVersion, scope, quality, at, current, window);
-  return raised === undefined ? undefined : { ...raised, current, raises };
+  dimension: GatedDimension,
+  observations: readonly { score: number; instance: string }[],
+): { to: number; instance: string; current: number; raises: { to: number; at: string }[]; percentile: number; n: number } | undefined {
+  const key = dimensionKey(dimension);
+  const raises = raisesFor(store, task, dimension.id, key);
+  const current = flooredBar(raises, ABSOLUTE_MIN);
+  const percentile = dimension.quantileGate ?? DEFAULT_QUANTILE;
+  const target = raiseTarget(observations.map((observation) => observation.score), percentile, raises.length > 0);
+  if (target === undefined) return undefined;
+  // Monotone and worth recording: a candidate below the step changes nothing, so nothing is written.
+  if (!(target >= current + RAISE_STEP)) return undefined;
+  const last = observations[observations.length - 1];
+  if (last === undefined) return undefined;
+  return { to: round4(target), instance: last.instance, current, raises, percentile, n: observations.length };
 }
 
-/** One scope's turn: warm up, then maybe raise, then maybe contest. Never lowers. */
-function evaluateScope(store: Store, task: string, taskVersion: number, scope: Scope, quality: Quality, at: string): BarDecision {
-  if (scope.observations < WARMUP_MIN) return { scope: scope.name, kind: "warming", observations: scope.observations };
-  const due = raiseFor(store, task, taskVersion, scope, quality, at);
-  // The same fold the ratchet uses, whether or not a raise is due.
-  const raises = due?.raises ?? raisesFor(store, task, scope.name, scope.key);
+/** One dimension's turn: calibrate, then maybe raise, then maybe contest. Never lowers. */
+function evaluateDimension(
+  store: Store,
+  task: string,
+  taskVersion: number,
+  dimension: GatedDimension,
+  quality: Quality,
+  at: string,
+): BarDecision {
+  const key = dimensionKey(dimension);
+  const observations = carriedObservations(store, task, dimension.id, key);
+  const raises = raisesFor(store, task, dimension.id, key);
+  const current = flooredBar(raises, ABSOLUTE_MIN);
+  const due = raiseFor(store, task, dimension, observations);
   if (due !== undefined) {
-    // S3/R22: a bar may not ratchet on an identity nobody has sampled. Without a stable sample the
-    // raise is HELD — recorded, never applied — and the step itself is untouched: it decided
-    // normally one line above.
+    // The S3 guard: a bar may not ratchet on an identity nobody has sampled. Without a stable sample
+    // the raise is HELD - recorded, never applied - and the step itself is untouched.
     const composition = compositionKey(quality);
     const sample = sampleFor(store, task, taskVersion, composition);
     if (sample === undefined || !sample.stable) {
@@ -364,111 +358,63 @@ function evaluateScope(store: Store, task: string, taskVersion: number, scope: S
         payload: {
           task,
           taskVersion,
-          scope: scope.name,
-          ...(scope.key === undefined ? {} : { key: scope.key }),
+          scope: dimension.id,
+          key,
           composition,
           from: due.current,
-          to: due.raised.to,
+          to: due.to,
           reason: sample === undefined ? "no rubric sample" : "the rubric sample was unstable",
           at,
         },
         at,
       });
-      return { scope: scope.name, kind: "held", reason: "no stable rubric sample" };
+      return { scope: dimension.id, kind: "held", reason: "no stable rubric sample" };
     }
     const payload = {
-      ...due.raised,
-      stability: { repeats: sample.repeats, stable: sample.stable, artifactDigest: sample.artifactDigest, criteria: sample.criteria },
-    };
-    appendEvent(store, due.instance, { type: EVENT.barRaised, payload, at });
-    return { scope: scope.name, kind: "raised", raised: payload };
-  }
-  const current = barAt(raises, scope.seed);
-  const contested = decideContest(store, task, taskVersion, scope, at, current, raises);
-  if (contested !== undefined) return { scope: scope.name, kind: "contested", contested };
-  const lastRaise = raises.length === 0 ? undefined : raises[raises.length - 1].at;
-  const window = scope.passes.filter((pass) => lastRaise === undefined || pass.at > lastRaise).slice(-BAR_WINDOW);
-  return { scope: scope.name, kind: "held", reason: window.length < BAR_WINDOW ? "no full window" : "gates not met" };
-}
-
-/**
- * The raise itself, under the EMA rule that every scope shares: the bar moves TOWARD the smoothed level
- * of that scope's genuine passes, by at most BAR_MAX_STEP, and only when the gap is worth recording. The
- * caller has already checked warmup; the cooldown is the window itself.
- */
-function decideRaise(
-  task: string,
-  taskVersion: number,
-  scope: Scope,
-  quality: Quality,
-  at: string,
-  current: number,
-  window: readonly { value: number; attempts: number; instance: string }[],
-): { raised: z.infer<typeof BarRaisedSchema>; instance: string } | undefined {
-  if (window.length < BAR_WINDOW) return undefined;
-  // The EMA runs over the whole series of this identity; the window is the cooldown, not the statistic.
-  const values = scope.passes.map((pass) => round4(pass.value));
-  const ema = emaOf(values);
-  if (ema === undefined) return undefined;
-  const margin = ema - current;
-  const meanAttempts = window.reduce((sum, pass) => sum + pass.attempts, 0) / window.length;
-  if (meanAttempts > BAR_MEAN_ATTEMPTS_MAX) return undefined;
-  if (margin < BAR_MIN_STEP) return undefined;
-  const step = Math.min(BAR_MAX_STEP, margin);
-  const to = round4(Math.min(BAR_CEILING, Math.max(scope.seed, current + step)));
-  if (!(to > current)) return undefined;
-  // Four decimals: the record is an audit value, not a place for float noise.
-  const scores = window.map((pass) => round4(pass.value));
-  const quartile = lowerQuartile([...scores].sort((left, right) => left - right));
-  const raised = parseWith(
-    BarRaisedSchema,
-    {
       task,
       taskVersion,
-      scope: scope.name,
-      key: scope.key,
-      from: current,
-      to,
-      window: {
-        passes: scores,
-        lowerQuartile: quartile,
-        margin: round4(margin),
-        stdev: round4(stdev(scores)),
-        meanAttempts: round4(meanAttempts),
-      },
-      ema: { periods: BAR_EMA_PERIODS, alpha: BAR_EMA_ALPHA, value: round4(ema), samples: values.length },
-      formulaId: BAR_FORMULA_ID,
+      scope: dimension.id,
+      key,
+      from: due.current,
+      to: due.to,
+      percentile: due.percentile,
+      n: due.n,
+      formulaId: QUANTILE_FORMULA_ID,
+      stability: { repeats: sample.repeats, stable: sample.stable, artifactDigest: sample.artifactDigest, criteria: sample.criteria },
       at,
-    },
-    "RESULT_INVALID",
-    "bar.raised",
-  );
-  void quality;
-  // Recorded on the instance whose outcome triggered it, so the signal travels with the work.
-  return { raised, instance: window[window.length - 1].instance };
+    };
+    const raised = parseWith(BarRaisedSchema, payload, "RESULT_INVALID", "bar.raised");
+    appendEvent(store, due.instance, { type: EVENT.barRaised, payload: raised, at });
+    return { scope: dimension.id, kind: "raised", raised };
+  }
+  // The loud signal: a full window under a raised bar in which NOTHING passed. It records and never
+  // lowers; the contention is a finding for the owner, not a reason to weaken the floor.
+  if (raises.length > 0 && current > ABSOLUTE_MIN && observations.length >= QUANTILE_WINDOW) {
+    const window = observations.slice(-QUANTILE_WINDOW);
+    const contested = decideContest(store, task, taskVersion, dimension.id, key, at, current, window);
+    if (contested !== undefined) return { scope: dimension.id, kind: "contested", contested };
+  }
+  if (observations.length < FIRST_RAISE_MIN) {
+    return { scope: dimension.id, kind: "warming", observations: observations.length };
+  }
+  return { scope: dimension.id, kind: "held", reason: raises.length === 0 ? "the first raise is not confirmed" : "the halves do not clear the step" };
 }
 
-/** The loud signal for one scope: a full window under its raised bar with zero passes. */
+/** The loud signal for one dimension: a full 40-window under its bar with zero passes. */
 function decideContest(
   store: Store,
   task: string,
   taskVersion: number,
-  scope: Scope,
+  dimensionId: string,
+  key: string,
   at: string,
   current: number,
-  raises: readonly { to: number; at: string }[],
+  window: readonly { score: number; instance: string }[],
 ): z.infer<typeof BarContestedSchema> | undefined {
-  if (raises.length === 0) return undefined;
-  const lastRaise = raises[raises.length - 1].at;
-  const verdicts = scanEvents(store, [EVENT.qualityVerdict]).filter(
-    (event) => ofTask(event, task) && event.at > lastRaise,
-  );
-  const passes = scope.passes.filter((pass) => pass.at > lastRaise);
-  if (verdicts.length < BAR_WINDOW || passes.length > 0) return undefined;
   const already = scanEvents(store, [EVENT.barContested]).some(
     (event) =>
       ofTask(event, task) &&
-      scopeOf(event.payload as { scope?: unknown }) === scope.name &&
+      scopeOf(event.payload as { scope?: unknown }) === dimensionId &&
       Number((event.payload as { bar?: unknown }).bar) === current,
   );
   if (already) return undefined;
@@ -477,17 +423,48 @@ function decideContest(
     {
       task,
       taskVersion,
-      scope: scope.name,
-      key: scope.key,
+      scope: dimensionId,
+      key,
       bar: current,
-      attempts: verdicts.length,
-      reason: "a full window (" + verdicts.length + " attempts) under the raised " + scope.name + " bar yielded no pass",
+      attempts: window.length,
+      reason: "a full window (" + window.length + " work units) under the " + dimensionId + " bar yielded no pass",
     },
     "RESULT_INVALID",
     "bar.contested",
   );
-  appendEvent(store, verdicts[verdicts.length - 1].instance, { type: EVENT.barContested, payload: contested, at });
+  const last = window[window.length - 1];
+  if (last === undefined) return undefined;
+  appendEvent(store, last.instance, { type: EVENT.barContested, payload: contested, at });
   return contested;
+}
+
+/**
+ * Re-evaluate the ratchet for every dimension after one terminal task outcome. Cheap to call every
+ * time: a dimension only acts once its population can support a measured level. Each raise, hold and
+ * contest is appended with its scope and identity key, so the record explains itself.
+ */
+export function recomputeBar(store: Store, task: string, taskVersion: number, quality: Quality, at: string): BarDecision[] {
+  const decisions: BarDecision[] = [];
+  for (const dimension of quality.dimensions) {
+    decisions.push(evaluateDimension(store, task, taskVersion, dimension, quality, at));
+  }
+  return decisions;
+}
+
+/**
+ * The pure-AND gate (S2): a verdict passes iff EVERY dimension clears its own bar, where the bar in
+ * force is max(ABSOLUTE_MIN, measured). No tolerance band, no mean, no Pareto cap: the measured part
+ * is a quantile of live work, so it cannot creep above the level work reaches, and the floor keeps a
+ * weak rubric from setting an impossible standard (A1, F1, F7).
+ */
+export function perDimensionDecision(
+  dimensions: readonly { id: string; score: number }[],
+  bars: { perDimension: ReadonlyMap<string, number> },
+): { pass: boolean; refused: string[] } {
+  const refused = dimensions
+    .filter((dimension) => dimension.score < Math.max(ABSOLUTE_MIN, bars.perDimension.get(dimension.id) ?? ABSOLUTE_MIN))
+    .map((dimension) => dimension.id);
+  return { pass: refused.length === 0, refused };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -533,10 +510,20 @@ export function raiseCandidate(
  * last scored version when nothing was carried. Verdicts with no score (unavailable/error) are not
  * observations, and neither is any attempt other than the carried one: one work unit, one value.
  */
-export function carriedPopulation(store: Store, task: string, dimensionId: string, key?: string): number[] {
+/**
+ * The carried observations themselves: the score, the instance it was carried by and its instant.
+ * The ratchet needs the instance to record a raise against, so the read is shared and
+ * `carriedPopulation` is the values alone (the public, score-only view).
+ */
+export function carriedObservations(
+  store: Store,
+  task: string,
+  dimensionId: string,
+  key?: string,
+): { score: number; instance: string; at: string }[] {
   const events = scanEvents(store, [EVENT.qualityVerdict, EVENT.artifactAccepted]);
   const accepted = new Map<string, { version: number; failed: boolean }>();
-  const scored = new Map<string, { version: number; score: number; overall: number }[]>();
+  const scored = new Map<string, { version: number; score: number; overall: number; at: string }[]>();
   for (const event of events) {
     const payload = event.payload as Record<string, unknown>;
     if (String(payload.task ?? "") !== task) continue;
@@ -556,10 +543,10 @@ export function carriedPopulation(store: Store, task: string, dimensionId: strin
     if (cell === undefined || typeof cell.score !== "number") continue;
     if (key !== undefined && typeof cell.key === "string" && cell.key !== key) continue;
     const list = scored.get(event.instance) ?? [];
-    list.push({ version: Number(payload.version), score: cell.score, overall: Number(payload.score) });
+    list.push({ version: Number(payload.version), score: cell.score, overall: Number(payload.score), at: event.at });
     scored.set(event.instance, list);
   }
-  const population: number[] = [];
+  const observations: { score: number; instance: string; at: string }[] = [];
   for (const [instance, verdicts] of scored) {
     const carried = accepted.get(instance);
     if (carried === undefined) continue;
@@ -568,7 +555,12 @@ export function carriedPopulation(store: Store, task: string, dimensionId: strin
     const chosen = carried.failed
       ? verdicts.reduce((best, entry) => (entry.overall > best.overall ? entry : best), verdicts[0]!)
       : verdicts.find((entry) => entry.version === carried.version);
-    if (chosen !== undefined) population.push(chosen.score);
+    if (chosen !== undefined) observations.push({ score: chosen.score, instance, at: chosen.at });
   }
-  return population;
+  return observations;
+}
+
+/** The carried population as values only: one observation per instance (spec 3.1). */
+export function carriedPopulation(store: Store, task: string, dimensionId: string, key?: string): number[] {
+  return carriedObservations(store, task, dimensionId, key).map((observation) => observation.score);
 }

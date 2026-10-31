@@ -135,7 +135,7 @@ test("escalate halts in failed, records the failure and emits needs-guidance", a
   try {
     makeFlow(ws, { onFailure: "escalate" });
     const { id, nonce } = startQ(ws, "esc-1");
-    const scorer = countingScorer(0.2, 0.35, 0.5);
+    const scorer = countingScorer(0.2, 0.35, 0.45);
 
     await failureOf(() => submit(ws, id, nonce, 1, scorer));
     await failureOf(() => submit(ws, id, nonce, 2, scorer));
@@ -155,8 +155,8 @@ test("escalate halts in failed, records the failure and emits needs-guidance", a
     assert.equal(detail.policy, "escalate");
     assert.equal(detail.attempts, 3, "the default budget is three attempts");
     assert.equal(detail.maxAttempts, 3);
-    assert.equal(detail.quality.score, 0.5);
-    assert.deepEqual(detail.history.map((attempt) => attempt.score), [0.2, 0.35, 0.5]);
+    assert.equal(detail.quality.score, 0.45);
+    assert.deepEqual(detail.history.map((attempt) => attempt.score), [0.2, 0.35, 0.45]);
     assert.deepEqual(detail.quality.dimensions.map((dimension) => dimension.id), ["solves", "evidence"]);
     assert.match(detail.reason, /attempt budget of 3 exhausted at attempt 3/);
 
@@ -180,7 +180,7 @@ test("escalate halts in failed, records the failure and emits needs-guidance", a
     const failedPayload = failed[0].payload as { step: string; attempts: number; verdict: { score: number }; reason: string };
     assert.equal(failedPayload.step, "make");
     assert.equal(failedPayload.attempts, 3);
-    assert.equal(failedPayload.verdict.score, 0.5);
+    assert.equal(failedPayload.verdict.score, 0.45);
     assert.equal(failedPayload.reason, detail.reason);
 
     const guidance = eventsOfType(ws, id, "needs.guidance");
@@ -234,9 +234,9 @@ test("the default onFailure continues carrying the best-scoring version, marked 
   try {
     pipelineFlow(ws); // no onFailure declared: the default is continue
     const { id, nonce } = startQ(ws, "con-1");
-    // Attempt 1 scores 0.5, attempt 2 scores 0.2: no progress, so the bound is reached with
+    // Attempt 1 scores 0.45, attempt 2 scores 0.2: no progress, so the bound is reached with
     // version 1 as the best-scoring artifact of the step.
-    const scorer = countingScorer(0.5, 0.2);
+    const scorer = countingScorer(0.45, 0.2);
 
     await failureOf(() => submit(ws, id, nonce, 1, scorer));
     const advanced = (await submit(ws, id, nonce, 2, scorer)) as {
@@ -263,13 +263,13 @@ test("the default onFailure continues carrying the best-scoring version, marked 
     assert.equal(accepted.length, 1);
     const acceptedPayload = accepted[0].payload as { version: number; failed?: { score: number; decision: string } };
     assert.equal(acceptedPayload.version, 1);
-    assert.equal(acceptedPayload.failed?.score, 0.5, "the record marks the carried artifact FAILED");
+    assert.equal(acceptedPayload.failed?.score, 0.45, "the record marks the carried artifact FAILED");
     assert.equal(acceptedPayload.failed?.decision, "below");
 
     const continued = eventsOfType(ws, id, "quality.continued");
     assert.equal(continued.length, 1);
     const continuedPayload = continued[0].payload as { carried: { version: number; score: number }; attempts: number };
-    assert.deepEqual(continuedPayload.carried, { version: 1, score: 0.5 });
+    assert.deepEqual(continuedPayload.carried, { version: 1, score: 0.45 });
     assert.equal(continuedPayload.attempts, 2);
     assert.equal(eventsOfType(ws, id, "instance.failed").length, 0, "continue never halts the instance");
     assert.equal(eventsOfType(ws, id, "needs.guidance").length, 0);

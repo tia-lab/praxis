@@ -13,7 +13,7 @@ import { buildHandoffs, gate, runStep, successorOf } from "../step.ts";
 import { assertObserver, assertStepActor } from "./authority.ts";
 import { acceptedRefs, currentHandoffs, loadPinnedFlow } from "./flow.ts";
 import { qualityRefusal, failureOutcome, recordAcceptance } from "./quality-loop.ts";
-import { compoundDecision, effectiveBars, recomputeBar, type Bars } from "../../quality/bar.ts";
+import { compoundDecision, effectiveBars, perDimensionDecision, quantileBars, recomputeBar } from "../../quality/index.ts";
 import {
   finishInstance,
   maxNoteAttempts,
@@ -31,9 +31,9 @@ import { EVENT, type AdvanceOptions, type HandoffRef, type OpenedFlow } from "./
  * the current bar is downgraded here rather than carried by its old decision. Fail-closed, and the
  * recorded verdict is left otherwise untouched.
  */
-function gatedVerdict(verdict: QualityVerdict | undefined, bars: Bars): QualityVerdict | undefined {
+function gatedVerdict(verdict: QualityVerdict | undefined, bars: { perDimension: ReadonlyMap<string, number> }): QualityVerdict | undefined {
   if (verdict === undefined) return undefined;
-  if (verdict.decision !== "pass" || compoundDecision(verdict.dimensions, bars).pass) return verdict;
+  if (verdict.decision !== "pass" || perDimensionDecision(verdict.dimensions, bars).pass) return verdict;
   return { ...verdict, decision: "below" };
 }
 
@@ -122,6 +122,9 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
     // The floor enforced is the ADAPTIVE bar (O2), never the static authored threshold: the same
     // deterministic fold of `bar.raised` the scorer used, read here from the same store.
     const bars = effectiveQuality === undefined ? undefined : effectiveBars(store, node.task, effectiveQuality);
+    // S2: the QUALITY decision reads the measured per-dimension bars, floored at ABSOLUTE_MIN - never
+    // the mean, the tolerance band or the Pareto cap. Read from the same store the scorer read.
+    const gateBars = effectiveQuality === undefined ? undefined : quantileBars(store, node.task, effectiveQuality);
     const grant = grantFor({ id: node.id, capabilities: task.capabilities });
     const handoffs = buildHandoffs(store, instance, resolved, grant);
     const artifact = runStep({ store, storeDir, instance, node, task, grant, handoffs, payload: options.artifact, at });
@@ -143,10 +146,10 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
             quality: {
               policy: effectiveQuality.policy,
               threshold: bars.global,
-              floors: Object.fromEntries(bars.perDimension),
+              floors: Object.fromEntries(gateBars === undefined ? bars.perDimension : gateBars.perDimension),
               // The gate caps at the Pareto point; the cached verdict above already used the same cap.
               pareto: bars.pareto,
-              verdict: gatedVerdict(options.qualityVerdict, bars),
+              verdict: gatedVerdict(options.qualityVerdict, gateBars ?? { perDimension: bars.perDimension }),
             },
           }),
     });

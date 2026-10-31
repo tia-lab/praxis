@@ -175,7 +175,7 @@ test("a flow-level quality default applies to a task that declares none", async 
   }
 });
 
-test("a task's own quality overrides the flow default", async () => {
+test("an authored threshold is inert: the floor governs until work measures a level", async () => {
   const ws = workspace();
   try {
     writeFlow(
@@ -193,8 +193,9 @@ test("a task's own quality overrides the flow default", async () => {
       { dimensions: [{ id: "solves", statement: "flow floor" }], threshold: 0.9, policy: "required" },
     );
     const { id, nonce } = startQ(ws, "qd2");
-    // The task's own threshold (0.1) governs, not the flow default (0.9): a 0.3 score passes.
-    const r = await advanceEvaluated({ ...options(ws), instance: id, actor: "a", artifact: { schema: SCHEMA, nonce }, scorer: fakeScorer(0.3) });
+    // S2: an authored threshold no longer sets the bar - the floor (0.5) does, until work measures a
+    // level - so a 0.6 score passes under EITHER authored value.
+    const r = await advanceEvaluated({ ...options(ws), instance: id, actor: "a", artifact: { schema: SCHEMA, nonce }, scorer: fakeScorer(0.6) });
     // Acceptance is the artifact; closure is the lesson (O3): the instance waits for its note.
     assert.equal(r.result.status, "running");
     assert.equal(noteFor(ws, id).instance.status, "completed");

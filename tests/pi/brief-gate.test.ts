@@ -1,11 +1,7 @@
 /**
- * brief-gate: the step brief shows the EFFECTIVE (Pareto-capped) gate beside the earned bar, so an
- * agent never over-works to beat a standard the gate does not apply. Display only — the decision is
- * compoundDecision, which reads the same cap.
- *
- * Proves: above the Pareto point the earned threshold is reported unchanged while the gate shows the
- * cap (global and per dimension); below it the two are equal; and a REAL ratcheted bar above 0.8 is
- * displayed the same way.
+ * brief-gate (quantile-bars S2): the step brief shows the bars the GATE applies - the measured,
+ * floored per-dimension levels - uncapped, because the bar is a quantile of live work and the Pareto
+ * point has nothing left to do. Authored floors and thresholds are disclosed and set nothing.
  *
  * NO NETWORK: fake scorers, a temp workspace.
  */
@@ -43,9 +39,9 @@ async function briefOf(ws: Workspace, requestId: string): Promise<any> {
   return started.step.brief.quality;
 }
 
-test("above the Pareto point the brief reports the earned bar and the capped gate", async () => {
+test("the brief shows the MEASURED bar per dimension, uncapped", async () => {
   const ws = workspace();
-  // A dimension floor of 0.90 and a 0.87 MEAN bar: both above the default cap of 0.80.
+  // An authored floor of 0.9 and threshold 0.87: neither sets the bar any more (A1/A2).
   judgedFlow(ws, {
     threshold: 0.87,
     dimensions: [
@@ -58,33 +54,12 @@ test("above the Pareto point the brief reports the earned bar and the capped gat
   try {
     setAlignJudgeForTest(fakeAlignJudge("aligned"));
     const quality = await briefOf(ws, "brief-above");
-
-    assert.equal(quality.threshold, 0.87, "the EARNED bar is still reported");
-    assert.equal(quality.gate.threshold, 0.8, "and the gate shows what the mean must actually reach");
-    assert.equal(quality.gate.dimensions.solves, 0.8, "the 0.90 floor is capped for the gate");
-    assert.equal(quality.gate.dimensions.evidence, 0.8);
-    assert.equal(quality.gate.dimensions.trace, 0.8);
-    const authored = quality.dimensions.find((dimension: { id: string }) => dimension.id === "solves");
-    assert.equal(authored.floor, 0.9, "the authored aspiration is untouched");
-  } finally {
-    setAlignJudgeForTest(undefined);
-    restore();
-    dispose(ws);
-  }
-});
-
-test("below the Pareto point the gate and the earned bar are identical", async () => {
-  const ws = workspace();
-  judgedFlow(ws, { threshold: 0.6 });
-  const restore = useWorkspace(ws);
-  try {
-    setAlignJudgeForTest(fakeAlignJudge("aligned"));
-    const quality = await briefOf(ws, "brief-below");
-    assert.equal(quality.threshold, 0.6);
-    assert.equal(quality.gate.threshold, 0.6, "no cap applies: the gate equals the earned bar");
+    assert.equal(quality.gate.threshold, 0.5, "there is no global bar: the floor is the default");
     for (const dimension of ["solves", "evidence", "trace"]) {
-      assert.equal(quality.gate.dimensions[dimension], 0.6);
+      assert.equal(quality.gate.dimensions[dimension], 0.5, "an unmeasured dimension sits at the floor");
     }
+    const authored = quality.dimensions.find((dimension: { id: string }) => dimension.id === "solves");
+    assert.equal(authored.floor, 0.9, "the authored floor is still disclosed, and sets nothing");
   } finally {
     setAlignJudgeForTest(undefined);
     restore();
@@ -92,22 +67,41 @@ test("below the Pareto point the gate and the earned bar are identical", async (
   }
 });
 
-test("a ratcheted earned bar above the cap is displayed beside the capped gate", async () => {
+test("a measured bar above 0.8 is shown as it is: there is no cap", async () => {
   const ws = workspace();
   judgedFlow(ws);
   const restore = useWorkspace(ws);
   try {
     setAlignJudgeForTest(fakeAlignJudge("aligned"));
     const tick = clock().next;
-    // Warmup (10) then one raise per cooldown (5): the global bar reaches 0.85, past the 0.8 cap.
+    // 30 carried observations per dimension: the first raise lands at 28 (spec 3.6.1).
     for (let index = 1; index <= 30; index += 1) {
       const run = startJudged(ws, "climb-" + index, tick());
       await submitJudged(ws, run, tick(), 1, dimensionScorer([{ solves: 0.95, evidence: 0.95, trace: 0.95 }]));
     }
     const quality = await briefOf(ws, "brief-climbed");
-    assert.equal(quality.threshold, 0.85, "the ratchet's record is reported faithfully");
-    assert.equal(quality.gate.threshold, 0.8, "while the gate the agent must clear is the cap");
-    assert.equal(quality.gate.dimensions.solves, 0.8);
+    assert.equal(quality.gate.dimensions.solves, 0.95, "the measured bar, uncapped");
+    assert.equal(quality.gate.dimensions.evidence, 0.95);
+    assert.equal(quality.gate.threshold, 0.5, "and no global bar was invented");
+  } finally {
+    setAlignJudgeForTest(undefined);
+    restore();
+    dispose(ws);
+  }
+});
+
+test("an authored threshold is reported but never gates", async () => {
+  const ws = workspace();
+  judgedFlow(ws, { threshold: 0.6 });
+  const restore = useWorkspace(ws);
+  try {
+    setAlignJudgeForTest(fakeAlignJudge("aligned"));
+    const quality = await briefOf(ws, "brief-below");
+    assert.equal(quality.threshold, 0.6, "the authored value is disclosed");
+    assert.equal(quality.gate.threshold, 0.5, "but the gate starts at the floor, not at it");
+    for (const dimension of ["solves", "evidence", "trace"]) {
+      assert.equal(quality.gate.dimensions[dimension], 0.5);
+    }
   } finally {
     setAlignJudgeForTest(undefined);
     restore();

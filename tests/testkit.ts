@@ -14,6 +14,10 @@ import { DatabaseSync } from "node:sqlite";
 import { start } from "../src/runner/engine/index.ts";
 import { SAMPLE_REPEATS, advanceEvaluated, compositionKey, recordRubricSample, type Scorer } from "../src/quality/index.ts";
 import { recordNote } from "../src/runner/note-gate.ts";
+import { appendEvent } from "../src/store/events.ts";
+import { withStore } from "../src/runner/engine/support.ts";
+import { insertInstance } from "../src/store/instance.ts";
+import type { Quality } from "../src/types/quality.ts";
 
 /** A fixed instant, so an assertion never depends on the wall clock. */
 export const NOW = "2026-10-29T12:00:00.000Z";
@@ -439,3 +443,105 @@ export function recordNoteFor(ws: Workspace, instance: string, at: string, body:
   return recordNote({ options: { ...learningOptions(ws, at), instance }, actor, subjective: body, at });
 }
 
+
+/**
+ * A host instance for a seeded event: the event table has a foreign key to `instance`, and a
+ * fixture only needs a row that parses. Deterministic per index so a store stays reproducible.
+ */
+function eventHost(store: Parameters<Parameters<typeof withStore>[1]>[0], index: number, at: string): string {
+  const id = "i" + String(index).padStart(32, "0");
+  try {
+    insertInstance(store, { id, flow: "flows/fixture", actor: "a", status: "running", currentStep: "draft", nonce: String(index).padStart(32, "0"), now: at });
+  } catch {
+    // Already there: a fixture may seed twice against the same store.
+  }
+  return id;
+}
+
+/**
+ * Seed one recorded raise for a dimension, so a gate test can SET a bar in one line instead of
+ * building a population that reaches it. An omitted key writes a key-less raise, which the fold
+ * accepts under any current identity - the fixture form of a legacy record.
+ */
+export function raiseBar(store: Parameters<Parameters<typeof withStore>[1]>[0], task: string, dimension: string, to: number, key?: string, at: string = NOW): void {
+  const host = eventHost(store, 900, at);
+  appendEvent(store, host, {
+    type: "bar.raised",
+    payload: {
+      task,
+      taskVersion: 1,
+      scope: dimension,
+      ...(key === undefined ? {} : { key }),
+      from: 0.5,
+      to,
+      formulaId: "praxis.bar.quantile/v1",
+      at,
+    },
+    at,
+  });
+}
+
+/**
+ * Seed `values.length` carried observations of one dimension: one instance each, an accepted
+ * version and its verdict, which is exactly what the quantile population reads (spec 3.1).
+ */
+export function population(store: Parameters<Parameters<typeof withStore>[1]>[0], task: string, dimension: string, values: readonly number[], at: string = NOW): void {
+  values.forEach((score, index) => {
+    const host = eventHost(store, 1000 + index, at);
+    appendEvent(store, host, {
+      type: "quality.verdict",
+      payload: {
+        step: "draft",
+        version: 1,
+        artifactDigest: "sha256:" + String(index).padStart(64, "a"),
+        task,
+        taskVersion: 1,
+        decision: "pass",
+        score,
+        dimensions: [{ id: dimension, score }],
+        rationale: "fixture",
+        rubricDigest: "sha256:" + "b".repeat(64),
+        scorer: "fixture/v1",
+        source: "jev",
+      },
+      at,
+    });
+    appendEvent(store, host, {
+      type: "artifact.accepted",
+      payload: {
+        step: "draft",
+        version: 1,
+        path: "x",
+        digest: "sha256:" + String(index).padStart(64, "a"),
+        schema: "praxis.artifact.fixture/v1",
+        task,
+        taskVersion: 1,
+      },
+      at,
+    });
+  });
+}
+/**
+ * Seed the stable rubric sample a raise requires (the S3 guard): one sample per composition,
+ * recorded the way the sampler records it, so a ratchet test exercises the raise and not the guard.
+ */
+export function stableSample(store: Parameters<Parameters<typeof withStore>[1]>[0], task: string, quality: Quality, at: string = NOW): void {
+  const host = eventHost(store, 950, at);
+  const composition = compositionKey(quality);
+  appendEvent(store, host, {
+    type: "rubric.sampled",
+    payload: {
+      task,
+      taskVersion: 1,
+      scope: "global",
+      key: composition,
+      composition,
+      artifactDigest: "sha256:" + "c".repeat(64),
+      repeats: 3,
+      criteria: [{ dimension: quality.dimensions[0]!.id, criterion: "seed", type: "noul", stable: true, range: 0, answers: [0.9, 0.9, 0.9] }],
+      stable: true,
+      at,
+    },
+    at,
+  });
+}

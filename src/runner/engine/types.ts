@@ -61,6 +61,12 @@ export const HALF_WINDOW = QUANTILE_WINDOW / 2;
 export const RAISE_STEP = 0.02;
 /** The percentile a dimension gates at when it declares no `quantileGate` (A2). */
 export const DEFAULT_QUANTILE = 25;
+/**
+ * The first-raise guard (spec 3.6.1, K3): the bar's first level is confirmed on evidence the estimate
+ * never saw - two halves of FIRST_HALF observations that follow the 20-observation estimate.
+ */
+export const FIRST_HALF = 4;
+export const FIRST_RAISE_MIN = CALIBRATION_MIN + 2 * FIRST_HALF;
 /** The formula id the quantile ratchet records on every raise (spec 3.6). */
 export const QUANTILE_FORMULA_ID = "praxis.bar.quantile/v1";
 

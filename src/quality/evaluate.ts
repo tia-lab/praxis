@@ -14,7 +14,10 @@ import { canonicalBytes, digest, digestOf } from "../runner/canonical.ts";
 import { advance, inspect, orderFor, type AdvanceOptions } from "../runner/engine/index.ts";
 import { parseWith, QualityVerdictSchema, type Probe, type Quality, type QualityVerdict, type TaskConfig } from "../types/schema.ts";
 import type { QualityAttempt } from "../runner/engine/index.ts";
-import { barsFromQuality, compoundDecision, effectiveBarsFor, type Bars } from "./bar.ts";
+import { barsFromQuality, carriedPopulation, effectiveBarsFor, perDimensionDecision, quantileBarsFor, quantileOf, type Bars } from "./bar.ts";
+import { ABSOLUTE_MIN } from "../runner/engine/types.ts";
+import { dimensionKey } from "./scope.ts";
+import { withStore } from "../runner/engine/support.ts";
 import { RATIONALE_DIVERGENCE, RATIONALE_MAX } from "./jev-scorer.ts";
 
 /**
@@ -114,6 +117,10 @@ export function anchorKey(ruler: string, anchor: string | undefined): string {
 }
 
 const clamp01 = (n: number): number => (Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);
+
+/** The gate bars of a rubric with no history: every dimension at the absolute floor. */
+const floorOnly = (quality: Quality): Map<string, number> =>
+  new Map(quality.dimensions.map((dimension) => [dimension.id, ABSOLUTE_MIN]));
 const clip = (text: string, limit = 2000): string => (text.length <= limit ? text : text.slice(0, limit - 1) + "\u2026");
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -133,6 +140,8 @@ export async function evaluateArtifact(
   input: { goal: string; artifact: unknown; subjectDigest?: string; context?: ScoringContext },
   /** The bars in force; absent means the rubric's own seed floors (no history consulted). */
   bars: Bars = barsFromQuality(quality),
+  /** The measured per-dimension bars the DECISION reads (S2). Absent means the floor only. */
+  gate?: { perDimension: ReadonlyMap<string, number>; q50?: ReadonlyMap<string, number | undefined> },
 ): Promise<QualityVerdict> {
   const rubricDigest = rulerDigest(quality, bars);
   if (scorer === undefined) return degraded(rubricDigest, "unavailable", "no scorer available");
@@ -152,9 +161,19 @@ export async function evaluateArtifact(
   // MIN stays the reported headline score; the DECISION is the compound (per-dimension bars with the
   // tolerance band AND the hard MEAN bar), so the verdict the gate receives is already the answer.
   const score = judged.length === 0 ? 0 : Math.min(...judged.map((d) => d.score));
-  const compound = compoundDecision(judged, bars);
-  const decision = compound.pass ? "pass" : "below";
-  const weak = new Set([...compound.refused, ...compound.flagged]);
+  // The PURE AND (S2): every dimension must clear its own bar, floored at ABSOLUTE_MIN. No mean,
+  // no tolerance band, no Pareto cap - the bar cannot creep above the level work reaches.
+  const verdictOf = perDimensionDecision(judged, gate ?? { perDimension: floorOnly(quality) });
+  const decision = verdictOf.pass ? "pass" : "below";
+  const weak = new Set(verdictOf.refused);
+  // The Q50 learning flag (A3): a dimension that PASSED but sits below its own median of the carried
+  // population is where the next lesson comes from. Derived on demand, no gate effect, no storage.
+  const flagged = judged
+    .filter((dimension) => {
+      const median = gate?.q50?.get(dimension.id);
+      return !weak.has(dimension.id) && median !== undefined && dimension.score < median;
+    })
+    .map((dimension) => dimension.id);
   // The torn set, in the same flat namespace as the request: <dimension>.<criterion> (R17).
   const torn = judged.flatMap((dimension) => (dimension.torn ?? []).map((criterion) => dimension.id + "." + criterion));
   const dimensions = judged.map((dimension) => {
@@ -200,9 +219,9 @@ export async function evaluateArtifact(
       decision,
       score,
       dimensions,
-      // Rounded: the recorded mean is audit evidence, not a float artefact.
-      mean: Math.round(compound.mean * 10000) / 10000,
-      flagged: compound.flagged,
+      // `mean` is no longer written (S2). `flagged` is the Q50 set above; both stay optional in the
+      // schema so a verdict recorded before either change still parses.
+      ...(flagged.length === 0 ? {} : { flagged }),
       ...(torn.length === 0 ? {} : { torn }),
       ...(provisionalOn.length === 0 ? {} : { provisional: true, provisionalOn }),
       // T3: was this artifact judged against an order, and which one? Absent when there was none, so a
@@ -306,11 +325,24 @@ export async function advanceEvaluated(
       const cacheKey = anchorKey(rulerDigest(ruler, bars), order === undefined ? undefined : digest(order));
       const cached = cachedVerdict(view.qualityHistory, artifactDigest, cacheKey);
       if (cached !== undefined) return advance({ ...options, qualityVerdict: cached });
+      // S2: the DECISION reads the measured per-dimension bars, and the Q50 flag reads the same
+      // population's median (A3, A4). One store read, before the scorer runs.
+      const gateBars = quantileBarsFor(options, node.task, ruler);
+      // One short read, closed before the scorer runs: the population median per dimension.
+      const q50 = withStore(options, (store) => {
+        const medians = new Map<string, number | undefined>();
+        for (const dimension of ruler.dimensions) {
+          const values = carriedPopulation(store, node.task, dimension.id, dimensionKey(dimension));
+          medians.set(dimension.id, quantileOf([...values].sort((left, right) => left - right), 50));
+        }
+        return medians;
+      });
       const verdict = await evaluateArtifact(
         options.scorer,
         ruler,
         { goal: task.goal, artifact: options.artifact, subjectDigest, ...(context === undefined ? {} : { context }) },
         bars,
+        { perDimension: gateBars.perDimension, q50 },
       );
       return advance({ ...options, qualityVerdict: verdict });
     }

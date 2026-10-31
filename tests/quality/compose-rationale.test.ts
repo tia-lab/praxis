@@ -53,6 +53,9 @@ const verdictFor = (overrides: Record<string, unknown>, floor = 0.6) =>
     jevScorer({ evaluateFn: judgeFor(overrides).evaluateFn }),
     { threshold: 0.6, policy: "required", dimensions: [{ ...DIMENSION, floor }] },
     { goal: "g", artifact: {} },
+    undefined,
+    // S2: the bar in force is a MEASURED per-dimension level; this file passes it explicitly.
+    { perDimension: new Map([["composed", floor]]) },
   );
 
 test("R9: the why is rendered from the deciding answers, binding first and bounded", async () => {

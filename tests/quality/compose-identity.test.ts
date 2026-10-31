@@ -1,35 +1,27 @@
 /**
- * Slice 1, identity (R12): a composed dimension is identified by its CRITERIA. Editing one criterion
- * resets that dimension's bar to its seed; rewording the statement alone changes nothing, because the
- * statement no longer decides. A dimension without criteria keeps the statement identity.
+ * Identity (R12, re-pinned for the quantile bars): a composed dimension is identified by its
+ * CRITERIA, so editing one criterion re-keys exactly that dimension - it starts again at the floor -
+ * while an unchanged dimension (and one whose STATEMENT alone was reworded) keeps its bar.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { WARMUP_MIN, dimensionKey, effectiveBarsFor } from "../../src/quality/index.ts";
+import { withStore } from "../../src/runner/engine/support.ts";
+import { ABSOLUTE_MIN, dimensionKey, quantileBars } from "../../src/quality/index.ts";
 import type { Quality } from "../../src/types/quality.ts";
-import { clock, dimensionScorer, dispose, judgedFlow, learningOptions, startJudged, submitJudged, workspace, type Workspace } from "../testkit.ts";
+import { dispose, learningOptions, raiseBar, workspace } from "../testkit.ts";
 
 const TASK = "tasks/make";
+const AT = "2026-10-31T00:00:00.000Z";
 const COMPOSED = {
   id: "solves",
   statement: "it solves the stated goal",
-  floor: 0.6,
   probes: [{ id: "c1", type: "noul" as const, instructions: "does it solve the goal?" }],
 };
-const PLAIN = { id: "evidence", statement: "every claim carries evidence", floor: 0.6 };
-const QUALITY = (dimensions: unknown[]): Quality => ({ threshold: 0.6, policy: "required", dimensions } as unknown as Quality);
+const PLAIN = { id: "evidence", statement: "every claim carries evidence" };
+const QUALITY = (dimensions: unknown[]): Quality => ({ dimensions, threshold: 0.6, policy: "required" } as unknown as Quality);
 
-/** Ten genuine passes raise every scope once at seed 0.6 (WARMUP_MIN observations). */
-async function warmed(ws: Workspace): Promise<void> {
-  const tick = clock().next;
-  for (let index = 1; index <= WARMUP_MIN; index += 1) {
-    const run = startJudged(ws, "warm-" + index, tick());
-    await submitJudged(ws, run, tick(), 1, dimensionScorer([{ solves: 0.95, evidence: 0.95 }]));
-  }
-}
-
-test("R12: editing a criterion resets only that dimension, and a reword resets nothing", async () => {
+test("R12: editing a criterion resets only that dimension, and a reword resets nothing", () => {
   // Identity first, with no store: the key is the criteria, not the prose around them.
   const base = dimensionKey(COMPOSED);
   assert.equal(dimensionKey({ ...COMPOSED, statement: "a completely reworded statement" }), base, "the statement is not part of a composed identity");
@@ -38,25 +30,29 @@ test("R12: editing a criterion resets only that dimension, and a reword resets n
 
   const ws = workspace();
   try {
-    judgedFlow(ws, { dimensions: [COMPOSED, PLAIN] });
-    await warmed(ws);
-    const options = learningOptions(ws, "2026-10-29T23:00:00.000Z");
-    const raised = effectiveBarsFor(options, TASK, QUALITY([COMPOSED, PLAIN]));
-    assert.ok((raised.perDimension.get("solves") ?? 0) > 0.6, "the composed dimension ratcheted");
-    assert.ok((raised.perDimension.get("evidence") ?? 0) > 0.6, "the statement dimension ratcheted");
+    const options = learningOptions(ws, AT);
+    withStore(options, (store) => {
+      raiseBar(store, TASK, "solves", 0.8, dimensionKey(COMPOSED));
+      raiseBar(store, TASK, "evidence", 0.7, dimensionKey(PLAIN));
+    });
+    const barsOf = (dimensions: unknown[]) => withStore(options, (store) => quantileBars(store, TASK, QUALITY(dimensions)));
+    const raised = barsOf([COMPOSED, PLAIN]);
+    assert.equal(raised.perDimension.get("solves"), 0.8);
+    assert.equal(raised.perDimension.get("evidence"), 0.7);
 
-    // Rewording the statement alone: BOTH bars stay where they earned them.
-    const reworded = effectiveBarsFor(options, TASK, QUALITY([{ ...COMPOSED, statement: "reworded prose" }, PLAIN]));
-    assert.equal(reworded.perDimension.get("solves"), raised.perDimension.get("solves"));
-    assert.equal(reworded.perDimension.get("evidence"), raised.perDimension.get("evidence"));
+    // Rewording the statement alone: BOTH bars stay where they were measured.
+    const reworded = barsOf([{ ...COMPOSED, statement: "reworded prose" }, PLAIN]);
+    assert.equal(reworded.perDimension.get("solves"), 0.8, "a composed dimension ignores statement prose");
+    assert.equal(reworded.perDimension.get("evidence"), 0.7);
 
-    // Editing one criterion: only THAT dimension goes back to its seed.
-    const edited = effectiveBarsFor(options, TASK, QUALITY([
+    // Editing one criterion: only THAT dimension goes back to the floor.
+    const edited = barsOf([
       { ...COMPOSED, probes: [{ ...COMPOSED.probes[0]!, instructions: "does it solve the goal, exactly?" }] },
       PLAIN,
-    ]));
-    assert.equal(edited.perDimension.get("solves"), 0.6, "the edited dimension re-warms from its seed");
-    assert.equal(edited.perDimension.get("evidence"), raised.perDimension.get("evidence"), "the untouched dimension keeps its bar");
+    ]);
+    assert.equal(edited.perDimension.get("solves"), ABSOLUTE_MIN, "the edited identity re-warms from the floor");
+    assert.equal(edited.perDimension.get("evidence"), 0.7, "the untouched dimension keeps its bar");
+    assert.notEqual(edited.keys.get("solves"), raised.keys.get("solves"));
   } finally {
     dispose(ws);
   }

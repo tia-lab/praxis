@@ -8,9 +8,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { RECALL_MAX, RECALL_TOKEN_BUDGET, WARMUP_MIN, briefRecall, escalatedLesson, recallFor, weakSetFor } from "../../src/quality/index.ts";
+import { RECALL_MAX, RECALL_TOKEN_BUDGET, briefRecall, escalatedLesson, recallFor, weakSetFor } from "../../src/quality/index.ts";
 import { effectiveBar } from "../../src/quality/index.ts";
 import { openStore } from "../../src/store/db.ts";
+import { withStore } from "../../src/runner/engine/support.ts";
 import { join } from "node:path";
 import type { LearningTag } from "../../src/types/learning.ts";
 import type { Quality } from "../../src/types/schema.ts";
@@ -32,6 +33,7 @@ import {
   submitJudged,
   workspace,
   type Workspace,
+  raiseBar,
 } from "../testkit.ts";
 
 const TASK = "tasks/make";
@@ -352,10 +354,11 @@ test("lessons survive a bar raise, decayed but present, with the weak-set spanni
     judgedFlow(ws);
     const tick = clock().next;
     await seed(ws, tick, { requestId: "raise-old", scores: [0.95], text: "old-bar lesson", tags: [{ dimension: "solves", lesson: "old-bar lesson" }] });
-    for (let index = 1; index <= WARMUP_MIN; index += 1) {
-      const run = startJudged(ws, "raise-pass-" + index, tick());
-      await submitJudged(ws, run, tick(), 1, sequenceScorer([0.95]));
-    }
+    // S2: the ratchet needs a 28-observation population, so the test SEEDS the level it is about -
+    // dated BETWEEN the two lessons, so the later one is measured at the raised bar (decay is the
+    // signal). recall's own (frozen) read is the legacy global bar, which a global-scope raise folds.
+    const raisedAt = tick();
+    withStore(learningOptions(ws, raisedAt), (store) => raiseBar(store, TASK, "global", 0.65, undefined, raisedAt));
     await seed(ws, tick, { requestId: "raise-new", scores: [0.95], text: "raised-bar lesson", tags: [{ dimension: "solves", lesson: "raised-bar lesson" }] });
     const store = openStore(join(ws.store, "praxis.sqlite"));
     try {

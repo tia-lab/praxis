@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 import { fail, isAppError, type Code } from "../types/errors.ts";
 import { missingFor } from "./requirements.ts";
-import { compoundDecision, gateBar } from "../quality/bar.ts";
+import { perDimensionDecision } from "../quality/bar.ts";
 import {
   DigestSchema,
   type Artifact,
@@ -365,18 +365,14 @@ export function gate(
       checks.qualityAvailable = false;
       decide(true, "QUALITY_REQUIRED");
     } else {
-      // The compound accept (per-dimension bars + HARD mean bar), computed here from the verdict's
-      // own scores, so the recorded decision is checked rather than trusted.
-      const compound = compoundDecision(qualityVerdict.dimensions, {
-        global: expected.quality.threshold,
+      // The PURE AND (S2), computed here from the verdict's own scores so the recorded decision is
+      // checked rather than trusted: every dimension must clear its own measured bar, floored at
+      // ABSOLUTE_MIN. One check, no mean, no tolerance band, no Pareto cap.
+      const decisionOf = perDimensionDecision(qualityVerdict.dimensions, {
         perDimension: new Map(Object.entries(expected.quality.floors ?? {})),
-        pareto: expected.quality.pareto,
       });
-      // Both halves compare against the CAPPED bar, so the recorded checks can never claim a
-      // standard the gate did not apply.
-      checks.qualityPerDimension = compound.refused.length === 0;
-      checks.qualityMean = compound.mean >= gateBar(expected.quality.threshold, expected.quality.pareto);
-      checks.qualityFloor = compound.pass;
+      checks.qualityPerDimension = decisionOf.refused.length === 0;
+      checks.qualityFloor = decisionOf.pass;
       decide(!checks.qualityFloor, "QUALITY_BELOW_THRESHOLD");
     }
   }

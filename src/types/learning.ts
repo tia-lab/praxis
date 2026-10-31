@@ -241,6 +241,10 @@ export const RecallRankedSchema = z.strictObject({
         step: StepIdSchema,
         version: z.int().min(1),
         jev: z.number().min(0).max(1),
+        /** The three noul probabilities that ordered it (S5, R31), keyed by criterion id. */
+        nouls: z.record(z.string().min(1).max(32), z.number().min(0).max(1)).optional(),
+        /** The weighted sum those probabilities produce (R30). */
+        total: z.number().min(0).max(1).optional(),
         /** The instruction screen's verdict for this case, recorded with the ranking (S4, R26). */
         screen: z
           .strictObject({

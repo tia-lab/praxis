@@ -47,12 +47,28 @@ import {
   type RecallPayload,
 } from "./ranker.ts";
 
-/** The criteria every candidate is scored against: fixed text, never derived from the caller. */
-const DISTINCT_CRITERIA = [
-  "substantively distinct from the other candidates' guidance",
-  "directly useful for the stated need",
-  "still worth reading when its existing relevance score is high",
-];
+/**
+ * The three distinctness criteria (S5, R29-R31) and their FROZEN weights (D16, R30): constants in
+ * code, never model-chosen, never task-authored, never tuned per call. Each criterion is asked as its
+ * own `noul`, so an answer says WHICH property a candidate has instead of one opaque score.
+ */
+export const WEIGHT_DISTINCT = 0.5;
+export const WEIGHT_USEFUL = 0.3;
+export const WEIGHT_READABLE = 0.2;
+
+/** The authored trio: an id (the question suffix), the text, and the weight it carries. */
+export const DISTINCT_CRITERIA = [
+  { id: "distinct", text: "It is substantively distinct from the other candidates' guidance.", weight: WEIGHT_DISTINCT },
+  { id: "useful", text: "It is directly useful for the stated need.", weight: WEIGHT_USEFUL },
+  { id: "readable", text: "It is still worth reading even when its existing relevance score is high.", weight: WEIGHT_READABLE },
+] as const;
+
+/** The weighted sum of the three probabilities: the ordering value, in [0,1] (R30). */
+export function weightedTotal(nouls: Readonly<Record<string, number>>): number {
+  let total = 0;
+  for (const criterion of DISTINCT_CRITERIA) total += criterion.weight * (nouls[criterion.id] ?? 0);
+  return Math.min(1, Math.max(0, total));
+}
 
 const clipField = (text: string): string => (text.length <= JEV_CLIP ? text : text.slice(0, JEV_CLIP - 1) + "\u2026");
 
@@ -89,15 +105,13 @@ export function jevRanker(opts: { evaluateFn?: typeof evaluate; model?: string }
   return {
     async rankDistinct({ need, ranked, max }) {
       const pool = ranked.slice(0, JEV_POOL);
-      const questions: Record<string, { type: "score"; instructions: string; criteria: string[] }> = {};
+      // Three `noul`s per pooled candidate (R29): <candidate>.<criterion>. At the 20-candidate pool,
+      // that is 60 questions — under pi-jev's 128 — and it never splits across calls.
+      const questions: Record<string, { type: "noul"; instructions: string }> = {};
       pool.forEach((_candidate, index) => {
-        questions[questionId(index)] = {
-          type: "score",
-          instructions:
-            "How much NEW, non-duplicated guidance would this solved case add for the need below, beyond what the other cases already say? " +
-            "Score 1 when it is the most distinct and directly useful, 0 when it repeats what the others teach. CASE:",
-          criteria: [...DISTINCT_CRITERIA],
-        };
+        for (const criterion of DISTINCT_CRITERIA) {
+          questions[questionId(index) + "." + criterion.id] = { type: "noul", instructions: criterion.text };
+        }
       });
       const request: JevRequest = {
         state: {
@@ -118,12 +132,18 @@ export function jevRanker(opts: { evaluateFn?: typeof evaluate; model?: string }
       };
       const response = await run(request);
       const scored = pool.map((candidate, index) => {
-        const answer = response.answers[questionId(index)];
-        // Strict: a missing answer or a non-score shape makes the whole stage unavailable, never partial.
-        if (answer === undefined || answer.type !== "score" || !Number.isFinite(answer.score)) {
-          throw new Error("jev answer " + JSON.stringify(questionId(index)) + " is not a finite score");
+        const nouls: Record<string, number> = {};
+        for (const criterion of DISTINCT_CRITERIA) {
+          const id = questionId(index) + "." + criterion.id;
+          const answer = response.answers[id];
+          // Strict: a missing or mistyped answer makes the whole stage unavailable, never partial.
+          if (answer === undefined || answer.type !== "noul" || !Number.isFinite(answer.noul)) {
+            throw new Error("jev answer " + JSON.stringify(id) + " is not a finite noul");
+          }
+          nouls[criterion.id] = Math.min(1, Math.max(0, answer.noul));
         }
-        return { case: candidate, jev: Math.min(1, Math.max(0, answer.score)) };
+        const total = weightedTotal(nouls);
+        return { case: candidate, jev: total, nouls, total };
       });
       const ordered = scored.sort(
         (left, right) =>
@@ -237,6 +257,20 @@ async function awaitPublished(options: EngineOptions, key: RankedKey, waitMs: nu
 }
 
 /** Map a persisted entry's chosen ids back onto this call's ranked cases, in the entry's order. */
+/** The trio a cache entry already recorded, so a fresh hit repeats the same explanation (R31). */
+function evidenceOf(entry: RecallRanked, ranked: readonly RankedCase[]): Map<string, { nouls?: Record<string, number>; total?: number }> {
+  const evidence = new Map<string, { nouls?: Record<string, number>; total?: number }>();
+  for (const pick of entry.chosen) {
+    const key = pick.instance + "/" + pick.step + "/" + String(pick.version);
+    evidence.set(key, {
+      ...(pick.nouls === undefined ? {} : { nouls: pick.nouls }),
+      ...(pick.total === undefined ? {} : { total: pick.total }),
+    });
+  }
+  void ranked;
+  return evidence;
+}
+
 function fromEntry(entry: RecallRanked, ranked: readonly RankedCase[]): DistinctChoice[] {
   const byIdentity = new Map(
     ranked.map((candidate) => [candidate.instance + "\u0000" + candidate.step + "\u0000" + String(candidate.version), candidate]),
@@ -257,8 +291,9 @@ function payloadOf(
   max: number,
   screens?: ReadonlyMap<string, { passed: boolean }>,
   excluded?: readonly string[],
+  evidence?: ReadonlyMap<string, { nouls?: Record<string, number>; total?: number }>,
 ): RecallPayload {
-  const cases = applyBounds(ordered, max, 1200, screens);
+  const cases = applyBounds(ordered, max, 1200, screens, evidence);
   return {
     need,
     count: cases.length,
@@ -343,7 +378,15 @@ export async function recallRanked(
   if (state.fresh !== undefined) {
     const cached = fromEntry(state.fresh, state.ranked);
     if (cached.length > 0) {
-      return payloadOf(input.need, cached.map((pick) => pick.case), state.ranked.length, max, screensOf(state.fresh, state.ranked), state.excluded);
+      return payloadOf(
+        input.need,
+        cached.map((pick) => pick.case),
+        state.ranked.length,
+        max,
+        screensOf(state.fresh, state.ranked),
+        state.excluded,
+        evidenceOf(state.fresh, state.ranked),
+      );
     }
   }
 
@@ -409,6 +452,8 @@ export async function recallRanked(
                   step: pick.case.step,
                   version: pick.case.version,
                   jev: Math.round(pick.jev * 10000) / 10000,
+                  ...(pick.nouls === undefined ? {} : { nouls: pick.nouls }),
+                  ...(pick.total === undefined ? {} : { total: Math.round(pick.total * 10000) / 10000 }),
                   ...(screens.has(caseKey(pick.case)) ? { screen: screens.get(caseKey(pick.case))! } : {}),
                 })),
                 at,
@@ -424,5 +469,13 @@ export async function recallRanked(
       // Cache only: the answer already exists, so a failed write changes nothing about this call.
     }
   }
-  return payloadOf(input.need, outcome.chosen.map((pick) => pick.case), state.ranked.length, max, screens, state.excluded);
+  const evidence = new Map<string, { nouls?: Record<string, number>; total?: number }>();
+  for (const pick of outcome.chosen) {
+    if (pick.nouls === undefined && pick.total === undefined) continue;
+    evidence.set(caseKey(pick.case), {
+      ...(pick.nouls === undefined ? {} : { nouls: pick.nouls }),
+      ...(pick.total === undefined ? {} : { total: pick.total }),
+    });
+  }
+  return payloadOf(input.need, outcome.chosen.map((pick) => pick.case), state.ranked.length, max, screens, state.excluded, evidence);
 }

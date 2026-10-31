@@ -317,6 +317,10 @@ export const RecallCaseSchema = z.strictObject({
   outcome: z.literal("pass"),
   /** True only when this case's text passed the instruction screen (S4, R26). */
   screened: z.boolean(),
+  /** The three noul probabilities that ordered this case, keyed by criterion id (S5, R31). */
+  nouls: z.record(z.string().min(1).max(32), z.number().min(0).max(1)).optional(),
+  /** The weighted sum of those three, with the frozen weights (R30). */
+  total: z.number().min(0).max(1).optional(),
   /** The code-owned line a withheld case carries instead of its text. */
   withheld: z.string().min(1).max(200).optional(),
   /**

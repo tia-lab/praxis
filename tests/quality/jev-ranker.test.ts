@@ -47,14 +47,20 @@ import {
 } from "../testkit.ts";
 
 /** A fake pi-jev: records every request and answers each question with the score it is given. */
-function fakeJev(score: (index: number, request: JevRequest) => number = () => 0.5) {
+/**
+ * A fake stage-2 judge: THREE `noul`s per candidate (S5), so `value(candidateIndex, criterionId)` is
+ * the probability the candidate has that property. The default gives every criterion the same answer.
+ */
+function fakeJev(value: (index: number, criterion: string) => number = () => 0.5) {
   const calls: JevRequest[] = [];
   const evaluateFn = async (request: JevRequest): Promise<JevResponse> => {
     calls.push(request);
-    const answers: Record<string, { type: "score"; score: number }> = {};
-    Object.keys(request.questions).forEach((id, index) => {
-      answers[id] = { type: "score", score: score(index, request) };
-    });
+    const answers: Record<string, { type: "noul"; noul: number }> = {};
+    for (const id of Object.keys(request.questions)) {
+      const cut = id.lastIndexOf(".");
+      const index = Number(id.slice(1, cut));
+      answers[id] = { type: "noul", noul: value(index, id.slice(cut + 1)) };
+    }
     return { model: "fake/jev", answers, usage: { input_tokens: 11, output_tokens: 7 } };
   };
   return { evaluateFn, calls };
@@ -94,7 +100,7 @@ const jaccardOf = (left: string, right: string): number => {
   return shared / (a.size + b.size - shared);
 };
 
-test("R1/R2: one evaluate call over at most JEV_POOL candidates, all score questions, clipped", async () => {
+test("R1/R2: one evaluate call over at most JEV_POOL candidates, three nouls each, clipped", async () => {
   const ws = workspace();
   const restore = setup();
   try {
@@ -111,8 +117,13 @@ test("R1/R2: one evaluate call over at most JEV_POOL candidates, all score quest
     assert.equal(jev.calls.length, 1, "exactly one jev call");
     const request = jev.calls[0];
     const ids = Object.keys(request.questions);
-    assert.equal(ids.length, JEV_POOL, "the pool is capped at 20 candidates");
-    for (const id of ids) assert.equal(request.questions[id].type, "score", "every question is a score");
+    assert.equal(ids.length, JEV_POOL * 3, "the pool is capped at 20 candidates, three nouls each (S5, R29)");
+    for (const id of ids) assert.equal(request.questions[id].type, "noul", "every question is a noul");
+    assert.deepEqual(
+      [...new Set(ids.map((id) => id.split(".")[1]))].sort(),
+      ["distinct", "readable", "useful"],
+      "the three authored criteria, one question each",
+    );
     const state = request.state as { cases: { whatBetter: string; whatWrong: string; whatRight: string; tags: { lesson: string }[] }[] };
     assert.equal(state.cases.length, JEV_POOL);
     for (const item of state.cases) {

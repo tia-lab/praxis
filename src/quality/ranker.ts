@@ -338,6 +338,10 @@ export interface RecallPayload {
     lesson: ExperienceCase["lesson"];
     /** True only when this case's text passed the instruction screen (S4, R26). */
     screened: boolean;
+    /** The three noul probabilities that ordered this case (S5, R31), keyed by criterion id. */
+    nouls?: Record<string, number>;
+    /** The weighted sum of those three, with the frozen weights (R30). */
+    total?: number;
     /** The code-owned line a withheld case carries instead of its text. */
     withheld?: string;
   }>;
@@ -361,6 +365,8 @@ export function applyBounds(
   max: number,
   budget = 1200,
   screens?: ReadonlyMap<string, { passed: boolean }>,
+  /** The trio an ordering already explained, keyed by case (S5, R31). */
+  evidence?: ReadonlyMap<string, { nouls?: Record<string, number>; total?: number }>,
 ): RecallPayload["cases"] {
   const kept: RecallPayload["cases"] = [];
   let tokens = 0;
@@ -391,6 +397,8 @@ export function applyBounds(
       lesson,
       screened: cleared,
       ...(cleared ? {} : { withheld: WITHHELD_NOTE }),
+      ...(evidence?.get(caseKey(candidate))?.nouls === undefined ? {} : { nouls: evidence.get(caseKey(candidate))!.nouls }),
+      ...(evidence?.get(caseKey(candidate))?.total === undefined ? {} : { total: evidence.get(caseKey(candidate))!.total }),
     });
   }
   return kept;
@@ -446,7 +454,12 @@ export const SINGLE_FLIGHT_WAIT_MS = 250;
 /** One chosen exemplar: the case and the jev score that ordered it. */
 export interface DistinctChoice {
   case: RankedCase;
+  /** The ordering value: the weighted sum of the three nouls (S5, R30). */
   jev: number;
+  /** The three probabilities themselves, so the ordering can say WHICH property won (R31). */
+  nouls?: Record<string, number>;
+  /** The same weighted sum, disclosed beside them. */
+  total?: number;
 }
 
 /** What one stage-2 run produced, with the model and spend it cost. */

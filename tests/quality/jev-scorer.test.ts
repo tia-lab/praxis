@@ -21,6 +21,10 @@ const RUBRIC: { id: string; statement: string }[] = [
   { id: "evidence", statement: "every claim carries evidence" },
 ];
 
+/** pi-jev 0.2.3 types `instructions` as EntryType (possibly null): read it as text for an assertion. */
+const textOf = (instruction: unknown): string =>
+  typeof instruction === "string" ? instruction : (JSON.stringify(instruction) ?? "");
+
 interface Fake {
   evaluateFn: (request: JevRequest) => Promise<JevResponse>;
   seen: JevRequest[];
@@ -59,7 +63,7 @@ test("one noul question per rubric dimension, keyed by dimension id", async () =
   for (const dimension of RUBRIC) {
     const question = request.questions[dimension.id];
     assert.equal(question.type, "noul");
-    assert.ok(question.instructions.includes(dimension.statement), "the statement reaches the question");
+    assert.ok(textOf(question.instructions).includes(dimension.statement), "the statement reaches the question");
   }
 });
 

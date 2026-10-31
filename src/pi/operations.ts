@@ -24,7 +24,7 @@ import type { EngineOptions } from "../runner/engine/index.ts";
 import { projectConfig, projectMaxAttempts, withStore } from "../runner/engine/support.ts";
 import { afterOp, beforeOp } from "../runner/hooks.ts";
 import { noteStanding, recordNote } from "../runner/note-gate.ts";
-import { advanceEvaluated, briefRecall, compoundDecision, effectiveBarsFor, escalatedLesson, gateBar, jevScorer, recallRanked, type Scorer } from "../quality/index.ts";
+import { advanceEvaluated, briefRecall, compoundDecision, effectiveBarsFor, escalatedLesson, gateBar, jevScorer, recallRanked, sampleIfDue, type Scorer } from "../quality/index.ts";
 import { anchorOf, jevAlignJudge, judgeOrder, orderDigestOf, uncheckedClause, type AlignJudge } from "../quality/jev-align.ts";
 import { artifactSummary, currentStepOf, learningView, stepDescriptor } from "./descriptor.ts";
 import type { PiSessionContext, PiToolResult } from "./host.ts";
@@ -349,6 +349,40 @@ function verdictSummaryOf(options: EngineOptions & { instance: string }, step: s
   };
 }
 
+/**
+ * The S3 boundary hook: after a submit's transaction has closed, sample the rubric identity if a
+ * raise is due and nobody has sampled it yet. Best effort — a judge error or a missing artifact
+ * records nothing and holds the raise, so this can never turn a completed step into a failure.
+ */
+async function sampleAfterAdvance(args: {
+  options: EngineOptions;
+  instance: string;
+  step: string;
+  advanced: Awaited<ReturnType<typeof advanceEvaluated>>;
+  scorer: Scorer;
+}): Promise<void> {
+  try {
+    const node = args.advanced.flow.config.nodes.find((candidate) => candidate.id === args.step);
+    const task = node === undefined ? undefined : args.advanced.flow.tasks.get(node.task);
+    const quality = task?.quality ?? args.advanced.flow.config.quality;
+    if (node === undefined || task === undefined || quality === undefined) return;
+    if (!task.capabilities.includes("evaluate")) return;
+    await sampleIfDue({
+      options: args.options,
+      instance: args.instance,
+      step: args.step,
+      task: node.task,
+      taskVersion: task.version,
+      quality,
+      scorer: args.scorer,
+      goal: task.goal,
+      at: args.options.now ?? new Date().toISOString(),
+    });
+  } catch {
+    // The sample is evidence for a raise, never a gate: swallowing here keeps R22 true.
+  }
+}
+
 export async function submitOperation(args: PraxisToolArgs, ctx: PiSessionContext): Promise<PiToolResult> {
   const options = engineOptions(ctx);
   const instance = required(args.instance, "instance");
@@ -365,6 +399,10 @@ export async function submitOperation(args: PraxisToolArgs, ctx: PiSessionContex
       actor,
       scorer: scorerOverride ?? jevScorer(),
     });
+    // S3/D12 (R24): the rubric sample runs HERE — at the awaiting boundary, after the transaction
+    // `advance` just closed — and only when a raise is due on an identity nobody has sampled. A
+    // sampling failure records nothing and holds the raise; it never refuses the step (R22).
+    await sampleAfterAdvance({ options, instance, step, advanced, scorer: scorerOverride ?? jevScorer() });
     const accepted = advanced.result.artifacts.find((ref) => ref.step === step);
     const verdict = verdictSummaryOf({ ...options, instance }, step, accepted === undefined ? 0 : accepted.version);
     await afterOp("after_submit", { op: "submit", instance, step, decision: "accepted", ...(verdict === undefined ? {} : { verdict }) });

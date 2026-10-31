@@ -8,6 +8,7 @@
 import { z } from "zod";
 import {
   ActorSchema,
+  DigestSchema,
   InstanceIdSchema,
   StepIdSchema,
   TaskRefSchema,
@@ -70,6 +71,26 @@ export const BarWindowSchema = z.strictObject({
 export type BarWindow = z.infer<typeof BarWindowSchema>;
 
 /**
+ * One criterion's agreement across the repeat judgments of a rubric sample (S3, R21): a `choice`
+ * agrees by how often the same key was picked, a `noul`/`score` by the RANGE of its values, because
+ * neither has a distribution to spread.
+ */
+export const SampleAgreementSchema = z.strictObject({
+  dimension: z.string().min(1).max(64),
+  criterion: z.string().min(1).max(64),
+  type: z.enum(["choice", "noul", "score"]),
+  /** Agreed when the modal answer recurs enough (choice) or the range is tight enough (noul/score). */
+  stable: z.boolean(),
+  /** choice: the share of repeats that picked the modal key (1 = unanimous). */
+  agreement: z.number().min(0).max(1).optional(),
+  /** noul/score: max - min across the repeats. */
+  range: z.number().min(0).max(1).optional(),
+  /** The answers themselves, in repeat order: the evidence agreed about, not a summary of it. */
+  answers: z.array(z.union([z.string().min(1).max(80), z.number().min(0).max(10)])).min(1).max(9),
+});
+export type SampleAgreement = z.infer<typeof SampleAgreementSchema>;
+
+/**
  * One raise of a task's effective floor, with the formula id and the evidence that produced it (O2,
  * audit). Since the EMA ratchet the decision input is `ema`; `window` is disclosure.
  */
@@ -108,9 +129,46 @@ export const BarRaisedSchema = z.strictObject({
     })
     .optional(),
   formulaId: z.string().min(1).max(64),
+  /**
+   * The rubric sample that vouched for this raise (S3, R23): how many repeat judgments it took, the
+   * per-criterion agreement, and the artifact they were taken over. Additive-optional, because a raise
+   * recorded before the sample existed must still parse and fold.
+   */
+  stability: z
+    .strictObject({
+      repeats: z.int().min(2).max(9),
+      stable: z.boolean(),
+      artifactDigest: DigestSchema,
+      criteria: z.array(SampleAgreementSchema).min(1).max(48),
+    })
+    .optional(),
   at: TimestampSchema,
 });
 export type BarRaised = z.infer<typeof BarRaisedSchema>;
+
+/**
+ * One recorded rubric sample: the same frozen artifact re-judged SAMPLE_REPEATS times under one rubric
+ * composition, so a bar may not ratchet on an identity nobody has sampled (S3, R20-R22). Derived
+ * evidence for the ratchet, never a second owner of the bar; at most one per (task, version, composition).
+ */
+export const RubricSampledSchema = z.strictObject({
+  task: TaskRefSchema,
+  taskVersion: z.int().min(1),
+  /** The scope whose due raise triggered the sample: `global` or a dimension id. */
+  scope: z.string().min(1).max(64),
+  /** That scope's identity key. */
+  key: z.string().min(1).max(64).optional(),
+  /** The rubric composition the sample vouches for (a new composition needs its own sample). */
+  composition: z.string().min(1).max(64),
+  /** The frozen accepted artifact the repeats were taken over. */
+  artifactDigest: DigestSchema,
+  repeats: z.int().min(2).max(9),
+  criteria: z.array(SampleAgreementSchema).min(1).max(48),
+  /** Stable only when EVERY criterion agreed (R21). */
+  stable: z.boolean(),
+  at: TimestampSchema,
+});
+export type RubricSampled = z.infer<typeof RubricSampledSchema>;
 
 /** A full window under the raised bar with no pass at all: a loud signal, never an auto-lower. */
 export const BarContestedSchema = z.strictObject({

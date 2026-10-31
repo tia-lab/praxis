@@ -1,7 +1,9 @@
 /** The quality-evaluation surface (quality eval): the scorer port, the two entry points, the pi-jev adapter. */
-export { DEFAULT_PARETO_THRESHOLD } from "../runner/engine/types.ts";
+export { DEFAULT_PARETO_THRESHOLD, SAMPLE_AGREEMENT_MIN, SAMPLE_RANGE_MAX, SAMPLE_REPEATS } from "../runner/engine/types.ts";
 export { advanceEvaluated, evaluateArtifact, type Scorer } from "./evaluate.ts";
 export { jevScorer, type JevScorerOptions } from "./jev-scorer.ts";
+/** The rubric sampler (S3): repeat-N agreement before a bar may raise. */
+export { agreeOn, recordRubricSample, sampleIfDue, sampleRubric, type SampledRun } from "./sample.ts";
 /** Execution learning, task-level (O2): the per-scope adaptive bars and the compound acceptance. */
 export {
   BAR_CEILING,
@@ -31,6 +33,8 @@ export {
   ofTask,
   raisesOf,
   recomputeBar,
+  sampleFor,
+  unsampledDueScopes,
   scanEvents,
   scopeOf,
   stdev,

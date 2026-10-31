@@ -24,7 +24,7 @@
  * emits `bar.contested` for that scope (owner authority lowers a contested bar; the code never does).
  */
 import { z } from "zod";
-import { BarContestedSchema, BarRaisedSchema } from "../types/learning.ts";
+import { BarContestedSchema, BarRaisedSchema, RubricSampledSchema } from "../types/learning.ts";
 import { parseWith, type Probe, type Quality } from "../types/schema.ts";
 import { storeCall, type Store } from "../store/db.ts";
 import { appendEvent } from "../store/events.ts";
@@ -427,6 +427,49 @@ function passCompositionOf(pass: GenuinePass): string {
  * time: a scope only acts once it has warmed up and a full qualifying window exists. Each raise and
  * contest is appended with its scope and identity key, so the record explains itself.
  */
+/**
+ * The rubric sample recorded for one composition, if any (S3, R20): at most one per (task, version,
+ * composition), and the LATEST one wins so a re-recorded sample supersedes an older verdict.
+ */
+export function sampleFor(store: Store, task: string, taskVersion: number, composition: string): z.infer<typeof RubricSampledSchema> | undefined {
+  let found: z.infer<typeof RubricSampledSchema> | undefined;
+  for (const event of scanEvents(store, [EVENT.rubricSampled])) {
+    const raw = event.payload as Record<string, unknown>;
+    if (raw.task !== task || raw.taskVersion !== taskVersion || raw.composition !== composition) continue;
+    found = parseWith(RubricSampledSchema, event.payload, "STORE_INVALID", "rubric.sampled");
+  }
+  return found;
+}
+
+/** A scope whose raise is due but which no sample vouches for: what the sampler has to judge. */
+export interface DueScope {
+  scope: string;
+  key?: string;
+}
+
+/**
+ * The scopes that are due a raise yet unsampled (S3, R20-R22). Read-only, and the ONLY way the tool
+ * boundary learns it has work to do: it runs the same window arithmetic as the ratchet itself, so
+ * the sampler and the hold cannot disagree about what is due.
+ */
+export function unsampledDueScopes(store: Store, task: string, taskVersion: number, quality: Quality, at: string): DueScope[] {
+  const composition = compositionKey(quality);
+  // One sample per (task, version, composition): a second attempt records and asks for nothing.
+  if (sampleFor(store, task, taskVersion, composition) !== undefined) return [];
+  const due: DueScope[] = [];
+  for (const scope of scopesOf(store, task, quality)) {
+    if (scope.observations < WARMUP_MIN) continue;
+    if (raiseFor(store, task, taskVersion, scope, quality, at) === undefined) continue;
+    due.push({ scope: scope.name, ...(scope.key === undefined ? {} : { key: scope.key }) });
+  }
+  return due;
+}
+
+/**
+ * Re-evaluate the ratchet for EVERY scope after one terminal task outcome. Cheap to call every
+ * time: a scope only acts once it has warmed up and a full qualifying window exists. Each raise and
+ * contest is appended with its scope and identity key, so the record explains itself.
+ */
 export function recomputeBar(store: Store, task: string, taskVersion: number, quality: Quality, at: string): BarDecision[] {
   const decisions: BarDecision[] = [];
   for (const scope of scopesOf(store, task, quality)) {
@@ -435,21 +478,68 @@ export function recomputeBar(store: Store, task: string, taskVersion: number, qu
   return decisions;
 }
 
-/** One scope's turn: warm up, then maybe raise, then maybe contest. Never lowers. */
-function evaluateScope(store: Store, task: string, taskVersion: number, scope: Scope, quality: Quality, at: string): BarDecision {
+/**
+ * The raise this scope is due, if any: the same window arithmetic the ratchet has always used. Pure
+ * — `decideRaise` only computes — so the read-only due check and the write path share it exactly.
+ */
+function raiseFor(
+  store: Store,
+  task: string,
+  taskVersion: number,
+  scope: Scope,
+  quality: Quality,
+  at: string,
+): { raised: z.infer<typeof BarRaisedSchema>; instance: string; current: number; raises: { to: number; at: string }[] } | undefined {
   const raises = raisesFor(store, task, scope.name, scope.key);
   const current = barAt(raises, scope.seed);
-  if (scope.observations < WARMUP_MIN) return { scope: scope.name, kind: "warming", observations: scope.observations };
   const lastRaise = raises.length === 0 ? undefined : raises[raises.length - 1].at;
-  const sinceRaise = scope.passes.filter((pass) => lastRaise === undefined || pass.at > lastRaise);
-  const window = sinceRaise.slice(-BAR_WINDOW);
+  const window = scope.passes.filter((pass) => lastRaise === undefined || pass.at > lastRaise).slice(-BAR_WINDOW);
   const raised = decideRaise(task, taskVersion, scope, quality, at, current, window);
-  if (raised !== undefined) {
-    appendEvent(store, raised.instance, { type: EVENT.barRaised, payload: raised.raised, at });
-    return { scope: scope.name, kind: "raised", raised: raised.raised };
+  return raised === undefined ? undefined : { ...raised, current, raises };
+}
+
+/** One scope's turn: warm up, then maybe raise, then maybe contest. Never lowers. */
+function evaluateScope(store: Store, task: string, taskVersion: number, scope: Scope, quality: Quality, at: string): BarDecision {
+  if (scope.observations < WARMUP_MIN) return { scope: scope.name, kind: "warming", observations: scope.observations };
+  const due = raiseFor(store, task, taskVersion, scope, quality, at);
+  // The same fold the ratchet uses, whether or not a raise is due.
+  const raises = due?.raises ?? raisesFor(store, task, scope.name, scope.key);
+  if (due !== undefined) {
+    // S3/R22: a bar may not ratchet on an identity nobody has sampled. Without a stable sample the
+    // raise is HELD — recorded, never applied — and the step itself is untouched: it decided
+    // normally one line above.
+    const composition = compositionKey(quality);
+    const sample = sampleFor(store, task, taskVersion, composition);
+    if (sample === undefined || !sample.stable) {
+      appendEvent(store, due.instance, {
+        type: EVENT.barHeld,
+        payload: {
+          task,
+          taskVersion,
+          scope: scope.name,
+          ...(scope.key === undefined ? {} : { key: scope.key }),
+          composition,
+          from: due.current,
+          to: due.raised.to,
+          reason: sample === undefined ? "no rubric sample" : "the rubric sample was unstable",
+          at,
+        },
+        at,
+      });
+      return { scope: scope.name, kind: "held", reason: "no stable rubric sample" };
+    }
+    const payload = {
+      ...due.raised,
+      stability: { repeats: sample.repeats, stable: sample.stable, artifactDigest: sample.artifactDigest, criteria: sample.criteria },
+    };
+    appendEvent(store, due.instance, { type: EVENT.barRaised, payload, at });
+    return { scope: scope.name, kind: "raised", raised: payload };
   }
+  const current = barAt(raises, scope.seed);
   const contested = decideContest(store, task, taskVersion, scope, at, current, raises);
   if (contested !== undefined) return { scope: scope.name, kind: "contested", contested };
+  const lastRaise = raises.length === 0 ? undefined : raises[raises.length - 1].at;
+  const window = scope.passes.filter((pass) => lastRaise === undefined || pass.at > lastRaise).slice(-BAR_WINDOW);
   return { scope: scope.name, kind: "held", reason: window.length < BAR_WINDOW ? "no full window" : "gates not met" };
 }
 

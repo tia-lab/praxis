@@ -6,13 +6,13 @@
  * failure inside the store cannot mask a bad assertion about what was persisted.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { start } from "../src/runner/engine/index.ts";
-import { advanceEvaluated, type Scorer } from "../src/quality/index.ts";
+import { SAMPLE_REPEATS, advanceEvaluated, compositionKey, recordRubricSample, type Scorer } from "../src/quality/index.ts";
 import { recordNote } from "../src/runner/note-gate.ts";
 
 /** A fixed instant, so an assertion never depends on the wall clock. */
@@ -319,6 +319,57 @@ export interface JudgedRun {
   nonce: string;
 }
 
+/**
+ * Seed the stable rubric sample the ratchet requires before its first raise (S3, R20), read from the
+ * flow's own task files so a test never restates the rubric it is testing. Engine-level callers
+ * (`submitJudged`) use this; the Pi tool path samples for real through `sampleIfDue`.
+ */
+function seedSamplesOnce(ws: Workspace, instance: string, at: string): void {
+  const seen = SEEDED.get(ws) ?? new Set<string>();
+  SEEDED.set(ws, seen);
+  let flow: { nodes?: { task?: string }[] };
+  try {
+    flow = JSON.parse(readFileSync(ws.config, "utf8")) as { nodes?: { task?: string }[] };
+  } catch {
+    return;
+  }
+  for (const node of flow.nodes ?? []) {
+    if (typeof node.task !== "string") continue;
+    const file = join(ws.root, ".pi", "praxis", node.task + ".json");
+    let task: { quality?: { dimensions?: { id: string }[] }; version?: number };
+    try {
+      task = JSON.parse(readFileSync(file, "utf8")) as { quality?: { dimensions?: { id: string }[] }; version?: number };
+    } catch {
+      continue;
+    }
+    if (task.quality === undefined) continue;
+    const quality = task.quality as unknown as Parameters<typeof compositionKey>[0];
+    // One sample per (task, composition): a republished rubric needs its own, exactly as in production.
+    const marker = node.task + "@" + compositionKey(quality);
+    if (seen.has(marker)) continue;
+    seen.add(marker);
+    recordRubricSample({
+      options: learningOptions(ws, at),
+      instance,
+      sample: {
+        task: node.task,
+        taskVersion: task.version ?? 1,
+        scope: "global",
+        key: compositionKey(quality),
+        composition: compositionKey(quality),
+        artifactDigest: "sha256:" + "0".repeat(64),
+        repeats: SAMPLE_REPEATS,
+        criteria: [{ dimension: task.quality.dimensions?.[0]?.id ?? "d", criterion: "seed", type: "noul", stable: true, range: 0, answers: [0.9, 0.9, 0.9] }],
+        stable: true,
+      },
+      at,
+    });
+  }
+}
+
+/** Which (task, composition) samples each workspace has seeded, so a test log stays readable. */
+const SEEDED = new WeakMap<Workspace, Set<string>>();
+
 export function startJudged(ws: Workspace, requestId: string, at: string, actor = "a"): JudgedRun {
   const started = start({ ...learningOptions(ws, at), flow: flowRef("learn"), requestId, actor });
   return { instance: started.instance.id, nonce: started.instance.nonce };
@@ -326,6 +377,7 @@ export function startJudged(ws: Workspace, requestId: string, at: string, actor 
 
 /** One judged submit of a distinct payload, so every attempt is different bytes. */
 export function submitJudged(ws: Workspace, run: JudgedRun, at: string, attempt: number, scorer: Scorer, actor = "a") {
+  seedSamplesOnce(ws, run.instance, at);
   return advanceEvaluated({
     ...learningOptions(ws, at),
     instance: run.instance,

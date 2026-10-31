@@ -21,6 +21,10 @@ export const EVENT = {
   recallSelected: "recall.selected",
   /** The derived, watermark-versioned recall cache: a jev-ranked exemplar set, never a fact. */
   recallRanked: "recall.ranked",
+  /** S3: a rubric identity was sampled with repeat judgments before its first raise. */
+  rubricSampled: "rubric.sampled",
+  /** S3: a due raise was withheld because the identity has no stable sample. */
+  barHeld: "bar.held",
 } as const;
 
 /**
@@ -46,6 +50,18 @@ export const DEFAULT_PARETO_THRESHOLD = 0.8;
 export const TORN_SPREAD = 0.35;
 /** The `noul` band: a single probability this close to 0.5 is a torn judgment (R16, R17). */
 export const TORN_NOUL_BAND = [0.45, 0.55] as const;
+
+/**
+ * Rubric stability (S3, R20-R21): how many repeat judgments one sample takes, and what counts as
+ * agreement. Repeat-N is the ONLY instability signal a `noul` can have (it has no mass), so a
+ * `noul`/`score` agrees by the RANGE of its values across the repeats and a `choice` by how often
+ * the same key recurs. Both are code constants: no task document sets them.
+ */
+export const SAMPLE_REPEATS = 3;
+/** The widest noul/score range that still counts as agreement across SAMPLE_REPEATS judgments. */
+export const SAMPLE_RANGE_MAX = 0.3;
+/** How much of the repeats must pick the same `choice` key (2 of 3) to count as agreement. */
+export const SAMPLE_AGREEMENT_MIN = 2 / 3;
 /** The choice band: P(clean) inside it is a torn judgment (R17). */
 export const TORN_CLEAN_BAND = [0.4, 0.6] as const;
 

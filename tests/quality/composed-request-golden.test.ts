@@ -1,10 +1,9 @@
 /**
- * T3 — the backward-compatibility guarantee (R19).
+ * R19 — the composed-request lock (research v6 rubric).
  *
- * The fixture was captured from the PRE-T3 scorer with research v5 (no order, no targeting), so this
- * test compares the shipped adapter's request against what it sent before the slice: byte for byte.
- * If the composed scorer ever starts sending something extra to an unanchored, untargeted task, this
- * fails.
+ * Captured from the shipped scorer with research v6 and no order or sections, so this test pins the
+ * exact request an unanchored, untargeted task sends: byte for byte. If the composed scorer ever
+ * starts sending something extra to such a task, this fails.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -13,7 +12,7 @@ import { test } from "node:test";
 import type { JevRequest, JevResponse } from "pi-jev";
 import { jevScorer } from "../../src/quality/jev-scorer.ts";
 
-const FIXTURE = new URL("./fixtures/scoring-request.v5.json", import.meta.url).pathname;
+const FIXTURE = new URL("./fixtures/scoring-request.v6.json", import.meta.url).pathname;
 
 const task = JSON.parse(readFileSync(new URL("../../.pi/praxis/tasks/discovery/research.json", import.meta.url).pathname, "utf8")) as {
   goal: string;
@@ -31,7 +30,7 @@ const ARTIFACT = {
 };
 const SUBJECT_DIGEST = "sha256:" + "a".repeat(64);
 
-test("R19: v5 without order or sections sends the byte-identical request", async () => {
+test("R19: v6 without order or sections sends the byte-identical request", async () => {
   const seen: JevRequest[] = [];
   const evaluateFn = async (request: JevRequest): Promise<JevResponse> => {
     seen.push(request);

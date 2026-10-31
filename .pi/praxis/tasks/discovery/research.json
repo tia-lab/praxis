@@ -1,6 +1,6 @@
 {
   "id": "research",
-  "version": 5,
+  "version": 6,
   "state": "published",
   "gate": "section-requirements",
   "goal": "establish what is true from sources and the code before anything is designed",
@@ -59,56 +59,30 @@
     "dimensions": [
       {
         "id": "grounded",
-        "statement": "Every claim is tied to a source or a code location, not asserted.",
+        "statement": "Every claim rests on a cited source or code location, not on assertion.",
         "floor": 0.6,
         "probes": [
           {
-            "id": "every-claim-cited",
-            "type": "noul",
-            "instructions": "Every claim in the artifact carries a source or a code location."
-          },
-          {
-            "id": "locatable",
-            "type": "noul",
-            "instructions": "The cited locations actually contain the claim they are attached to."
-          },
-          {
-            "id": "unsupported",
+            "id": "supported",
             "type": "score",
-            "instructions": "How much of the artifact stands on cited evidence rather than assertion?",
+            "instructions": "How much of the artifact rests on cited evidence rather than assertion?",
             "criteria": [
               "most claims are asserted with no source or code location",
               "some claims carry a source and others do not",
               "every claim carries a source or a code location"
             ]
-          },
-          {
-            "id": "evidence-kind",
-            "type": "choice",
-            "instructions": "What kind of evidence does the artifact rest on?",
-            "criteria": {
-              "primary": "the source or code was read directly",
-              "secondary": "only a summary or a quotation of the source was read",
-              "none": "there is no usable evidence"
-            },
-            "clean": "primary"
           }
         ]
       },
       {
         "id": "covers-question",
-        "statement": "The stated question and its boundary are actually answered.",
+        "statement": "The stated question and its boundary are fully answered.",
         "floor": 0.6,
         "probes": [
           {
-            "id": "question-answered",
+            "id": "within-boundary",
             "type": "noul",
-            "instructions": "The stated question is answered directly, not merely approached."
-          },
-          {
-            "id": "boundary-respected",
-            "type": "noul",
-            "instructions": "The stated boundary is respected: nothing outside it is claimed."
+            "instructions": "Nothing outside the stated boundary is claimed."
           },
           {
             "id": "coverage",
@@ -119,29 +93,18 @@
               "the answer covers the question only in part",
               "the stated question is answered in full"
             ]
-          },
-          {
-            "id": "gap",
-            "type": "choice",
-            "instructions": "Where does the artifact fall short of the question, if anywhere?",
-            "criteria": {
-              "none": "no part of the question is left unanswered",
-              "partial": "a named part of the question is left unanswered",
-              "shifted": "the artifact answers a different question than the one asked"
-            },
-            "clean": "none"
           }
         ]
       },
       {
         "id": "honest-uncertainty",
-        "statement": "Real unknowns and competing explanations are named, not hidden.",
+        "statement": "Real unknowns and competing explanations are named, and the stated confidence matches the evidence.",
         "floor": 0.6,
         "probes": [
           {
             "id": "unknowns-named",
             "type": "noul",
-            "instructions": "The real unknowns are named in the artifact rather than hidden."
+            "instructions": "The real unknowns are named rather than hidden."
           },
           {
             "id": "competing-explained",
@@ -163,72 +126,30 @@
       },
       {
         "id": "parsimony",
-        "statement": "Every included item earns its place: no padding, no redundant, off-topic, or unverifiable material. Breadth that does not serve the goal lowers the score.",
+        "statement": "Every item serves the stated question; nothing is duplicated or off-topic.",
         "floor": 0.6,
         "probes": [
           {
-            "id": "uncited-sources",
+            "id": "distinct",
             "type": "noul",
-            "instructions": "Every included source or code location is actually used by a claim."
+            "instructions": "Each finding states a claim that no other finding already states."
           },
           {
-            "id": "redundant",
+            "id": "on-topic",
             "type": "noul",
-            "instructions": "No included item repeats what another item already covers."
-          },
-          {
-            "id": "off-topic",
-            "type": "noul",
-            "instructions": "Every included item serves the stated question, not an adjacent or broader one."
-          },
-          {
-            "id": "deletable",
-            "type": "score",
-            "instructions": "How much of the artifact could be removed without losing the answer?",
-            "criteria": [
-              "large parts could be removed without losing the answer",
-              "some material could be removed with little loss",
-              "nothing could be removed without losing an answer the question needs"
-            ]
-          },
-          {
-            "id": "main-issue",
-            "type": "choice",
-            "instructions": "Does the artifact keep to the one issue it is about?",
-            "criteria": {
-              "one-issue": "the artifact answers one issue throughout",
-              "drifted": "the artifact drifts into adjacent issues",
-              "padded": "the artifact pads with material that does not serve the question"
-            },
-            "clean": "one-issue"
+            "instructions": "Every finding serves the stated question, not an adjacent or broader one."
           }
         ]
       },
       {
         "id": "alignment",
-        "statement": "The artifact directly serves the goal it was given, answering what was actually asked rather than a drifted, broadened, or adjacent interpretation of it.",
+        "statement": "The artifact directly serves the goal it was given, not a broadened or adjacent interpretation of it.",
         "floor": 0.6,
         "probes": [
           {
             "id": "serves-goal",
             "type": "noul",
-            "instructions": "The artifact serves the goal it was given."
-          },
-          {
-            "id": "answered-what-asked",
-            "type": "noul",
-            "instructions": "The artifact answers what was asked rather than a broader or adjacent question."
-          },
-          {
-            "id": "drift",
-            "type": "choice",
-            "instructions": "How does the artifact relate to the goal it was given?",
-            "criteria": {
-              "none": "it serves the given goal directly",
-              "broadened": "it broadens the goal into a larger question",
-              "adjacent": "it serves a goal adjacent to the one given"
-            },
-            "clean": "none"
+            "instructions": "The artifact serves the goal it was given, answering what was actually asked rather than a broader or adjacent question."
           }
         ]
       }

@@ -1,0 +1,93 @@
+{
+  "state": {
+    "goal": "establish what is true from sources and the code before anything is designed",
+    "artifact": {
+      "contract": "the finding answers the question that was asked",
+      "question": "does a refusal after the attempt budget still record the verdict?",
+      "sources": [
+        {
+          "source": "src/runner/engine/advance.ts",
+          "location": "52-60",
+          "establishes": "a refusal is recorded then raised"
+        }
+      ],
+      "findings": "the verdict is recorded before the refusal is raised",
+      "affected": "src/runner/engine/quality-loop.ts",
+      "uncertainty": "none observed"
+    },
+    "subjectDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "questions": {
+    "grounded.supported": {
+      "type": "score",
+      "instructions": "How much of the artifact rests on cited evidence rather than assertion?",
+      "criteria": [
+        "most claims are asserted with no source or code location",
+        "some claims carry a source and others do not",
+        "every claim carries a source or a code location"
+      ]
+    },
+    "grounded.__statement": {
+      "type": "noul",
+      "instructions": "Judge the artifact strictly against this standard; answer the probability it is fully satisfied: Every claim rests on a cited source or code location, not on assertion."
+    },
+    "covers-question.within-boundary": {
+      "type": "noul",
+      "instructions": "Nothing outside the stated boundary is claimed."
+    },
+    "covers-question.coverage": {
+      "type": "score",
+      "instructions": "How much of the stated question does the artifact answer?",
+      "criteria": [
+        "large parts of the question are unanswered",
+        "the answer covers the question only in part",
+        "the stated question is answered in full"
+      ]
+    },
+    "covers-question.__statement": {
+      "type": "noul",
+      "instructions": "Judge the artifact strictly against this standard; answer the probability it is fully satisfied: The stated question and its boundary are fully answered."
+    },
+    "honest-uncertainty.unknowns-named": {
+      "type": "noul",
+      "instructions": "The real unknowns are named rather than hidden."
+    },
+    "honest-uncertainty.competing-explained": {
+      "type": "noul",
+      "instructions": "Competing explanations are stated, not silently discarded."
+    },
+    "honest-uncertainty.confidence-matched": {
+      "type": "choice",
+      "instructions": "Does the stated confidence match what the evidence supports?",
+      "criteria": {
+        "matched": "the stated confidence matches the evidence",
+        "overstated": "the confidence is stronger than the evidence supports",
+        "understated": "the confidence is weaker than the evidence supports"
+      }
+    },
+    "honest-uncertainty.__statement": {
+      "type": "noul",
+      "instructions": "Judge the artifact strictly against this standard; answer the probability it is fully satisfied: Real unknowns and competing explanations are named, and the stated confidence matches the evidence."
+    },
+    "parsimony.distinct": {
+      "type": "noul",
+      "instructions": "Each finding states a claim that no other finding already states."
+    },
+    "parsimony.on-topic": {
+      "type": "noul",
+      "instructions": "Every finding serves the stated question, not an adjacent or broader one."
+    },
+    "parsimony.__statement": {
+      "type": "noul",
+      "instructions": "Judge the artifact strictly against this standard; answer the probability it is fully satisfied: Every item serves the stated question; nothing is duplicated or off-topic."
+    },
+    "alignment.serves-goal": {
+      "type": "noul",
+      "instructions": "The artifact serves the goal it was given, answering what was actually asked rather than a broader or adjacent question."
+    },
+    "alignment.__statement": {
+      "type": "noul",
+      "instructions": "Judge the artifact strictly against this standard; answer the probability it is fully satisfied: The artifact directly serves the goal it was given, not a broadened or adjacent interpretation of it."
+    }
+  }
+}

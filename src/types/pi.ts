@@ -181,7 +181,7 @@ export const StepDescriptorSchema = z.strictObject({
         /**
          * The gate ACTUALLY applied, beside the earned bar above: the Pareto cap,
          * `min(earnedBar, paretoThreshold)`, per scope. Display only — the decision is
-         * `compoundDecision`, which reads the same cap. Below the Pareto point these values equal
+         * the gate, which reads the same numbers. Below the Pareto point these values equal
          * the earned bar / authored floor, so the field only says something new above it.
          */
         gate: z

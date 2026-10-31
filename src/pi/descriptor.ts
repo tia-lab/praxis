@@ -95,7 +95,7 @@ interface LearningView {
   /** The recorded verdict of the note-owed step, when there is one. */
   judgment: NoteJudgment | undefined;
   /**
-   * The gate actually applied, per scope: `gateBar(earnedBar, pareto)`. Reported BESIDE the earned
+   * The gate actually applied, per scope. Reported BESIDE the earned
    * bar so the agent sees the aspiration and the standard the gate enforces, and never over-works to
    * beat a bar the gate caps.
    */
@@ -127,7 +127,7 @@ export function learningView(options: EngineOptions, flow: OpenedFlow, instance:
           quality,
         });
   // The same effective bars the gate and the recorded bar are derived from, capped at the Pareto
-  // point: one formula (`gateBar`), so the brief cannot disagree with the gate.
+  // point: one formula, so the brief cannot disagree with the gate.
 
   // S2: the gate the agent must clear is the MEASURED per-dimension bar, uncapped - there is no
   // Pareto point left to cap it with, and no global bar. The floor is the default.

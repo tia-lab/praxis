@@ -39,7 +39,7 @@ export const DEFAULT_MAX_ATTEMPTS = 3;
  * good enough is never refused merely because the adaptive bar climbed above it. The RATCHET is not
  * capped by this constant: bars keep rising and recording the level actually reached.
  */
-export const DEFAULT_PARETO_THRESHOLD = 0.8;
+// (the Pareto cap is gone: a measured bar cannot exceed the level live work reaches)
 
 /**
  * The quantile bar (quantile-bars A1-A7). One observation per instance, a percentile of the carried

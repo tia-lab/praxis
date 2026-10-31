@@ -121,7 +121,7 @@ export const BarRaisedSchema = z.strictObject({
   n: z.int().min(1).optional(),
   /**
    * The exponential moving average that decided this raise: the smoothed level of the scope's genuine
-   * passes (see `emaOf` in `src/quality/bar.ts`). Optional because records written before the EMA
+   * passes (see the EMA helper the old ratchet used). Optional because records written before it
    * ratchet carry no `ema` and must still parse and fold.
    */
   ema: z

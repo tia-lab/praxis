@@ -7,7 +7,7 @@ import { test } from "node:test";
 
 import { digestOf } from "../../src/runner/canonical.ts";
 import { COMPOSE_FORMULA_ID, evaluateArtifact, rulerDigest } from "../../src/quality/evaluate.ts";
-import { barsFromQuality } from "../../src/quality/bar.ts";
+import { ABSOLUTE_MIN } from "../../src/runner/engine/types.ts";
 import { jevScorer } from "../../src/quality/jev-scorer.ts";
 import type { Quality } from "../../src/types/quality.ts";
 import { isAppError } from "../../src/types/errors.ts";
@@ -23,7 +23,11 @@ const QUALITY: Quality = {
 };
 
 test("R11: a formula change is a different ruler, so a recorded verdict is never reused", async () => {
-  const bars = barsFromQuality(QUALITY);
+  // S6: the ruler's own bars are the FLOOR per dimension (history-free), not an authored seed.
+  const bars = {
+    perDimension: new Map(QUALITY.dimensions.map((dimension) => [dimension.id, ABSOLUTE_MIN])),
+    keys: new Map<string, string>(),
+  };
   // The formula id is a digest INPUT, not a comment: two formulas, two rulers.
   assert.notEqual(rulerDigest(QUALITY, bars, "praxis.compose/min/v0"), rulerDigest(QUALITY, bars));
   assert.equal(rulerDigest(QUALITY, bars), rulerDigest(QUALITY, bars, COMPOSE_FORMULA_ID), "the default is the shipped formula");

@@ -13,7 +13,8 @@ import { buildHandoffs, gate, runStep, successorOf } from "../step.ts";
 import { assertObserver, assertStepActor } from "./authority.ts";
 import { acceptedRefs, currentHandoffs, loadPinnedFlow } from "./flow.ts";
 import { qualityRefusal, failureOutcome, recordAcceptance } from "./quality-loop.ts";
-import { effectiveBars, perDimensionDecision, quantileBars, recomputeBar } from "../../quality/index.ts";
+import { ABSOLUTE_MIN } from "./types.ts";
+import { perDimensionDecision, quantileBars, recomputeBar } from "../../quality/index.ts";
 import {
   finishInstance,
   maxNoteAttempts,
@@ -119,12 +120,9 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
       }
     }
     const effectiveQuality = task.quality ?? flow.config.quality;
-    // The floor enforced is the ADAPTIVE bar (O2), never the static authored threshold: the same
-    // deterministic fold of `bar.raised` the scorer used, read here from the same store.
-    const bars = effectiveQuality === undefined ? undefined : effectiveBars(store, node.task, effectiveQuality);
-    // S2: the QUALITY decision reads the measured per-dimension bars, floored at ABSOLUTE_MIN - never
-    // the mean, the tolerance band or the Pareto cap. Read from the same store the scorer read.
-    const gateBars = effectiveQuality === undefined ? undefined : quantileBars(store, node.task, effectiveQuality);
+    // The standard enforced is the MEASURED per-dimension bar (a quantile of the carried population,
+    // floored at ABSOLUTE_MIN) - never an authored threshold, a mean, a band or a cap.
+    const floors = effectiveQuality === undefined ? undefined : quantileBars(store, node.task, effectiveQuality);
     const grant = grantFor({ id: node.id, capabilities: task.capabilities });
     const handoffs = buildHandoffs(store, instance, resolved, grant);
     const artifact = runStep({ store, storeDir, instance, node, task, grant, handoffs, payload: options.artifact, at });
@@ -140,16 +138,16 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
       ...(handoffs.length === 1 ? { derivedFrom: handoffs[0].digest } : {}),
       ...(task.requires === undefined ? {} : { requires: task.requires }),
       ...(task.bindsSubject === true ? { subject: true } : {}),
-      ...(effectiveQuality === undefined || bars === undefined
+      ...(effectiveQuality === undefined || floors === undefined
         ? {}
         : {
             quality: {
               policy: effectiveQuality.policy,
-              threshold: bars.global,
-              floors: Object.fromEntries(gateBars === undefined ? bars.perDimension : gateBars.perDimension),
+              threshold: ABSOLUTE_MIN,
+              floors: Object.fromEntries(floors.perDimension),
               // The gate caps at the Pareto point; the cached verdict above already used the same cap.
-              pareto: bars.pareto,
-              verdict: gatedVerdict(options.qualityVerdict, gateBars ?? { perDimension: bars.perDimension }),
+              pareto: undefined,
+              verdict: gatedVerdict(options.qualityVerdict, floors),
             },
           }),
     });
@@ -180,9 +178,9 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
         ...(verdict.quality === undefined ? {} : { quality: verdict.quality }),
         // The compound diagnostic: which dimensions fell past their band and what the MEAN was, in
         // numbers, so every refusal says exactly what failed — not only the one at the bound.
-        ...(verdict.quality === undefined || bars === undefined
+        ...(verdict.quality === undefined || floors === undefined
           ? {}
-          : { refused: perDimensionDecision(verdict.quality.dimensions, { perDimension: bars.perDimension }).refused }),
+          : { refused: perDimensionDecision(verdict.quality.dimensions, floors).refused }),
       });
     }
 
@@ -231,7 +229,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
         // escalate halts the instance here, while continue accepts the best-scoring attempt
         // (marked FAILED) and falls through to the same successor move an accepted step makes.
         let carried = false;
-        if (qualityRefusal(verdict) && bars !== undefined) {
+        if (qualityRefusal(verdict) && floors !== undefined) {
           const outcome = failureOutcome({
             store,
             instance,
@@ -239,7 +237,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
             taskRef: node.task,
             taskVersion: task.version,
             quality: effectiveQuality,
-            bars,
+            bars: floors,
             ...(options.defaultMaxAttempts === undefined ? {} : { defaultMaxAttempts: options.defaultMaxAttempts }),
             verdict: verdict.quality,
             at,
@@ -281,9 +279,9 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
             ...(verdict.quality === undefined ? {} : { quality: verdict.quality }),
             // The compound diagnostic: which dimensions fell past their band and what the MEAN was,
             // in numbers, on every refusal — not only on the one at the bound.
-            ...(verdict.quality === undefined || bars === undefined
+            ...(verdict.quality === undefined || floors === undefined
               ? {}
-              : { refused: perDimensionDecision(verdict.quality.dimensions, { perDimension: bars.perDimension }).refused }),
+              : { refused: perDimensionDecision(verdict.quality.dimensions, floors).refused }),
           });
         }
       }

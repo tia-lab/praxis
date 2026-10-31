@@ -59,7 +59,7 @@ test("start shows the quality rubric in the step descriptor", async () => {
     // the standard from the brief and never from the source (F1).
     assert.equal(quality.aggregation, "min");
     assert.match(quality.judging, /MINIMUM/);
-    assert.deepEqual(quality.recall, { bar: 0.6, weakSet: [], notes: [] }, "cold start: an empty recall set");
+    assert.deepEqual(quality.recall, { bar: 0.5, weakSet: [], notes: [] }, "cold start: an empty recall set at the floor");
     // The gate the agent must actually clear (pareto-gate): below the 0.8 Pareto point it equals the
     // earned bar, so the disclosure is unchanged in value and only richer in shape.
     // S2: the gate shows the MEASURED per-dimension bars (none yet, so the floor), uncapped.

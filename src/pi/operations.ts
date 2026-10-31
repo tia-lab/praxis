@@ -374,7 +374,7 @@ export async function submitOperation(args: PraxisToolArgs, ctx: PiSessionContex
  * any failure returns it as it was, so the typed code is never lost.
  *
  * The dimensions come from the verdict the gate itself produced (`verdictSummaryOf` runs the same
- * `compoundDecision`), falling back to the step's whole rubric when the refusal was the MEAN gate
+ * the gate), falling back to the step's whole rubric when no dimension was named
  * alone — that refusal means "every dimension may be the reason", not "no dimension".
  */
 async function recallFeedback(

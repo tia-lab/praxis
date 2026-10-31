@@ -169,7 +169,7 @@ export interface PendingSeed {
   digest: string;
 }
 
-function schemaOf(step: string): string {
+function schemaFor(step: string): string {
   const node = config.nodes.find((candidate) => candidate.id === step);
   if (node === undefined) throw new Error("no step " + JSON.stringify(step) + " in the fixture flow");
   const task = tasks.find((candidate) => "tasks/" + candidate.id === node.task);
@@ -235,7 +235,7 @@ export function pendingArtifact(
       });
       insertPublication(db, { task: "tasks/" + task.id, version: task.version, digest: digest(taskBytes), at: NOW });
     }
-    recordArtifact(db, { instance, step, version: 1, path, digest: digestOfBytes, schema: schemaOf(step), derivedFrom: null, at: NOW });
+    recordArtifact(db, { instance, step, version: 1, path, digest: digestOfBytes, schema: schemaFor(step), derivedFrom: null, at: NOW });
   } finally {
     db.close();
   }

@@ -10,12 +10,8 @@ import { parseWith, type Probe, type Quality } from "../types/schema.ts";
 import { storeCall, type Store } from "../store/db.ts";
 import { withStore } from "../runner/engine/support.ts";
 import type { EngineOptions } from "../runner/engine/types.ts";
-import { ABSOLUTE_MIN, DEFAULT_PARETO_THRESHOLD, EVENT } from "../runner/engine/types.ts";
+import { ABSOLUTE_MIN, EVENT } from "../runner/engine/types.ts";
 import { digest } from "../runner/canonical.ts";
-
-export const GLOBAL_SCOPE = "global";
-/** Acceptance tolerance on a single dimension: it may sit this far under its bar and still pass. */
-export const DIMENSION_TOLERANCE = 0.05;
 
 /** One row of the log read across instances; the learning scans all read this shape. */
 export interface LogEvent {
@@ -94,38 +90,6 @@ export function compositionKey(quality: Quality): string {
   return digest("rubric:" + keys.join(",")).slice(7, 23);
 }
 
-/** The bars in force for one task: the global MEAN bar plus one bar per dimension id. */
-export interface Bars {
-  global: number;
-  perDimension: Map<string, number>;
-  /** Each dimension's identity key, so callers can stamp a verdict with what judged it. */
-  keys: Map<string, string>;
-  /** The rubric composition the global bar belongs to. */
-  composition: string;
-  /**
-   * The Pareto point this rubric's gate stops tightening at (`quality.paretoThreshold`, default 0.8).
-   * Derived, never stored: it travels with the bars so every decision site caps identically.
-   */
-  pareto: number;
-}
-
-/** The seed bars of a rubric, with no history at all: what a store-less caller should use. */
-export function barsFromQuality(quality: Quality): Bars {
-  const perDimension = new Map<string, number>();
-  const keys = new Map<string, string>();
-  for (const dimension of quality.dimensions) {
-    perDimension.set(dimension.id, dimension.floor ?? quality.threshold);
-    keys.set(dimension.id, dimensionKey(dimension));
-  }
-  return {
-    global: quality.threshold,
-    perDimension,
-    keys,
-    composition: compositionKey(quality),
-    pareto: quality.paretoThreshold ?? DEFAULT_PARETO_THRESHOLD,
-  };
-}
-
 /** Every raise recorded for one task, in log order (the audit view; the fold is per scope). */
 export function raisesOf(store: Store, task: string): z.infer<typeof BarRaisedSchema>[] {
   return scanEvents(store, [EVENT.barRaised])
@@ -135,7 +99,9 @@ export function raisesOf(store: Store, task: string): z.infer<typeof BarRaisedSc
 
 /** A scope name: \`global\` or a dimension id; a legacy raise carries no scope and reads as global. */
 export function scopeOf(payload: { scope?: unknown }): string {
-  return typeof payload.scope === "string" && payload.scope !== "" ? payload.scope : GLOBAL_SCOPE;
+  // A raise with no scope is a legacy GLOBAL raise: the literal is the payload contract, and the
+  // global bar itself no longer exists.
+  return typeof payload.scope === "string" && payload.scope !== "" ? payload.scope : "global";
 }
 
 /**
@@ -180,17 +146,6 @@ export function flooredBar(raises: readonly { to: number; at: string }[], seed: 
   return Math.max(ABSOLUTE_MIN, barAt(raises, seed, at));
 }
 
-/** The bars for a task right now: each dimension folded through its own identity's raises. */
-export function effectiveBars(store: Store, task: string, quality: Quality): Bars {
-  const seeds = barsFromQuality(quality);
-  const perDimension = new Map<string, number>();
-  for (const [id, seed] of seeds.perDimension) {
-    perDimension.set(id, barAt(raisesFor(store, task, id, seeds.keys.get(id)), seed));
-  }
-  return { ...seeds, perDimension, global: barAt(raisesFor(store, task, GLOBAL_SCOPE, seeds.composition), seeds.global) };
-}
-
-/** \`effectiveBars\` for a caller that holds options rather than an open store (score, brief, recall). */
 /**
  * The bars a quantile gate reads: one per dimension, each the max fold of its own identity's raises,
  * floored at ABSOLUTE_MIN. There is no authored seed and no global scope: the floor is the default
@@ -209,27 +164,18 @@ export function quantileBarsFor(options: EngineOptions, task: string, quality: Q
 }
 
 export function quantileBars(store: Store, task: string, quality: Quality): QuantileBars {
-  const seeds = barsFromQuality(quality);
   const perDimension = new Map<string, number>();
-  for (const [id, key] of seeds.keys) {
-    perDimension.set(id, flooredBar(raisesFor(store, task, id, key), ABSOLUTE_MIN));
+  const keys = new Map<string, string>();
+  for (const dimension of quality.dimensions) {
+    const key = dimensionKey(dimension);
+    keys.set(dimension.id, key);
+    perDimension.set(dimension.id, flooredBar(raisesFor(store, task, dimension.id, key), ABSOLUTE_MIN));
   }
-  return { perDimension, keys: new Map(seeds.keys) };
+  return { perDimension, keys };
 }
 
-export function effectiveBarsFor(options: EngineOptions, task: string, quality: Quality): Bars {
-  return withStore(options, (store) => effectiveBars(store, task, quality));
-}
 
-/** The global (MEAN) bar alone, for callers that only need the headline floor. */
-export function effectiveBar(store: Store, task: string, quality: Quality): number {
-  return effectiveBars(store, task, quality).global;
-}
 
-/** \`effectiveBar\` for a caller that holds options. */
-export function effectiveBarFor(options: EngineOptions, task: string, quality: Quality): number {
-  return effectiveBarsFor(options, task, quality).global;
-}
 
 /** One genuine pass: an accepted artifact whose own verdict passed and was not a carried failure. */
 

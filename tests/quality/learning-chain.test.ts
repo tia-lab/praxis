@@ -187,7 +187,7 @@ test("flag -> record -> steer: a band pass is recorded, enforced by the note gat
     assert.ok(brief.weakSet.length >= 1, "the brief carries its weak set: " + JSON.stringify(brief.weakSet));
     assert.equal(brief.notes.length, 1);
     assert.ok(brief.notes[0].tags.some((tag) => tag.dimension === "grounded"), "and hands its lesson forward");
-    assert.equal(brief.bar, 0.4, "the global MEAN bar is disclosed alongside the lessons");
+    assert.equal(brief.bar, 0.5, "the recall set reports the floor: no global bar exists");
     assert.equal(
       eventsOf(ws, next.instance).filter((event) => event.type === "recall.selected").length,
       1,

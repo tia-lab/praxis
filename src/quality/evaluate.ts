@@ -14,7 +14,7 @@ import { canonicalBytes, digest, digestOf } from "../runner/canonical.ts";
 import { advance, inspect, orderFor, type AdvanceOptions } from "../runner/engine/index.ts";
 import { parseWith, QualityVerdictSchema, type Probe, type Quality, type QualityVerdict, type TaskConfig } from "../types/schema.ts";
 import type { QualityAttempt } from "../runner/engine/index.ts";
-import { barsFromQuality, carriedPopulation, effectiveBarsFor, perDimensionDecision, quantileBarsFor, quantileOf, type Bars } from "./bar.ts";
+import { carriedPopulation, perDimensionDecision, quantileBarsFor, quantileOf, type QuantileBars } from "./bar.ts";
 import { ABSOLUTE_MIN } from "../runner/engine/types.ts";
 import { dimensionKey } from "./scope.ts";
 import { withStore } from "../runner/engine/support.ts";
@@ -103,7 +103,7 @@ export const COMPOSE_FORMULA_ID = "praxis.compose/min/v1";
  * composition formula. One helper, used by the verdict and by the score-cache, so a raise in any
  * scope or a change of formula is a different ruler and recorded verdicts are never reused across it.
  */
-export function rulerDigest(quality: Quality, bars: Bars, formula: string = COMPOSE_FORMULA_ID): string {
+export function rulerDigest(quality: Quality, bars: { perDimension: ReadonlyMap<string, number> }, formula: string = COMPOSE_FORMULA_ID): string {
   return digestOf({ ruler: quality, floors: [...bars.perDimension], formula });
 }
 
@@ -121,6 +121,15 @@ const clamp01 = (n: number): number => (Number.isFinite(n) ? Math.max(0, Math.mi
 /** The gate bars of a rubric with no history: every dimension at the absolute floor. */
 const floorOnly = (quality: Quality): Map<string, number> =>
   new Map(quality.dimensions.map((dimension) => [dimension.id, ABSOLUTE_MIN]));
+
+/**
+ * The ruler's own bars, with no history: the floor per dimension plus each dimension's identity key.
+ * The DECISION reads the MEASURED bars (the `gate` argument); this is what the ruler digest names.
+ */
+const floorBars = (quality: Quality): QuantileBars => ({
+  perDimension: floorOnly(quality),
+  keys: new Map(quality.dimensions.map((dimension) => [dimension.id, dimensionKey(dimension)])),
+});
 const clip = (text: string, limit = 2000): string => (text.length <= limit ? text : text.slice(0, limit - 1) + "\u2026");
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -139,7 +148,7 @@ export async function evaluateArtifact(
   quality: Quality,
   input: { goal: string; artifact: unknown; subjectDigest?: string; context?: ScoringContext },
   /** The bars in force; absent means the rubric's own seed floors (no history consulted). */
-  bars: Bars = barsFromQuality(quality),
+  bars: QuantileBars = floorBars(quality),
   /** The measured per-dimension bars the DECISION reads (S2). Absent means the floor only. */
   gate?: { perDimension: ReadonlyMap<string, number>; q50?: ReadonlyMap<string, number | undefined> },
 ): Promise<QualityVerdict> {
@@ -311,11 +320,10 @@ export async function advanceEvaluated(
     const task = node === undefined ? undefined : view.flow.tasks.get(node.task);
     const effective = task?.quality ?? view.flow.config.quality;
     if (effective !== undefined && task !== undefined && node !== undefined && task.capabilities.includes("evaluate")) {
-      // The threshold the judge scores against is the ADAPTIVE bar (O2), folded from `bar.raised`
-      // exactly as the engine's gate will fold it: a raised bar is a different ruler, so it also
-      // changes the rubric digest the score-cache keys on.
-      const bars = effectiveBarsFor(options, node.task, effective);
-      const ruler = { ...effective, threshold: bars.global };
+      // The ruler is the rubric as declared; its own bars are the FLOOR per dimension (history-free),
+      // so the digest is stable, while the DECISION reads the measured bars through `gate`.
+      const ruler = { ...effective, threshold: ABSOLUTE_MIN };
+      const bars = floorBars(ruler);
       const subjectDigest = view.handoffs.length === 1 ? view.handoffs[0].digest : undefined;
       const artifactDigest = digest(canonicalBytes(options.artifact === undefined ? {} : options.artifact));
       // T3: the assignment the judge is given. The reads here are pure and the store is already
@@ -327,7 +335,7 @@ export async function advanceEvaluated(
       if (cached !== undefined) return advance({ ...options, qualityVerdict: cached });
       // S2: the DECISION reads the measured per-dimension bars, and the Q50 flag reads the same
       // population's median (A3, A4). One store read, before the scorer runs.
-      const gateBars = quantileBarsFor(options, node.task, ruler);
+      const measuredBars = quantileBarsFor(options, node.task, ruler);
       // One short read, closed before the scorer runs: the population median per dimension.
       const q50 = withStore(options, (store) => {
         const medians = new Map<string, number | undefined>();
@@ -342,7 +350,7 @@ export async function advanceEvaluated(
         ruler,
         { goal: task.goal, artifact: options.artifact, subjectDigest, ...(context === undefined ? {} : { context }) },
         bars,
-        { perDimension: gateBars.perDimension, q50 },
+        { perDimension: measuredBars.perDimension, q50 },
       );
       return advance({ ...options, qualityVerdict: verdict });
     }

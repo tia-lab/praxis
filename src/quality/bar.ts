@@ -1,10 +1,9 @@
 /**
  * The adaptive bars (O2, task-level): every scope has its own floor and its own ratchet.
  *
- * SCOPES. \`global\` is the MEAN of the dimensions (seed \`quality.threshold\`); every dimension is its
- * own scope (seed \`dimension.floor\`, defaulting to the task's threshold). Acceptance needs BOTH: each
- * dimension within its tolerance band and the MEAN at or above the global bar (see
- * \`compoundDecision\`). MIN stays the reported headline score.
+ * SCOPES. Every dimension is its own scope: one measured bar per (task, dimension identity), floored
+ * at ABSOLUTE_MIN. Acceptance is the PURE AND - every dimension at or above its own bar - with no
+ * mean, no tolerance band and no Pareto cap. MIN stays the reported headline score.
  *
  * IDENTITY. A dimension's bars are keyed by its identity (id + statement), never by task version:
  * republishing a task with unchanged dimensions inherits their earned bars; editing a dimension's
@@ -43,21 +42,13 @@ import {
 /** The frozen formula identity, recorded on every raise so the record is reproducible. */
 export const BAR_FORMULA_ID = "praxis.bar.ema/v3";
 /** The cooldown: how many genuine passes must accumulate after a raise before the next one. */
-export const BAR_WINDOW = 5;
 /** How many observations of a scope must accumulate before it may raise at all. */
-export const WARMUP_MIN = 10;
 /** Maximum mean attempts: when agents pass easily, the bar is too low. */
-export const BAR_MEAN_ATTEMPTS_MAX = 2;
 /** Above this, model-judge noise dominates. */
-export const BAR_CEILING = 0.9;
 /** The largest single raise. */
-export const BAR_MAX_STEP = 0.05;
 /** How many genuine passes the EMA remembers: N = 9. */
-export const BAR_EMA_PERIODS = 9;
-/** `2 / (BAR_EMA_PERIODS + 1)`: the weight the newest pass carries. */
-export const BAR_EMA_ALPHA = 0.2;
+/** `2 / (periods + 1)`: the weight the newest pass carries. */
 /** Below this gap the EMA sits too close to the bar to be worth recording. */
-export const BAR_MIN_STEP = 0.01;
 /** The scope name of the global (MEAN) bar. */
 // The read layer lives in `scope.ts` (a MOVE): imported for the ratchet, re-exported for every importer.
 import {
@@ -70,31 +61,21 @@ import {
   scanEvents,
   scopeOf,
 } from "./scope.ts";
-export { DIMENSION_TOLERANCE } from "./scope.ts";
 export {
-  GLOBAL_SCOPE,
+  barAt,
+  compositionKey,
+  dimensionKey,
   flooredBar,
+  ofTask,
   quantileBars,
   quantileBarsFor,
-  type QuantileBars,
-  scanEvents,
-  ofTask,
-  dimensionKey,
-  compositionKey,
-  barsFromQuality,
-  raisesOf,
-  scopeOf,
   raisesFor,
-  barAt,
-  effectiveBars,
-  effectiveBarsFor,
-  effectiveBar,
-  effectiveBarFor,
+  raisesOf,
   sampleFor,
-} from "./scope.ts";
-export type {
-  LogEvent,
-  Bars,
+  scanEvents,
+  scopeOf,
+  type LogEvent,
+  type QuantileBars,
 } from "./scope.ts";
 export interface GenuinePass {
   instance: string;
@@ -127,19 +108,6 @@ export interface GenuinePass {
  * drag can never lower a bar. An empty series has no EMA.
  */
 
-/**
- * The bar a gate actually compares against: the bar in force, capped at the Pareto point. Acceptance
- * stops tightening there while the ratchet keeps recording the level it reaches (option A).
- */
-
-/**
- * The compound acceptance test, in ONE place so the scorer path, the gate and the audit cannot
- * drift: every dimension must sit at or above `effBar - DIMENSION_TOLERANCE` (a dimension inside
- * `[effBar - tolerance, effBar)` PASSES but is FLAGGED, and below the band is a hard refuse), and the
- * MEAN must clear the global bar with NO tolerance. Both compare against `effBar = gateBar(bar,
- * pareto)`: the gate stops tightening at the Pareto point while the bars themselves keep rising.
- * MIN is not consulted here; it stays the headline.
- */
 export interface Compound {
   pass: boolean;
   mean: number;

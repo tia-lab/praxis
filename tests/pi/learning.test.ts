@@ -70,7 +70,7 @@ test("the brief discloses the standard and the recall, and the same store yields
     assert.equal(quality.threshold, 0.5, "the scalar standard is the floor");
     assert.equal(quality.aggregation, "min");
     assert.match(quality.judging, /MINIMUM/, "the agent is told how the judgments combine");
-    assert.equal(quality.recall.bar, 0.6, "the recall set still reports its own bar");
+    assert.equal(quality.recall.bar, 0.5, "the recall set reports the floor");
     assert.equal(quality.recall.notes.length, 1, "the recorded lesson is injected");
     // S4/R27: the brief's recall set is built synchronously, with no judge, so its text is
     // WITHHELD and the case says so. The record (score, tags, relevance) is still disclosed.

@@ -17,7 +17,8 @@ import { withStore } from "../runner/engine/support.ts";
 import { EVENT } from "../runner/engine/types.ts";
 import type { EngineOptions } from "../runner/engine/types.ts";
 import { noteObjective } from "../runner/note-gate.ts";
-import { barAt, effectiveBars, ofTask, raisesOf, scanEvents } from "./bar.ts";
+import { barAt, ofTask, quantileBars, raisesOf, scanEvents } from "./bar.ts";
+import { ABSOLUTE_MIN } from "../runner/engine/types.ts";
 
 /** The frozen signal weights (O1). They sum to 1 and are never chosen by the agent. */
 export const RECALL_WEIGHTS = {
@@ -89,12 +90,14 @@ export function weakSetFor(store: Store, task: string, taskVersion: number, qual
   }
   // The per-dimension bars are what "below bar" means now, so the weak-set follows each dimension
   // to its own floor instead of comparing everything against the global MEAN bar.
-  const bars = effectiveBars(store, task, quality);
   void taskVersion;
   const ranked = [...sums.entries()]
     .map(([id, scores]) => ({ id, mean: recencyWeightedMean(scores, VERDICT_RECENCY_DECAY) }))
     .sort((left, right) => left.mean - right.mean || left.id.localeCompare(right.id));
-  const below = ranked.filter((entry) => entry.mean < (bars.perDimension.get(entry.id) ?? bars.global));
+  // Each dimension is compared against its OWN measured bar; the ABSOLUTE floor is the fallback for
+  // a dimension that has no measured bar (there is no global bar any more).
+  const measured = quantileBars(store, task, quality);
+  const below = ranked.filter((entry) => entry.mean < (measured.perDimension.get(entry.id) ?? ABSOLUTE_MIN));
   return (below.length > 0 ? below : ranked.slice(0, 1)).slice(0, 3).map((entry) => entry.id);
 }
 
@@ -311,7 +314,8 @@ export function recallFor(
   return parseWith(
     RecallSetSchema,
     {
-      bar: effectiveBars(store, task, quality).global,
+      // No global bar is raised any more: the set reports the floor it is judged against.
+      bar: ABSOLUTE_MIN,
       weakSet,
       notes: clipped.map((candidate) => serve(candidate.note, screens)),
     },

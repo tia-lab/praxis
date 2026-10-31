@@ -18,7 +18,7 @@ import { appendEvent, listEvents } from "../../store/events.ts";
 import { setStatus } from "../../store/instance.ts";
 import { traceOf, type Grant } from "../capabilities.ts";
 import type { Handoff, Verdict } from "../step.ts";
-import { recomputeBar, type Bars } from "../../quality/bar.ts";
+import { recomputeBar, type QuantileBars } from "../../quality/bar.ts";
 import { ABSOLUTE_MIN } from "./types.ts";
 import { writeNote } from "../note-gate.ts";
 import { payloadOf } from "./support.ts";
@@ -98,7 +98,7 @@ function failedReasonFor(args: {
   step: string;
   attempts: number;
   maxAttempts: number;
-  bars: Bars;
+  bars: QuantileBars;
   verdict: QualityVerdict;
   previous?: QualityAttempt;
 }): string {
@@ -183,7 +183,7 @@ export function failureOutcome(args: {
   taskVersion: number;
   quality: Quality | undefined;
   /** The effective bars (per dimension + global MEAN) this attempt was judged against. */
-  bars: Bars;
+  bars: QuantileBars;
   /** The project's default budget, threaded in by the caller; the task's own still wins. */
   defaultMaxAttempts?: number;
   verdict: QualityVerdict;

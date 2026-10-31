@@ -1,9 +1,11 @@
 {
   "id": "research",
-  "version": 6,
+  "version": 7,
   "state": "published",
   "gate": "section-requirements",
   "goal": "establish what is true from sources and the code before anything is designed",
+  "rationale": "A design decision made on unverified claims is the expensive failure this stage prevents; research exists so every later choice rests on checkable evidence rather than assumption.",
+  "scope": "Claims about this repository and its shipped code at the current working tree \u2014 not the roadmap, not other projects, and no design or implementation. Only what is true now, each claim anchored to a source or a path:line.",
   "capabilities": [
     "artifact.write",
     "emit",
@@ -19,14 +21,18 @@
         "task",
         "scope",
         "acceptance"
-      ]
+      ],
+      "goal": "State the task you took on, the scope you bound yourself to, and what acceptance looks like.",
+      "rationale": "The reader must know what you set out to do before judging whether you did it."
     },
     {
       "section": "question",
       "required": [
         "question",
         "boundary"
-      ]
+      ],
+      "goal": "State the precise question and the boundary of what is in and out of scope.",
+      "rationale": "A finding can only be judged complete against an explicit question and a stated boundary."
     },
     {
       "section": "sources",
@@ -35,11 +41,15 @@
         "source",
         "location",
         "establishes"
-      ]
+      ],
+      "goal": "Name each source and the exact location, and state what that location establishes.",
+      "rationale": "A claim is only checkable if its evidence can be reopened at a named place."
     },
     {
       "section": "findings",
-      "minItems": 1
+      "minItems": 1,
+      "goal": "State what is true, each claim tied to a source or a code location.",
+      "rationale": "The findings are the answer; an uncited claim cannot be re-checked by the next stage."
     },
     {
       "section": "affected",
@@ -48,11 +58,15 @@
         "path",
         "declaration",
         "effect"
-      ]
+      ],
+      "goal": "Name the files and declarations the question touches and the effect at each.",
+      "rationale": "The next stage needs to know where the answer lands in the code."
     },
     {
       "section": "uncertainty",
-      "minItems": 1
+      "minItems": 1,
+      "goal": "Name the real unknowns, the competing explanations, and where confidence is weaker than the evidence.",
+      "rationale": "Hidden uncertainty is the expensive failure this stage exists to prevent."
     }
   ],
   "quality": {
@@ -70,6 +84,10 @@
               "most claims are asserted with no source or code location",
               "some claims carry a source and others do not",
               "every claim carries a source or a code location"
+            ],
+            "sections": [
+              "findings",
+              "sources"
             ]
           }
         ]
@@ -82,7 +100,11 @@
           {
             "id": "within-boundary",
             "type": "noul",
-            "instructions": "Nothing outside the stated boundary is claimed."
+            "instructions": "Nothing outside the stated boundary is claimed.",
+            "sections": [
+              "question",
+              "findings"
+            ]
           },
           {
             "id": "coverage",
@@ -92,6 +114,10 @@
               "large parts of the question are unanswered",
               "the answer covers the question only in part",
               "the stated question is answered in full"
+            ],
+            "sections": [
+              "question",
+              "findings"
             ]
           }
         ]
@@ -104,12 +130,19 @@
           {
             "id": "unknowns-named",
             "type": "noul",
-            "instructions": "The real unknowns are named rather than hidden."
+            "instructions": "The real unknowns are named rather than hidden.",
+            "sections": [
+              "uncertainty"
+            ]
           },
           {
             "id": "competing-explained",
             "type": "noul",
-            "instructions": "Competing explanations are stated, not silently discarded."
+            "instructions": "Competing explanations are stated, not silently discarded.",
+            "sections": [
+              "findings",
+              "uncertainty"
+            ]
           },
           {
             "id": "confidence-matched",
@@ -120,7 +153,11 @@
               "overstated": "the confidence is stronger than the evidence supports",
               "understated": "the confidence is weaker than the evidence supports"
             },
-            "clean": "matched"
+            "clean": "matched",
+            "sections": [
+              "findings",
+              "uncertainty"
+            ]
           }
         ]
       },
@@ -132,12 +169,19 @@
           {
             "id": "distinct",
             "type": "noul",
-            "instructions": "Each finding states a claim that no other finding already states."
+            "instructions": "Each finding states a claim that no other finding already states.",
+            "sections": [
+              "findings"
+            ]
           },
           {
             "id": "on-topic",
             "type": "noul",
-            "instructions": "Every finding serves the stated question, not an adjacent or broader one."
+            "instructions": "Every finding serves the stated question, not an adjacent or broader one.",
+            "sections": [
+              "findings",
+              "question"
+            ]
           }
         ]
       },

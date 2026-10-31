@@ -1,9 +1,10 @@
 /**
- * R19 — the composed-request lock (research v6 rubric).
+ * R19 — the composed-request lock (research v7 rubric).
  *
- * Captured from the shipped scorer with research v6 and no order or sections, so this test pins the
- * exact request an unanchored, untargeted task sends: byte for byte. If the composed scorer ever
- * starts sending something extra to such a task, this fails.
+ * Captured from the shipped scorer with research v7 and NO order or section CONTEXT. The probes now
+ * carry section ids, so each targeted question says "Judge ONLY the <ids> section(s)" with the
+ * section GOALS absent (they arrive only from scoringContextOf in a live run). This pins the exact
+ * bytes a no-context call sends; if the composed scorer sends anything else, this fails.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -12,7 +13,7 @@ import { test } from "node:test";
 import type { JevRequest, JevResponse } from "pi-jev";
 import { jevScorer } from "../../src/quality/jev-scorer.ts";
 
-const FIXTURE = new URL("./fixtures/scoring-request.v6.json", import.meta.url).pathname;
+const FIXTURE = new URL("./fixtures/scoring-request.v7.json", import.meta.url).pathname;
 
 const task = JSON.parse(readFileSync(new URL("../../.pi/praxis/tasks/discovery/research.json", import.meta.url).pathname, "utf8")) as {
   goal: string;
@@ -30,7 +31,7 @@ const ARTIFACT = {
 };
 const SUBJECT_DIGEST = "sha256:" + "a".repeat(64);
 
-test("R19: v6 without order or sections sends the byte-identical request", async () => {
+test("R19: v7 with no order or section context sends the byte-identical request", async () => {
   const seen: JevRequest[] = [];
   const evaluateFn = async (request: JevRequest): Promise<JevResponse> => {
     seen.push(request);

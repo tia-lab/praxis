@@ -20,7 +20,7 @@
   "questions": {
     "grounded.supported": {
       "type": "score",
-      "instructions": "How much of the artifact rests on cited evidence rather than assertion?",
+      "instructions": "Judge ONLY the findings+sources section(s). Criterion: How much of the artifact rests on cited evidence rather than assertion?",
       "criteria": [
         "most claims are asserted with no source or code location",
         "some claims carry a source and others do not",
@@ -33,11 +33,11 @@
     },
     "covers-question.within-boundary": {
       "type": "noul",
-      "instructions": "Nothing outside the stated boundary is claimed."
+      "instructions": "Judge ONLY the question+findings section(s). Criterion: Nothing outside the stated boundary is claimed."
     },
     "covers-question.coverage": {
       "type": "score",
-      "instructions": "How much of the stated question does the artifact answer?",
+      "instructions": "Judge ONLY the question+findings section(s). Criterion: How much of the stated question does the artifact answer?",
       "criteria": [
         "large parts of the question are unanswered",
         "the answer covers the question only in part",
@@ -50,15 +50,15 @@
     },
     "honest-uncertainty.unknowns-named": {
       "type": "noul",
-      "instructions": "The real unknowns are named rather than hidden."
+      "instructions": "Judge ONLY the uncertainty section(s). Criterion: The real unknowns are named rather than hidden."
     },
     "honest-uncertainty.competing-explained": {
       "type": "noul",
-      "instructions": "Competing explanations are stated, not silently discarded."
+      "instructions": "Judge ONLY the findings+uncertainty section(s). Criterion: Competing explanations are stated, not silently discarded."
     },
     "honest-uncertainty.confidence-matched": {
       "type": "choice",
-      "instructions": "Does the stated confidence match what the evidence supports?",
+      "instructions": "Judge ONLY the findings+uncertainty section(s). Criterion: Does the stated confidence match what the evidence supports?",
       "criteria": {
         "matched": "the stated confidence matches the evidence",
         "overstated": "the confidence is stronger than the evidence supports",
@@ -71,11 +71,11 @@
     },
     "parsimony.distinct": {
       "type": "noul",
-      "instructions": "Each finding states a claim that no other finding already states."
+      "instructions": "Judge ONLY the findings section(s). Criterion: Each finding states a claim that no other finding already states."
     },
     "parsimony.on-topic": {
       "type": "noul",
-      "instructions": "Every finding serves the stated question, not an adjacent or broader one."
+      "instructions": "Judge ONLY the findings+question section(s). Criterion: Every finding serves the stated question, not an adjacent or broader one."
     },
     "parsimony.__statement": {
       "type": "noul",

@@ -1,10 +1,13 @@
 # Where we are
 
-**Molecule core built through P6; P7 experience is the deepest layer.** As of 2026-10-30:
+**Molecule core built through P6; P7 experience is the deepest layer.** As of 2026-10-31:
 P0 contracts, P2 durable engine, P3 step runner, P5 artifacts, P6 Pi integration — shipped.
 P7 experience — the per-dimension + global quality ratchet, execution notes and recall steering —
 shipped and proven live at 16× concurrency on one store (24/24 clean; honest-uncertainty ratcheted
-0.60→0.775, grounded the laggard, 5 flagged, 2 compound refusals, all notes closed).
+0.60→0.775, grounded the laggard, 5 flagged, 2 compound refusals, all notes closed). The ratchet was
+**redesigned** to a measured quantile bar and a pure-AND gate (quantile-bars, `cbc26826`) —
+**owner-accepted 2026-10-31**; the global scope, EMA and compound gate are removed. See the P7
+quality-gate section below.
 **P4 adapters: closed at the current set (Pi broker + jev scorer) by owner decision (2026-10-30).**
 **P1 authority: capability intersection + routed-call denial built; trusted identity (gate #3)
 consciously deferred — no identity claim made.** Open: gate #1 isolation, #4 flow expansion,
@@ -13,6 +16,35 @@ scenario not yet run end to end. Deferred means a conscious choice not to build 
 
 **Earlier milestones:** Slice 0 accepted; Pi integration + step brief/flow position shipped;
 P5 artifact templates (hash8 99d43024) shipped; engineering task/flow library landed (2026-10-29).
+
+## P7 quality gate — redesigned to a quantile bar (quantile-bars, `cbc26826`) — ACCEPTED 2026-10-31
+
+Owner-accepted 2026-10-31. The self-strangling global EMA / compound ratchet is replaced by an honest,
+reachable, monotone gate:
+
+- **One measured bar per (task, dimension identity)** — p25 of the carried population (one observation
+  per instance), floored at 0.5, monotone (max fold; a `bar.raised` with `to < from` fails to parse).
+- **Pure-AND gate** — a verdict passes iff every dimension clears `max(0.5, its bar)`. No mean, no
+  tolerance band, no Pareto cap.
+- **K3 first-raise guard** — the first raise is eligible at n ≥ 28 and confirmed on evidence the estimate
+  never saw (E = 20, two fresh 4-observation halves, ≥ 3 of 4 at or above the candidate); the steady
+  rule then adopts the lower of two 20-halves. A single easy batch cannot lock a bar.
+- **Q50 learning flag** — a passing dimension below its own Q50 is flagged (non-gating) and owes a
+  lesson; measured 66–68 % of passing verdicts. Replaces the old tolerance band.
+- **`quantileGate` (1–99, default 25)** — the one authorable strictness knob; it selects a RANK of the
+  population, never an absolute value.
+- **12 task documents** carry no authored bar fields (research v8, others v4). The compound gate, the
+  EMA statistics and the global scope are deleted; every legacy SCHEMA field still parses
+  (deprecate-not-delete; store schema `praxis.store/v2` unchanged, no migration).
+
+Verified independently: `tsc` exit 0; **375 / 375** tests; dead-code grep 0; every file < 600 lines;
+the T1 (outlier immunity), T2 (hybrid floor), monotone and compat proofs green; replay on the real
+v6/v7 stores (`docs/quantile-bars-cbc26826/acceptance.md`). Eight commits `7d2fa08 → 20a49cb`.
+
+**Not claimed:** no quality improvement, no savings, no isolation, no exactly-once. The acceptance
+replay number is an upper bound (it uses a static p25, not the live windowed ratchet); the binding
+evidence is the proof tests, which run the real code. True steady-state behavior requires a live run —
+a separate, gated step.
 
 ## P5 — artifact templates (unit E, hash8 99d43024)
 

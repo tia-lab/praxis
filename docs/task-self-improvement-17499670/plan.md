@@ -1,429 +1,366 @@
-# Plan — one coherent build of the six task-loop slices
+# Plan — T1–T3: give the judge the assignment (task intent, the durable order, the composed scorer)
 
 Task: task-self-improvement · Hash: 17499670 · Gate: G3 · Status: draft — lead review before G4 · Date: 2026-10-31
-Predecessors: `research.md`, `spec.md` (same folder). Design/planning only: **no code, no edit under `src/`,
-`tests/` or `.pi/`**. The owner greenlit all six slices together and accepted the bar re-warming; the lead
-reviews after implementation.
-
-## 1. Pre-flight — is S0 shipped?
-
-**Verdict: YES. S0 is in pi-jev v0.2.3 and Praxis already pins it. No blocker.**
-
-| Claim | Evidence | Label |
-| --- | --- | --- |
-| Praxis pins `v0.2.3` | `package.json:28` — `pi-jev: github:tia-lab/pi-jev#v0.2.3`; `bun.lock:7` | executed (read) |
-| Installed package is 0.2.3 | `node_modules/pi-jev/package.json` — `version: 0.2.3` | executed (read) |
-| Choice mass is carried, keyed by criterion name | `node_modules/pi-jev/dist/src/types.d.ts:29-34` — `probabilities?: Record<string, number>`; `dist/src/client.js:61-72` | executed (read) |
-| Score mass is carried in level order | `types.d.ts:36-41` — `probabilities?: number[]`; `client.js:74-92` normalizes an array or a level-numbered object to an array | executed (read) |
-| Malformed mass is REJECTED, never dropped | `client.js:61-72` (unknown key, non-probability) and `:74-92` (wrong length) throw | executed (read) |
-| `noul` unchanged | `types.d.ts:21-27` — `{ type, noul }` only | executed (read) |
-
-### 1.1 Two gaps found in pre-flight (neither blocks)
-
-1. **Sum-to-1 is not enforced by the client.** `parseChoiceProbabilities`/`parseScoreProbabilities` validate
-key membership, the `[0,1]` range and the score length, but never the sum (`client.js:61-92`). Our spec R1
-assumed a tolerance-enforcing client. **Resolution, Praxis side, in S2:** a mass map whose sum lies outside
-`[0.99, 1.01]` is treated as ABSENT (the criterion records no `pClean`/`spread`, and it is not `torn` on
-mass); nothing is normalized by guesswork. Recorded as a note for the pi-jev engineer (wB:p21) — tightening
-it upstream later needs no Praxis change.
-2. **The 0.2.3 `EntryType` widening broke the typecheck in one existing test.** `./node_modules/.bin/tsc
---noEmit` reports exactly 2 errors, both `tests/quality/jev-scorer.test.ts:62`: `instructions` is now
-`EntryType` (possibly null), so `.includes(...)` no longer typechecks. Zero `src/` errors. This is S0 fallout,
-not a design issue: a test-only narrowing in P1 repairs it.
-
-### 1.2 The baseline the build starts from (measured, not assumed)
-
-| Check | Command | Result |
-| --- | --- | --- |
-| Typecheck | `./node_modules/.bin/tsc --noEmit` | **RED — 2 errors**, both the test above |
-| Suite | `node --test 'tests/**/*.test.ts'` (the `package.json` `test` script) | **GREEN — 301/301**, ~3.6s |
-| Suite under bun | `bun test` | **NOT VALID** — Bun has no `node:sqlite`, so 42 tests fail/error. Use the Node runner; the bun result is a runner mismatch, not a repo defect. |
-
-### 1.3 What S0 means for the plan
-
-S0 R1-R5 become **assertions on the Praxis side** (P1 commit): a test file proving the vendored types and the
-client validation behave as the design assumes, and that Praxis reads the map as shipped. **No Praxis runtime
-change** is authorised or needed by S0. `noul` stays a single probability: S2 records its value band, S3
-measures it by repeat-N, S5 does not use mass, S6 never presents a `noul` as a distribution.
-
-## 2. Prerequisite commits (before any slice)
-
-| Commit | Change | Why it must land first |
-| --- | --- | --- |
-| **P1** `test(quality): assert the pi-jev v0.2.3 distribution contract` | New `tests/quality/jev-distribution.test.ts` (5 cases, the S0 assertions R1-R5) + a 2-line narrowing at `tests/quality/jev-scorer.test.ts:62` (read `instructions` through a small `textOf(instruction)` helper in the test). No `src/` change. | Restores the typecheck baseline and pins the enabler contract the slices rely on. |
-| **P2** `refactor(types): move the quality rubric schemas into types/quality.ts` | Move `src/types/schema.ts:148-256` (probe, constants, dimension, quality) into a new `src/types/quality.ts`; `schema.ts` imports it for `TaskConfigSchema` and RE-EXPORTS the same names, so every importer is unchanged. **Pure move, no rewrite.** `QualityVerdictSchema` (schema.ts:259-295) stays. | `src/types/schema.ts` is **609 lines today, already over the 600 cap**; S1/S2/S6 add ~25 more. After the move it is ~500. |
-
-Both are behaviour-free: `tsc` clean, 301/301, no test import changes.
-
-## 3. Ordered build
-
-Dependency order (spec §1, §12): **S1 first** (it alone re-keys identity and re-warms bars); then **S2, S3, S4,
-S5** (mutually independent); **S6 after S2**; **the optional #3 last and skippable**. Every commit leaves the
-tree green: `tsc` clean, the whole suite green, its own R-tests added.
-
-One branch, one engineer, strictly in this order. No parallel pane works the same file (AGENTS.md §4); the
-collision table in §4 is the merge order.
-
-### 3.1 S1 — criteria-composed scorer (spec §4, R6-R14)
-
-**Intent.** One rubric, one request: compose each dimension from its declared criteria; record the binding
-criterion, keep the statement as a witness; render the why from the same answers; retire the second call.
-
-**Ordered edits.**
-
-1. `src/quality/jev-scorer.ts:39-72` — replace the request builder: one `noul` per criterion
-   (`<dim>.<criterion>`) plus one witness (`<dim>.__statement`), ONE `evaluate`; remove the `explain:` wiring
-   at `:65`. Compose each dimension from the answers (nested MIN, spec D4) and return
-   `{score, bound, statementScore, rationale}` per dimension.
-2. `src/quality/jev-scorer.ts:145-216,218` — delete `jevBattery` and `isRecordWith`; keep the strict answer
-   reading, moved into the composition reader. Keep `isClean` (`:92`) and `clauseOf` (`:104`) for the renderer.
-3. `src/quality/jev-scorer.ts:75-81` — keep `RATIONALE_MAX`, `RATIONALE_MAX_CLAUSES`, `RATIONALE_DIVERGENCE`
-   (R9's bounds); only their consumer changes.
-4. `src/quality/evaluate.ts:15-21,27-47` — delete `ExplainedDimension` and the optional `explain` port; widen
-   `Scorer.score` input to carry `probes?`.
-5. `src/quality/evaluate.ts:58-70` — delete `explainQuietly`.
-6. `src/quality/evaluate.ts:49-51` — add `COMPOSE_FORMULA_ID = praxis.compose/min/v1` to `rulerDigest`.
-7. `src/quality/evaluate.ts:81-118` — take the composed dimensions, clamp, MIN, compound decision (unchanged),
-   attach `bound`/`statementScore`/`divergence`, render the rationale. Decision logic byte-identical.
-8. `src/types/schema.ts:259-295` — `QualityVerdictSchema.dimensions[]` gains additive-optional `bound`,
-   `statementScore`, `divergence` (`DIVERGENCE_MIN = 0.20` lives beside the scorer).
-9. `src/quality/bar.ts:117-126` — `dimensionKey` = digest of `(id, criteria)` when a dimension has criteria,
-   `(id, statement)` when it does not; `compositionKey` keeps covering every dimension key.
-10. `src/runner/engine/quality-loop.ts:32-64` — copy the three new fields in `qualityHistory` (F7: a missed copy
-    silently erases them on re-read).
-11. `src/pi/descriptor.ts:45-49` — `JUDGING_STANCE` describes composition; `:184-190` — the brief's dimension
-    projection carries `criteria` (id, type, instructions, clean option or levels) and the aggregation rule;
-    `src/types/pi.ts:93` — the additive-optional field on `StepDescriptorSchema`.
-12. Re-pin the tests whose fixtures assume statement scoring: `tests/quality/jev-scorer.test.ts`,
-    `tests/quality/verdict-rationale.test.ts`, `tests/quality/bar.test.ts` (identity keys shift).
-
-**Write boundary (S1 owns these regions):** `src/quality/jev-scorer.ts`, `src/quality/evaluate.ts`,
-`src/quality/bar.ts` (identity block only), `src/runner/engine/quality-loop.ts` (`qualityHistory` only),
-`src/pi/descriptor.ts`, `src/types/pi.ts` (brief), `src/types/schema.ts` (verdict), the tests above.
-**Exit:** `tsc` clean; suite green; a composed task's verdict carries `bound`; a no-criteria task's verdict is
-byte-identical to today.
-
-### 3.2 S2 — uncertainty signal (spec §5, R15-R19)
-
-**Intent.** Record what jev actually reports about its own certainty: a `choice`/`score` distribution's spread,
-and a `noul`'s value band. Nothing gates on it.
-
-**Ordered edits.**
 
-1. `src/quality/jev-scorer.ts:39-72` — carry each answer's `probabilities`/`confidence` into the per-criterion
-   result; apply the §1.1 sum rule (a map summing outside `[0.99, 1.01]` is treated as absent).
-2. `src/quality/evaluate.ts:81-118` — compute `pClean` (choice), `pTop`, `spread = 1 − max(p)` and `torn` per
-   criterion (spec R17); attach to `diagnosis[]`. The score is untouched (spec R18).
-3. `src/types/schema.ts:273-283` — `diagnosis[]` entries gain additive-optional `confidence`, `pClean`, `pTop`,
-   `spread`; the verdict gains `torn: string[]`.
-4. `src/runner/engine/quality-loop.ts:32-64` — copy `torn` and the diagnosis fields.
-5. `src/pi/descriptor.ts:51-140` — `NoteJudgment.dimensions[]` carries `torn` and its uncertainty (additive).
-
-**Exit:** the same artifact scores identically with and without distributions; a torn criterion is recorded and
-nothing refuses.
-
-### 3.3 S3 — stability before a ratchet (spec §6, R20-R24)
-
-**Intent.** No bar rises on a rubric identity nobody has sampled. Sampling is bounded, recorded, and runs
-outside every transaction.
-
-**Ordered edits.**
-
-1. New `src/quality/sample.ts` (~90 lines) — `sampleRubric({ evaluateFn, task, key, artifactDigest, artifact,
-   repeats: 3 })`: builds the SAME composed request, runs R=3, returns per-criterion agreement (choice key
-   frequency; `noul`/`score` range). Pure over the injected call.
-2. `src/types/learning.ts:84-110` — `BarRaisedSchema` gains additive-optional `stability`; a new
-   `RubricSampledSchema` (~25 lines) beside it.
-3. `src/runner/engine/types.ts:6-21` — `EVENT.rubricSampled`, `EVENT.barHeld`; the sample constants
-   (`SAMPLE_REPEATS`, the stability bounds) beside the existing quality defaults (`:23-52`).
-4. `src/quality/bar.ts:420-450` — read `rubric.sampled` for the scope key: no stable sample → append `bar.held`
-   and return held BEFORE `decideRaise`; a stable sample → include `stability` on the raise. `emaOf`,
-   `decideRaise` and `BAR_FORMULA_ID` stay BYTE-IDENTICAL (global acceptance item G5).
-5. `src/pi/operations.ts:352-400` — after `advanceEvaluated`, if any decision is held for an unsampled
-   identity, run `sampleRubric` outside the transaction and append `rubric.sampled` (the `advanceEvaluated`
-   pattern). Thin: the logic lives in `sample.ts`.
-6. `tests/quality/bar.test.ts` — a fixture helper that seeds a stable sample for the identities a raise test
-   uses; new hold tests prove the old behaviour is intact when a sample exists.
-
-**Exit:** a due raise without a sample holds and the step still accepts; with a stable sample the raise lands
-with its `stability`; a CLI-only run raises nothing and still completes.
-
-### 3.4 S4 — screen recalled exemplars (spec §7, R25-R28)
-
-**Intent.** No unjudged agent-authored text reaches the brief; an unscreenable case keeps its structure and
-loses its free text.
-
-**Ordered edits.**
-
-1. New `src/quality/screen.ts` (~80 lines) — `screenCases({ evaluateFn, cases })`: ONE batched call, two
-   `noul`s per case (`instructs-the-reader`, `outside-the-ceiling`); returns per-case probabilities.
-2. `src/quality/ranker-jev.ts:256-350` — on a cache miss, screen the chosen set and persist the outcome in the
-   `recall.ranked` entry (a second, tiny call; the rank call is unchanged here).
-3. `src/types/learning.ts:153-192` — `RecallRankedSchema.chosen[]` gains additive-optional `screen`;
-   `RecallNoteSchema` (`:130`) gains `screened`, and the served copy may blank the free text.
-4. `src/quality/recall.ts:286-325` — carry the screen into the served set; withhold free text for a failed or
-   unscreened case with a code-owned line.
-5. `src/quality/recall.ts` / `src/quality/ranker.ts:281-330` — the deterministic fallback path marks
-   `screened: false` and applies the same withholding.
-6. `src/pi/descriptor.ts` (recall block) + `src/pi/operations.ts:400-436` — disclose per case in the brief and
-   in the refusal handback.
-
-**Exit:** a lesson that tries to instruct fails the screen and its text never appears in any envelope; with the
-judge down, cases return with tags, provenance and no free text.
-
-### 3.5 S5 — three-`noul` explained rerank (spec §8, R29-R32)
-
-**Intent.** The recall ordering explains itself: three `noul`s per candidate, combined by frozen constants.
-
-**Ordered edits.**
-
-1. `src/quality/ranker-jev.ts:47-52` — the three authored `DISTINCT_CRITERIA` become three `noul` question
-   texts; three `WEIGHT_*` constants (sum 1) go beside them.
-2. `src/quality/ranker-jev.ts:83-148` — three questions per pooled candidate (`c<i>.<criterion>`), ordering by
-   the weighted sum, ties by the existing deterministic score then id; the Jaccard collapse is unchanged.
-3. `src/types/learning.ts:153-192` — `chosen[]` gains additive-optional `nouls` and `total`.
-4. `src/quality/ranker.ts:281-330` — the `op=recall` payload carries the trio and the total.
-5. Re-pin `tests/quality/jev-ranker.test.ts` (request shape) and `tests/quality/ranker.test.ts` if its fake
-   answer shape assumed one score per candidate.
-
-**Exit:** the request has 3 `noul`s per pooled candidate (≤60 questions at the 20-candidate pool); a candidate
-strong on distinctness and weak on usefulness reports exactly that split; no mass is claimed for a `noul`.
-
-### 3.6 S6 — provisional verdict (spec §9, R33-R36)
-
-**Intent.** A verdict whose deciding criterion was torn says so, with the signal named — and still decides
-exactly as before.
-
-**Ordered edits.**
-
-1. `src/quality/evaluate.ts:81-118` — derive `provisional` and `provisionalOn` from the DECIDING criteria's torn
-   state (S2's data); never feed it to the decision.
-2. `src/types/schema.ts:259-295` — the verdict gains additive-optional `provisional`, `provisionalOn`.
-3. `src/runner/engine/types.ts:23-52` — `TORN_SPREAD` and the `noul` band as code constants.
-4. `src/runner/engine/quality-loop.ts:32-64` — copy the two fields.
-5. `src/pi/descriptor.ts:80-140` and `src/pi/operations.ts:242-330` — report it in the brief judgment and the
-   refusal detail; no new Code, no new envelope.
-
-**Exit:** identical accept/refuse with and without `provisional`; the reason names `mass`, `confidence` or
-`noul-band`; a `noul` value is never presented as a distribution.
-
-### 3.7 Optional O1 — confidence-gated alignment (spec §10, R37-R38), skippable
-
-**Edits:** `src/quality/jev-align.ts:56-114` (read the choice distribution), `src/pi/operations.ts:174-214`
-(carry the flag), `src/types/pi.ts:203` (the additive-optional flag on the start envelope).
-**Exit:** 0.95 starts clean, 0.62 starts with the flag, 0.2 and every misaligned label are refused exactly as
-today. Ships only if the lead wants it; nothing else depends on it.
-
-## 4. Shared files, write boundaries and merge order
-
-| File | Slices that touch it | Merge order (strict) | How they must not collide |
-| --- | --- | --- | --- |
-| `src/types/schema.ts` | P2, S1, S2, S6 | P2 → S1 → S2 → S6 | P2 moves the rubric block out; S1/S2/S6 only ADD fields to `QualityVerdictSchema` — no reordering, no reformatting |
-| `src/types/quality.ts` (new) | P2 | P2 only | Closed after P2; no slice edits it |
-| `src/types/learning.ts` | S3, S4, S5 | S3 → S4 → S5 | Distinct schemas: S3 `RubricSampled` + `BarRaised.stability`; S4 `RecallRanked.chosen.screen` + `RecallNote.screened`; S5 `chosen.nouls/total` |
-| `src/types/pi.ts` | S1, S6, O1 | S1 → S6 → O1 | S1 the brief criteria; S6 the judgment provisional; O1 the start flag |
-| `src/quality/jev-scorer.ts` | S1, S2 | S1 → S2 | S1 rewrites the request and the composition; S2 only threads the distribution through the criterion result |
-| `src/quality/evaluate.ts` | S1, S2, S6 | S1 → S2 → S6 | One function region (`evaluateArtifact`); each slice appends its own fields, none rewrites the decision |
-| `src/quality/bar.ts` | S1, S3 | S1 → S3 | S1 the identity helpers only; S3 the hold in `recomputeBar`; `emaOf`/`decideRaise` untouchable |
-| `src/runner/engine/quality-loop.ts` | S1, S2, S6 | S1 → S2 → S6 | `qualityHistory` only — one added field list per slice, appended |
-| `src/runner/engine/types.ts` | S3, S6 | S3 → S6 | S3 the event names and sample constants; S6 the thresholds |
-| `src/quality/ranker-jev.ts` | S4, S5 | S4 → S5 | S4 adds the screen call after the chosen set; S5 changes the question shape before it |
-| `src/quality/ranker.ts` | S4, S5 | S4 → S5 | S4 the screen disclosure; S5 the trio disclosure |
-| `src/quality/recall.ts` | S4 | S4 only | Withholding lives here; S5 does not touch it |
-| `src/pi/descriptor.ts` | S1, S2, S4, S6 | S1 → S2 → S4 → S6 | Different sub-objects: brief dimensions, judgment uncertainty, recall disclosure, judgment provisional |
-| `src/pi/operations.ts` | S3, S4, S6, O1 | S3 → S4 → S6 → O1 | S3 the sample call in submit; S4 the handback disclosure; S6 the failure wording; O1 the start flag |
-| `src/quality/sample.ts`, `src/quality/screen.ts` (new) | S3, S4 | one owner each | New files, never shared |
-
-**Rule.** Slices are developed sequentially on one branch by one engineer; each commit rebases onto the
-previous. No two panes edit the same file, and no slice reformats a file another slice owns.
-
-## 5. Checks — one test per requirement, with its oracle
-
-Every row is a named test. New files are created in the slice named; existing files are re-pinned in S1 or as
-noted. The oracle is the observable the test asserts, taken from the spec.
-
-**S0 assertions (P1 commit) — `tests/quality/jev-distribution.test.ts`**
-
-| R | Test name | Oracle |
-| --- | --- | --- |
-| R1 | `S0-R1 choice mass is keyed by option keys and score mass is in level order` | a fixture with both shapes parses; a wrong key or wrong length throws |
-| R2 | `S0-R2 malformed mass is rejected, never dropped` | unknown key, non-probability and wrong length all throw |
-| R3 | `S0-R3 a noul answer carries no mass and no confidence` | the parsed answer holds `{type, noul}` only |
-| R4 | `S0-R4 a response without mass behaves exactly as today` | existing fixtures parse; the scorer path is unchanged |
-| R5 | `S0-R5 Praxis reads the map as shipped` | the adapter passes `probabilities` through untouched |
-
-**S1 — `compose.test.ts`, `compose-rationale.test.ts`, `compose-request.test.ts`, `compose-ruler.test.ts`, `compose-identity.test.ts`, `compose-roundtrip.test.ts`, `tests/pi/brief-criteria.test.ts`**
-
-| R | Test name | Oracle |
-| --- | --- | --- |
-| R6 | `composes a dimension as the minimum of its criteria` | `noul .9`, `score 1.0` on 2 levels, `choice clean` → 0.9; score at level 0 → 0; a no-criteria dimension scores as today |
-| R7 | `the witness is recorded and never changes a decision` | `statementScore` present; changing it alone changes no decision, bar or flagged set; `divergence` appears at 0.20 |
-| R8 | `bound names the criterion that produced the minimum` | `n1 1.0, s1 1.0, c1 non-clean` → `bound: c1` |
-| R9 | `renders the binding criterion first within the bounds` | at most 3 clauses and 240 chars; the divergence line when clean but below |
-| R10 | `one evaluate per submission carrying every criterion id` | fake call count is 1; the request holds all criterion ids and every witness id |
-| R11 | `a formula change is a cache miss` | two evaluations with different `COMPOSE_FORMULA_ID` produce two scorer calls |
-| R12 | `editing a criterion resets only that bar` | a new key for the edited dimension; rewording the statement alone keeps key and bar |
-| R13 | `the brief lists every criterion and check writes nothing` | 19 criteria in the composed task brief; `op=check` leaves the store unchanged |
-| R14 | `bound and statementScore survive qualityHistory` | record, re-read, and the brief judgment carries both |
-
-**S2 — `tests/quality/uncertainty.test.ts`, `tests/quality/torn.test.ts`**
-
-| R | Test name | Oracle |
-| --- | --- | --- |
-| R15 | `records pClean, pTop and spread per criterion` | `{clean .7, other .3}` → `pClean .7`, `spread .3` |
-| R16 | `a noul records no mass and is torn inside its band` | 0.9 records no mass; 0.50 is torn |
-| R17 | `torn when pClean is near the boundary or the spread is wide` | `{.52,.48}` torn; `{.95,.05}` not; `[.45,.30,.25]` torn |
-| R18 | `mass never changes the score` | identical scores, means, decisions, flagged and bars with and without mass |
-| R19 | `no schema knob can grade a choice criterion` | `QualityDimensionSchema` is strict: an unknown grading field is refused; the authoring rule is documentary |
-
-**S3 — `tests/quality/stability-sample.test.ts`, `tests/quality/bar-hold.test.ts`**
-
-| R | Test name | Oracle |
-| --- | --- | --- |
-| R20 | `samples once per task, key and version` | `rubric.sampled` written once; a second attempt performs no call |
-| R21 | `agreement is per criterion, and repeat-N is the only noul signal` | `[.9,.9,.9]` stable; `[.9,.4,.7]` unstable; a 3/3 choice agreement stable |
-| R22 | `a due raise without a sample is held and the step still accepts` | `bar.held` recorded; the artifact accepted; the bar unchanged |
-| R23 | `a raise records its stability and old raises still fold` | `bar.raised.stability` present; a pre-S3 raise parses and folds |
-| R24 | `no evaluate call happens inside withStore` | the fake records zero calls while a transaction is open; a CLI-only run raises nothing |
-
-**S4 — `tests/quality/recall-screen.test.ts`, `tests/runner/recall-provenance.test.ts`**
-
-| R | Test name | Oracle |
-| --- | --- | --- |
-| R25 | `screens the chosen cases in one batched call` | two `noul`s per case in one call; at or above 0.5 fails |
-| R26 | `a failed case keeps structure, loses free text, and says so` | no withheld text in any envelope; tags and score intact; disclosure present |
-| R27 | `unscreened means withheld` | judge down → `screened: false`, no free text, cases still returned |
-| R28 | `a lesson is not recalled for a changed identity` | after a criteria edit the case disappears for that dimension and stays for an unchanged one |
-
-**S5 — `tests/quality/rerank-nouls.test.ts`**
-
-| R | Test name | Oracle |
-| --- | --- | --- |
-| R29 | `three nouls per pooled candidate` | 3 questions per candidate; at most 60 at the 20-candidate pool |
-| R30 | `the order is the weighted sum of frozen constants` | reordering the input changes no score; ties are deterministic; the weights are constants |
-| R31 | `each chosen case reports its trio and total` | `distinct .9, useful .3, readable .8` reported; no mass claimed |
-| R32 | `the Jaccard collapse and the token budget still hold` | near-duplicates yield one exemplar; the payload stays bounded |
-
-**S6 — `tests/quality/provisional.test.ts`**
-
-| R | Test name | Oracle |
-| --- | --- | --- |
-| R33 | `provisional when a deciding criterion was torn` | a torn binding criterion → `provisional`; a clean one → absent |
-| R34 | `the reason names its signal` | a `noul` band reports `noul-band`; a `choice` at `{.52,.48}` reports `mass` |
-| R35 | `provisional never changes a decision` | identical accept/refuse and identical bar with and without it |
-| R36 | `the thresholds are code constants, not task fields` | the constants appear once; no schema field reads them |
-
-**Optional — `tests/pi/align-confidence.test.ts`**
-
-| R | Test name | Oracle |
-| --- | --- | --- |
-| R37 | `a soft aligned answer starts with a flag` | 0.95 clean; 0.62 flagged; 0.2 refused |
-| R38 | `a misaligned answer is refused exactly as before` | the existing code is returned |
-
-Total: 38 new cases (S0 5, S1 9, S2 5, S3 5, S4 4, S5 4, S6 4, optional 2), one per requirement, on top of
-the 301 existing tests.
-
-## 6. Global acceptance (every commit, and the build as a whole)
-
-| # | Check | How it is proved |
-| --- | --- | --- |
-| G1 | Typecheck clean | `./node_modules/.bin/tsc --noEmit` exits 0. The baseline is RED today (2 test errors); **P1 must make it green before S1 starts.** |
-| G2 | Full suite green | `node --test 'tests/**/*.test.ts'` — the `package.json` script. **Never `bun test`** (no `node:sqlite`; it misreports). Baseline 301; the build ends at 301 + 38 = 339 cases, all passing. |
-| G3 | Every R-oracle covered | The 38 cases in §5 exist by name, one per requirement R1-R38, and each asserts the oracle column. |
-| G4 | Additive only | `STORE_SCHEMA` stays `praxis.store/v2` (no DDL, no migration); `package.json` dependencies unchanged (`pi-jev` already at v0.2.3); the six-key `ResultSchema` unchanged; `CODES`/`TAXONOMY_SIZE` unchanged (31, no new error code); exactly TWO new event names (`rubric.sampled`, `bar.held`) and no other. |
-| G5 | The ratchet is byte-identical | `diff` of `src/quality/bar.ts` shows only the hold branch and the `stability` field: `BAR_FORMULA_ID` (`:38`), `emaOf` (`:303-313`) and `decideRaise` (`:420` onward) have zero changed lines. |
-| G6 | `op=check` untouched | Its test asserts the store bytes, five row counts, the absence of any event and the unchanged attempt history across a check; no slice edits the check handler (`src/pi/operations.ts:474-491`). |
-| G7 | Six-key result untouched | `grep` for `ResultSchema` changes is empty; the Pi envelopes gain only additive-optional fields inside `step.brief` / `step.result.artifacts`. |
-| G8 | File cap | Every file under 600 lines. `schema.ts` is fixed by P2; `operations.ts` (561 today) is watched (see §8). |
-| G9 | No network in unit tests | Every new test injects `evaluateFn`; the suite runs with no `TYPESAFE_API_KEY` and no fetch. |
-| G10 | Task data untouched | `.pi/praxis/**` byte-identical (`git diff --stat .pi` empty). Slices change code, never a rubric. |
+**Predecessor:** [`revised-root-cause.md`](revised-root-cause.md) — the design this plan implements. It supersedes
+the priority of `research.md`/`spec.md` (the grader maths), which is retained in
+[`plan-grader-slices.md`](plan-grader-slices.md) as the record for **T6**, which is NOT in this unit.
+
+**Scope: T1, T2, T3 only.** T4 (author research v6), T5 (re-measure and re-derive the floor), T6 (grader
+maths), T7 (acceptance metrics) follow as separate units with their own GO. Design/planning only — no code is
+written by this document.
+
+Measured baseline this plan starts from: `./node_modules/.bin/tsc --noEmit` **clean**; `node --test
+'tests/**/*.test.ts'` **341/341 green** (~4 s); `src/types/schema.ts` 545 lines, `src/types/quality.ts` 126,
+`src/quality/jev-scorer.ts` 274, `src/quality/evaluate.ts` 250, `src/pi/descriptor.ts` 265,
+`src/pi/operations.ts` 532 — all files stay under 600.
+
+## 0. What is additive, and what may not move
+
+| Invariant | How it is kept |
+|---|---|
+| `praxis.task/v1` stays valid | every new field is **optional**; absent = today's behaviour byte-for-byte; a document that does not declare intent parses to the same digest |
+| Store schema unchanged | `praxis.store/v2` untouched; no DDL, no column, no migration. The order rides an **existing** event payload (`instance.created`) |
+| Six-key result unchanged | no `ResultSchema` field added; the Pi envelopes gain only additive-optional fields inside `step.brief` |
+| Never-lower / compound / Pareto / tolerance / alignment gate | no line of `bar.ts`'s ratchet, `compoundDecision`, `gateBar`, `gate()`'s decision, `jev-align.ts`'s decision or `DIMENSION_TOLERANCE` changes in T1–T3 |
+| No new dependency, no new error code, no new event type | the two new config refusals reuse `CONFIG_INVALID`; no `EVENT` entry added |
+| `op=check` | untouched: writes nothing, scores nothing, costs no attempt |
+
+---
+
+## 1. T1 — task-document intent (schema + brief)
+
+### 1.1 The exact field shapes (all optional)
+
+```jsonc
+// task root — src/types/schema.ts TaskConfigSchema
+{
+  "id": "research", "version": 6, "state": "published",
+  "goal": "establish what is true from sources and the code before anything is designed",
+  "rationale": "a design decision made on unverified claims is the expensive failure this stage prevents",
+  "scope": "claims about this repository and its shipped code; not the roadmap, not other projects",
+  "requires": [
+    { "section": "sources",
+      "goal": "every source states what it establishes for THIS question",
+      "rationale": "an uncited claim cannot be re-checked by the next stage",
+      "required": ["source", "location", "establishes"] }
+  ],
+  "quality": { "dimensions": [
+    { "id": "grounded", "statement": "…", "probes": [
+      { "id": "every-claim-cited", "type": "noul", "instructions": "…",
+        "sections": ["findings", "sources"] }
+    ] }
+  ] }
+}
+```
+
+| Element | Type | Bounds | Absent means |
+|---|---|---|---|
+| `task.rationale` | `string` | 1–1000 | no rationale; the composed goal is `order + goal` |
+| `task.scope` | `string` | 1–1000 | no scope |
+| `requires[].goal` | `string` | 1–500 | section has no stated purpose |
+| `requires[].rationale` | `string` | 1–500 | — |
+| `probes[].sections` | `string[]` | 1–6, unique, each kebab-ish `[a-z0-9-]` up to 64 | the criterion judges the **whole artifact** (today) |
+
+`requires[].note` already exists (`src/types/schema.ts:112`) and stays agent-facing only; `goal` is the
+**judge-facing** half. Two fields, two audiences — do not merge them.
+
+### 1.2 Ordered edits
+
+1. `src/types/quality.ts:18-64` — `ProbeSchema`: add `sections: z.array(SectionNameSchema).min(1).max(6).optional()`
+   after `clean`; extend the existing `.superRefine` to refuse duplicate section ids. `SectionNameSchema` is the
+   same kebab rule used for `id` (one owner: reuse it if it already exists, otherwise declare it beside
+   `ProbeSchema`).
+2. `src/types/schema.ts:109-124` — `RequirementSchema`: add `goal?: z.string().min(1).max(500)` and
+   `rationale?: z.string().min(1).max(500)`. Nothing else changes; `note` stays as it is.
+3. `src/types/schema.ts:233-250` — `TaskConfigSchema`: add `rationale?: z.string().min(1).max(1000)` and
+   `scope?: z.string().min(1).max(1000)` after `goal`, and append a `.superRefine` that:
+   - normalizes `requires` to an array (it is the union `Requirement | Requirement[]`),
+   - collects the declared section ids,
+   - for every probe that declares `sections`, refuses any id not in that set — code `CONFIG_INVALID` at both
+     parse sites (`src/runner/engine/flow.ts:55` for the library, `:186` for the pinned row),
+   - leaves a task with no probes or no `sections` untouched (no issue added).
+4. `src/pi/descriptor.ts:44-58` — `criterionBrief`: add `...(probe.sections === undefined ? {} : { sections: probe.sections })`.
+5. `src/types/pi.ts:141-160` — the brief's criterion schema gains `sections: z.array(z.string().min(1).max(64)).min(1).max(6).optional()`.
+   (Section goals need no code: the brief already projects `requires` wholesale at `descriptor.ts:176-183`, so
+   `goal`/`rationale` ride along once the schema accepts them.)
+6. `tests/types/intent.test.ts` — the six R1–R6 tests below.
+
+### 1.3 Write boundary (T1 owns)
+
+`src/types/quality.ts` · `src/types/schema.ts` (`RequirementSchema`, `TaskConfigSchema` only) ·
+`src/pi/descriptor.ts` (`criterionBrief` only) · `src/types/pi.ts` (brief criterion schema only) ·
+`tests/types/intent.test.ts`. **No runtime file.** `src/runner/engine/flow.ts` is read-only for the engineer:
+the refusal comes from the schema's `superRefine`, not from a new code path there.
+
+### 1.4 Requirements and tests (one per requirement)
+
+| R | Requirement | Test (named) | Oracle |
+|---|---|---|---|
+| R1 | `rationale` and `scope` are optional and bounded; a document without them parses and digests exactly as before | `a task without intent parses and digests as before` | the same fixture before/after T1 → identical `canonicalBytes` digest and no schema issue |
+| R2 | `requires[].goal`/`rationale` are carried into the brief and never machine-graded | `section intent reaches the brief and is never graded` | the brief contains the goal; `missingFor` on a document that omits every field still reports only the `required` gaps |
+| R3 | `probes[].sections` parses: 1–6 unique ids, absent allowed | `probe sections parse, are unique and bounded` | 7 ids refused; duplicate ids refused; absent accepted |
+| R4 | Every targeted section must be declared in `requires`, else `CONFIG_INVALID` | `a section a criterion targets must exist in requires` | `sections: ['findings']` with no `findings` clause → refuse with `CONFIG_INVALID` and a path-addressable message |
+| R5 | The brief exposes each criterion's `sections`; the brief for a task without them is unchanged | `the brief carries criterion sections` | a composed brief with targeting lists `sections`; a brief without targeting is byte-identical to today |
+| R6 | The 12 shipped task documents parse unchanged; no republish is forced | `the 12 shipped task documents parse unchanged` | read all `.pi/praxis/tasks/**/*.json`, parse each with the new schema, assert zero issues and 12 files |
+
+**Exit check for T1:** `tsc` clean; 341 + 6 = 347 green; no `src/` behaviour changed (a verdict recorded before
+T1 re-parses after it).
+
+---
+
+## 2. T2 — the order becomes durable
+
+### 2.1 The exact field shape
+
+```jsonc
+// instance.created payload — additive
+{
+  "flow": "flows/engineering/feature", "requestId": "base-w02", "actor": "pi-session:…",
+  "flowDigest": "sha256:…", "nonce": "eccc…", "storeDir": "/tmp/praxis-rewarm",
+  "order": "<the concrete order, clipped to 4000 chars>",
+  "orderDigest": "sha256:…"
+}
+```
+
+`StartOptions.order?: string` (additive). The engine does not interpret it in this step.
+
+### 2.2 Ordered edits
+
+1. `src/runner/engine/types.ts` (`StartOptions`, ~`:88-100`) — add `order?: string` with a comment that it is
+   recorded, not yet judged.
+2. `src/pi/operations.ts:180-196` — pass `order` (already read at `:180`) into `start({ ...options, flow, requestId, actor, order, roles })`.
+3. `src/runner/engine/start.ts:92-99` — the `instance.created` payload gains
+   `...(options.order === undefined ? {} : { order: clip(options.order, 4000), orderDigest: digest(options.order) })`.
+   Use the existing `digest` (`src/runner/canonical.ts`) over the raw text so the digest is independent of
+   `orderDigestOf` in `jev-align.ts` (that one digests a normalized form for the gate; keep both meanings separate
+   and name the field `orderDigest` for the raw text).
+4. `src/runner/engine/support.ts` — add `orderOf(store: Store, instance: string): string | undefined`: scan the
+   instance's `instance.created` event once, return `payload.order` when it is a string. Pure read, no throw.
+   (A convenience wrapper `orderFor(options, instance)` may open a short `withStore` read; it must close before
+   any jev call.)
+5. `tests/runner/order-durability.test.ts` — the five R7–R11 tests below.
+
+### 2.3 Write boundary (T2 owns)
+
+`src/runner/engine/types.ts` · `src/runner/engine/start.ts` · `src/runner/engine/support.ts` ·
+`src/pi/operations.ts` (the `startOperation` block only) · `tests/runner/order-durability.test.ts`.
+**`src/quality/**` is untouched in T2** — that is what makes `the order alone changes no verdict` provable.
+
+### 2.4 Requirements and tests
+
+| R | Requirement | Test (named) | Oracle |
+|---|---|---|---|
+| R7 | op=start persists the order it already requires, with a digest | `start persists the order and its digest on instance.created` | after `op=start` with an order, the created payload's `order` equals the input and `orderDigest` equals `digest(text)` |
+| R8 | A start without an order writes no `order` key | `a start without an order writes no order key` | the payload keys are exactly today's set; serialised payload byte-identical to the pre-T2 golden |
+| R9 | `orderOf` reads it back and degrades to `undefined` for an old instance | `orderOf reads the order back and returns undefined for an old instance` | a seeded payload with `order` returns it; a payload without it returns `undefined` and does not throw |
+| R10 | Recording the order changes no score | `the order alone changes no verdict` | the same fixture submits with and without an order → byte-identical `quality.verdict` payload |
+| R11 | The alignment gate is untouched | `the alignment gate refuses exactly as before` | a misaligned order still throws `ALIGNMENT_REJECTED` with the same detail keys and writes nothing |
+
+**Exit check for T2:** `tsc` clean; 347 + 5 = 352 green; no event type added; `praxis.store/v2` unchanged.
+
+---
+
+## 3. T3 — the composed scorer
+
+### 3.1 The scoring plan (what the adapter builds, per submission)
+
+```text
+read:   order (from the instance record)
+        task.goal / rationale / scope
+        requires[] -> section id -> {goal, rationale}
+        rubric dimension -> probe -> sections?
+
+ask:    ONE evaluate per submission — exactly today's shape:
+          state = { goal: composeGoal(order, task),
+                    artifact: the WHOLE artifact,
+                    subjectDigest }
+          questions[<dim>.<probe>]     = { type, criteria?, instructions: composeQuestion(section, probe) }
+          questions[<dim>.__statement] = { type: "noul", instructions: JUDGE + statement }   // verbatim
+
+note:   the section tag lives in the QUESTION text, per question; the subject is never sliced.
+        jev honours a per-question instruction, so one request carries differently scoped questions.
+```
+
+**`composeGoal(order, task)`** — one string, shared by every question:
+
+```text
+<order>                                       // only when an order exists
+
+Task: <task.goal>
+Why: <task.rationale>                          // when present
+Scope: <task.scope>                            // when present
+```
+
+**`composeQuestion(section, probe)`** — per criterion, only when the probe is targeted:
+
+```text
+Judge ONLY the <ids joined by +> section(s) (<section.goal>[. Why: <section.rationale>]).
+Criterion: <probe.instructions>
+```
+
+Untargeted probe → `probe.instructions` **verbatim** (today's text). Witness → `JUDGE + statement`
+**verbatim** (`jev-scorer.ts:31`). Bounded: the prefix adds at most ~1.4 KB per targeted question, so a
+48-criterion rubric stays well inside pi-jev's 262 144-byte request cap (the existing guards stay).
+
+The section goals and rationales come from `context.sections` — an INPUT to `score()`, never `state` — so
+`state` keeps exactly its three keys and an untargeted, order-less call serialises byte-identically to today.
+
+### 3.2 Ordered edits
+
+1. `src/quality/evaluate.ts:27-40` — `Scorer.score` input gains
+   `context?: { order?: string; task?: { rationale?: string; scope?: string };
+   sections?: readonly { id: string; goal?: string; rationale?: string }[] }`. `goal` stays required, so every
+   existing caller compiles unchanged.
+2. `src/quality/evaluate.ts:226-247` — `advanceEvaluated` reads the order (see T2's `orderFor`) and passes
+   `context` built from the pinned task's `rationale`/`scope` and its `requires` (normalized to an array).
+   No other line of `advanceEvaluated` changes.
+3. `src/quality/evaluate.ts:155-172` — the score-cache (`cachedVerdict`) additionally keys on the anchor:
+   `cacheKey = digestOf({ ruler: rulerDigest(ruler, bars), anchor: orderDigest ?? null })`, so a resubmit under a
+   different order cannot reuse a verdict judged against another one. `rulerDigest` itself is untouched.
+4. `src/quality/jev-scorer.ts:69-78` — beside `questionOf`, add `composeQuestion(sectionIntent, probe)` and
+   `composeGoal(order, task)`; keep both pure and bounded (goal 1000 + scope 1000 + goal 1000, clipped).
+5. `src/quality/jev-scorer.ts:206-224` — keep the ONE request. Extend the question builder only: a probe with
+   `sections` uses `composeQuestion(sectionIntent, probe)` (its section intents resolved from `context.sections`),
+   a probe without uses `questionOf(probe)` verbatim, and every witness keeps `JUDGE + statement` verbatim.
+   `state` becomes `{ goal: composeGoal(context.order, context.task), artifact, subjectDigest }` — three keys,
+   unchanged, with only the composed `goal` differing when an order or intent exists.
+6. `src/quality/jev-scorer.ts:226-274` — the per-dimension composition is untouched (`readAnswer`,
+   `satisfactionOf`, `bound`, `statementScore`, `rationaleFrom`); each criterion answer additionally records its
+   `sections`, and the verdict records `anchored: context?.order !== undefined`. A throw propagates (fail-closed,
+   unchanged); a missing answer throws (`readAnswer`, unchanged).
+7. `src/types/schema.ts:154-...` — `QualityVerdictSchema` gains `anchored: z.boolean().optional()` and each
+   `diagnosis[]` entry gains `sections: z.array(SectionNameSchema).min(1).max(6).optional()`.
+8. `src/runner/engine/quality-loop.ts:32-64` — `qualityHistory` copies `anchored` and the diagnosis `sections`
+   (the F7 pattern: a field not copied here vanishes on re-read for the brief, the refusal and the cache).
+9. `tests/quality/composed-scorer.test.ts`, `tests/quality/composed-request-golden.test.ts`,
+   `tests/quality/fixtures/scoring-request.v5.json` — the nine R12–R20 tests below; the golden fixture is
+   captured from the pre-T3 code with research v5, no order, no targeting.
+
+### 3.3 Write boundary (T3 owns)
+
+`src/quality/jev-scorer.ts` · `src/quality/evaluate.ts` · `src/types/schema.ts` (`QualityVerdictSchema` only,
+line 154+) · `src/runner/engine/quality-loop.ts` (`qualityHistory` only) · the three test files + fixture.
+**T3 does not touch** `src/pi/descriptor.ts`, `src/types/pi.ts`, `src/runner/engine/{types,start,support}.ts`,
+`src/pi/operations.ts`, or any bar/gate file.
+
+### 3.4 Requirements and tests
+
+| R | Requirement | Test (named) | Oracle |
+|---|---|---|---|
+| R12 | The composed goal carries the order, then the task goal, rationale and scope | `the composed goal carries the order, the rationale and the scope` | a fake `evaluateFn` captures `state.goal`: it starts with the order text and contains `Task:`, `Why:`, `Scope:` when those fields exist |
+| R13 | A targeted criterion's QUESTION names only its sections | `a targeted criterion's question names only its sections` | the captured instruction for a probe with `sections: ["findings","sources"]` names `findings` and `sources` and no other section id, and carries the section goal (and its rationale when declared) |
+| R14′ | ONE request per submission; every targeted question names its section ids | `one request per submission, every targeted question names its sections` | the fake `evaluateFn` is called **exactly once**; a targeted question's instruction contains its section ids; an untargeted question's instruction is byte-identical to today; `state` has exactly `{goal, artifact, subjectDigest}` |
+| R15 | The witness is asked once per composed dimension, in the same request, and never gates | `the witness is asked once per composed dimension` | exactly one `<dim>.__statement` question per composed dimension; `statementScore` recorded; altering it changes no decision |
+| R16 | A failing request degrades the verdict, never fabricates | `a failing request degrades the verdict, never fabricates` | `evaluateFn` throws → the verdict is `source: error` (existing fail-closed path); no dimension score is invented |
+| R17 | The verdict records the plan and the anchor | `the verdict records the plan and the anchor` | `anchored: true` with an order; each targeted criterion's `diagnosis` entry carries its `sections` |
+| R18 | The score-cache cannot reuse a verdict judged against another order | `the score-cache is keyed by the anchor` | same artifact + same ruler + two different orders → two scorer calls (cache miss), not one |
+| R19 | No order, no targeting → the request and verdict are exactly today's | `v5 without order or sections sends the byte-identical request` | the captured request JSON equals `fixtures/scoring-request.v5.json` byte for byte |
+| R20 | `op=check` still writes nothing and scores nothing | `op=check writes nothing and scores nothing` | store digest + row counts unchanged across a check; zero `evaluateFn` calls |
+
+**Exit check for T3:** `tsc` clean; 352 + 9 = 361 green; research v5's request provably unchanged (R19);
+no bar, gate or result file touched.
+
+---
+
+## 4. Shared files, write boundary and merge order
+
+| File | Steps that touch it | Strict order | How they must not collide |
+|---|---|---|---|
+| `src/types/schema.ts` | T1 (`RequirementSchema`, `TaskConfigSchema`), T3 (`QualityVerdictSchema`) | **T1 → T3** | disjoint regions; T3 only appends verdict fields |
+| `src/types/quality.ts` | T1 only | T1 | `ProbeSchema` only |
+| `src/types/pi.ts` | T1 only | T1 | the brief criterion schema only |
+| `src/pi/descriptor.ts` | T1 only | T1 | `criterionBrief` only |
+| `src/runner/engine/types.ts`, `start.ts`, `support.ts`, `src/pi/operations.ts` | T2 only | T2 | the start path only |
+| `src/quality/evaluate.ts`, `jev-scorer.ts` | T3 only | T3 | the scorer path only |
+| `src/runner/engine/quality-loop.ts` | T3 only | T3 | `qualityHistory` only |
+
+One branch, one engineer, T1 → T2 → T3. No parallel pane on the same file, and no step reformats a file another
+step owns.
+
+---
+
+## 5. Backward compatibility, stated explicitly
+
+1. **A task with no intent and no targeting behaves exactly as today.** Every new field is optional; the
+task's canonical bytes are unchanged when they are absent, so its publication digest and every pin still match.
+2. **A probe with no `sections` judges the whole artifact, as now.** Its instruction is `probe.instructions`
+verbatim and the shared `state` is `{ goal, artifact, subjectDigest }` — today's exact shape.
+3. **No order falls back to `task.goal`.** `composeGoal` returns `task.goal` alone, so the state and therefore
+the request are unchanged (R19 pins this against a captured golden).
+4. **The 11 probe-less tasks are untouched**: a dimension with no criteria still asks the statement `noul`
+(`jev-scorer.ts:214-217`), with the witness unchanged.
+5. **Every existing test stays green with zero edits.** If a test must change, the change is out of scope and
+the step is wrong — stop and report (WORKFLOW §9).
+6. **A pre-T2 instance** has no `order` field: `orderOf` returns `undefined`, `anchored` is false (or absent)
+and the scorer falls back to `task.goal`. No migration, no backfill.
+
+---
+
+## 6. Global acceptance
+
+| # | Check | Proof |
+|---|---|---|
+| G1 | Typecheck clean | `./node_modules/.bin/tsc --noEmit` exits 0 |
+| G2 | Full suite green | `node --test 'tests/**/*.test.ts'` — **never `bun test`** (no `node:sqlite`; it misreports). Baseline 341; after this unit **361** (T1 6 + T2 5 + T3 9, recounted after the T3 amendment) |
+| G3 | Every requirement has a test | 20 named tests in §1.4, §2.4, §3.4 — one per R1–R20 |
+| G4 | Additive-only | `praxis.task/v1` still valid (R6); `praxis.store/v2` untouched (`git diff src/store` empty); six-key `ResultSchema` untouched; no new `EVENT`, no new `Code`/`TAXONOMY_SIZE`, no new dependency |
+| G5 | The untouched spine | `git diff --stat src/quality/bar.ts src/runner/step.ts src/quality/jev-align.ts` **empty**: the never-lower fold, `compoundDecision`, `gate()`, the Pareto cap, the tolerance band and the alignment decision are byte-identical |
+| G6 | `op=check` | writes nothing, scores nothing, costs no attempt (R20) |
+| G7 | No network in unit tests | every test injects `evaluateFn`; the suite runs with no `TYPESAFE_API_KEY` |
+| G8 | File cap | every file under 600 lines (`schema.ts` 545 → ~557; `jev-scorer.ts` 274 → ~350) |
+
+---
 
 ## 7. Commit structure
 
-One conventional commit per slice, in dependency order, by the **engineer** — the lead never commits.
+| Order | Commit | Contents |
+|---|---|---|
+| 1 | `feat(task): declare task, section and criterion intent` | T1: schema fields, cross-field validation, brief projection, 6 tests |
+| 2 | `feat(engine): record the order on the instance` | T2: `StartOptions.order`, created payload, `orderOf`, 5 tests |
+| 3 | `feat(quality): judge each criterion against the order and its sections` | T3: composed goal, grouped targeted requests, verdict fields, cache key, 9 tests + golden fixture |
 
-| Order | Commit | Scope |
-| --- | --- | --- |
-| 1 | `test(quality): assert the pi-jev v0.2.3 distribution contract` | P1: the 5 S0 assertions + the test-only `EntryType` narrowing |
-| 2 | `refactor(types): move the quality rubric schemas into types/quality.ts` | P2: pure move + re-export |
-| 3 | `feat(quality): score a dimension from its own criteria` | S1, R6-R14: composition, witness, bound, one call, formula id, identity, brief |
-| 4 | `feat(quality): record the judge's uncertainty per criterion` | S2, R15-R19: mass spread, noul band, torn set |
-| 5 | `feat(quality): require a stable rubric sample before a bar raises` | S3, R20-R24: `rubric.sampled`, `bar.held`, boundary sampler |
-| 6 | `feat(quality): screen recalled exemplars before they reach the agent` | S4, R25-R28: screen, withhold, disclose, provenance |
-| 7 | `feat(quality): explain the recall ordering with three nouls` | S5, R29-R32: three-noul rerank, frozen weights |
-| 8 | `feat(quality): report a provisional verdict` | S6, R33-R36: provisional state, reason signal, constants |
-| 9 (optional) | `feat(quality): gate alignment on the answer distribution` | O1, R37-R38 — skip if the lead defers it |
+- The **engineer** commits, under **their own git identity** (`git config user.name`/`user.email` for this
+  repo; the tree currently carries a shared `tia-lab <tia@eki.studio>`).
+- **No trailers of any kind** — no `Co-Authored-By`, no `Generated-By`, no assistant attribution in the subject
+  or body.
+- Each commit is self-contained: `tsc` clean, suite green, its own tests added. No WIP, no squash, no force-push.
+- Nothing is pushed or deployed; the lead reviews the three commits as one change set.
 
-Rules for the commit itself:
+---
 
-- **Author the engineer's own git identity.** Set `user.name`/`user.email` for this repository to the engineer
-  (the tree currently carries a shared `tia-lab <tia@eki.studio>`); do not commit as another person.
-- **No trailers of any kind**: no `Co-Authored-By`, no `Generated-By`, no assistant attribution in the message
-  body. The message is a conventional subject plus a short body naming the R ids and the exit check.
-- Each commit is self-contained: `tsc` clean, suite green, its own tests added. No WIP commits, no squash
-  afterwards, no force-push.
-- Nothing is pushed or deployed by this unit; the lead reviews the eight or nine commits as one change set.
+## 8. Risks
 
-## 8. File cap, LOC budget, and where a split is needed
+| # | Risk | Consequence | Mitigation in this plan |
+|---|---|---|---|
+| K1 | **Shared `src/types/schema.ts`** (T1 requirements/task, T3 verdict) | a rebase drops a field or reformats a region | strict T1 → T3; disjoint line regions; T3 appends only |
+| K2 | **The section tag is advisory** — it lives in the question text, so a judge that ignores it still sees the whole artifact | a targeted criterion is judged less sharply than intended, silently | the instruction is explicit (`Judge ONLY the … section(s)`), the tag is recorded on the verdict (`diagnosis[].sections`), and the anchor is recorded (`anchored`); R19 proves the untargeted path is byte-identical; T5 measures whether tagging moves scores |
+| K3 | **Longer instructions per targeted question** | the question text grows by the section tag (≤ ~1.4 KB each) | still **ONE `evaluate` per submission, exactly today** — no added calls; the existing 128-question / 262 144-byte guards still bind; no cost or saving is claimed |
+| K4 | **Order plumbing** | a jev call inside a write transaction would hold the store lock | `orderOf` is a pure read; `orderFor` opens and closes `withStore` **before** the scorer runs (`advanceEvaluated` shape already does this) |
+| K5 | **Cache staleness across orders** | a resubmit under a new order reuses an old verdict | R18 keys the cache on the anchor digest; `rulerDigest` untouched |
+| K6 | **`requestId` dedupe ignores the order** (`start.ts:33-45` compares flowDigest + actor) | a second start with the same requestId and a different order replays the first instance; the new order is silently ignored | unchanged behaviour, now *visible* on the record; flagged for the owner, not fixed here (a dedupe change is a contract change) |
+| K7 | `anchored` / `sections` lost on re-read | the brief and the refusal lose the anchor | copied in `qualityHistory` in the same commit (R17), the F7 pattern |
+| K8 | **Making targeting mandatory later** | would refuse all 12 task documents → `praxis.task/v2` + republishes | not in this unit; flagged for the owner (§9) |
+| K9 | T4 data quality (research v6 authored badly) | targeting exists but the sections are vague | T4 is a separate unit with its own review; the anchor flag makes an untargeted task visible |
 
-The lead asked about `engine.ts` and `step.ts`: **neither is near the cap.** `src/runner/engine/` is already
-split (`index.ts` is 27 lines); `src/runner/step.ts` is 389. The files that actually need watching are
-`src/types/schema.ts` (**609 today, already over the cap**) and `src/pi/operations.ts` (561).
+### 8.1 Anything that turns out breaking — flag, do not improvise
 
-| File | Now | After | Plan |
-| --- | --- | --- | --- |
-| `src/types/schema.ts` | 609 | ~525 | P2 moves 148-256 into `types/quality.ts`; S1/S2/S6 append verdict fields |
-| `src/types/quality.ts` (new) | — | ~115 | closed after P2 |
-| `src/pi/operations.ts` | 561 | ~600 | S3's sampler and S4's screen live in their own modules; if it still exceeds 600, extract the failure/refusal formatter (`:242-330`) into `src/pi/feedback.ts` as a MOVE in that slice's commit — named here so it is not an unplanned declaration |
-| `src/quality/bar.ts` | 543 | ~575 | hold branch only |
-| `src/quality/ranker-jev.ts` | 363 | ~435 | screen call (S4), noul trio (S5) |
-| `src/quality/jev-scorer.ts` | 220 | ~190 | the battery is deleted, the composition replaces it |
-| `src/quality/evaluate.ts` | 205 | ~265 | S2 uncertainty, S6 provisional |
-| `src/quality/sample.ts`, `screen.ts` (new) | — | ~90, ~80 | one owner each |
-| `src/pi/descriptor.ts` | 224 | ~260 | brief criteria, judgment uncertainty, recall disclosure, provisional |
+- If the owner wants **`probes[].sections` required** for any task with probes → that is `praxis.task/v2` and a
+  six-task republish; **stop and ask**.
+- If the owner wants the **order in a column** on `instance` → that is a store migration (gate #6); **stop and
+  ask**.
+- If a test must be **edited** to pass, the step broke compatibility; **stop and report** (WORKFLOW §9).
 
-Any further split is a MOVE, recorded as its own bullet in the slice it belongs to — never a rewrite, and never
-to reach a number.
+---
 
-## 9. Risks
+## 9. LOC budget and out of scope
 
-| # | Risk | Consequence | Mitigation (in the plan) |
-| --- | --- | --- | --- |
-| K1 | **Shared-file collisions** (`evaluate.ts`, `schema.ts`, `quality-loop.ts`, `descriptor.ts`, `operations.ts`, `ranker-jev.ts`, `ranker.ts`, `learning.ts`) | a rebase that silently drops a field, or two slices editing one function | The §4 merge order is strict; one branch, one engineer, no parallel panes; each commit adds only its own region; `qualityHistory` is re-checked in every slice that adds a verdict field (F7) |
-| K2 | **The re-warm discontinuity (D18)** | every dimension identity changes in S1, so every bar resets to its seed and needs 10 observations before a raise; the score scale moves too | Declared and owner-accepted. The gate still caps at `paretoThreshold` 0.8, so good work is not refused while bars warm. **Measurement must use attempts and pass rate, never raw scores** (spec §15) |
-| K3 | A lost field on re-read (the fixed list in `qualityHistory`) | the brief, the cache and the note gate silently lose `bound`/`torn`/`provisional` | R14 and R35 test the round trip; each slice appends its fields in the same commit |
-| K4 | Calling jev inside `withStore` for the S3 sample | violates the no-external-call-in-a-transaction rule; a slow judge would hold the write lock | The hold exists for this: `recomputeBar` stays sync and only records `bar.held`; the sample runs at the boundary (R24) |
-| K5 | A non-sampling caller (CLI) never raises a bar | bars freeze for CLI-only use | Accepted, fail-safe, and stated: no correctness loss, only a missed raise; the Pi path is the primary surface |
-| K6 | S4 doubles the jev calls on a cold recall (rank then screen) | cost and latency on a cache miss only | Screens at most 5 cases in one call; the result is cached with the ranking; a judge failure withholds rather than retries |
-| K7 | S5 request growth (3 questions per candidate) | a larger request; a pool of 20 gives 60 questions | Under the 128-question and byte caps; the pool constant already bounds it; a missing answer makes the stage unavailable and the deterministic fallback runs |
-| K8 | S2 mass that does not sum to 1 | an over- or under-stated spread | Praxis-side sum guard `[0.99, 1.01]`, else mass treated as absent; noted for the pi-jev engineer |
-| K9 | S6 shipped without S2 | provisional would have no evidence and would need a second rule | The dependency is hard: S6 lands after S2 or not at all |
-| K10 | The optional #3 is pulled forward | it is the one slice that is not about a task artifact | It stays last and skippable; nothing depends on it |
+Estimated: `types/schema.ts` +12, `types/quality.ts` +3, `types/pi.ts` +1, `pi/descriptor.ts` +2,
+`engine/types.ts` +1, `engine/start.ts` +3, `engine/support.ts` +12, `engine/quality-loop.ts` +4,
+`pi/operations.ts` +1, `quality/evaluate.ts` +25, `quality/jev-scorer.ts` +90/−10 → **~+150 / −10 source
+lines**, plus **~480 test lines** across three files and one golden fixture.
 
-### 9.1 What is still unconfirmed (O1-O9)
-
-| O | State | Effect on the build |
-| --- | --- | --- |
-| O1 retire the explain pass | recommended, not yet answered | S1 cannot start without it; it is the slice core |
-| O2 nested MIN + re-warm | **owner accepted** (all slices greenlit together, re-warm accepted) | confirmed |
-| O3 torn and provisional non-gating | recommended | S2/S6 assume yes; a gating variant would be a new owner decision |
-| O4 hold the raise | recommended | S3 assumes yes |
-| O5 sample at the boundary | recommended | S3 assumes yes (it is also forced by K4) |
-| O6 withhold unscreened text | recommended | S4 assumes yes |
-| O7 the 11 criteria-less tasks keep statement scoring | recommended | no migration; research is the first composed task |
-| O8 #3 optional, last | **confirmed** by the lead order for this gate | scheduled last |
-| O9 S0 keying and tolerance | **keying CONFIRMED** by v0.2.3 (option keys, level-order array); **sum tolerance NOT enforced** | S2 carries the Praxis-side guard (K8); no blocker, upstream note only |
-
-If O1, O3, O4, O5, O6 or O7 is answered differently, the affected slice is re-scoped BEFORE its commit — not
-patched afterwards.
-
-## 10. LOC budget and what this plan does not do
-
-Estimated net source change: **~+520 / −140 lines** across 11 existing files plus 3 new modules
-(`types/quality.ts`, `quality/sample.ts`, `quality/screen.ts`), and **~+700 test lines** across 16 files. No new
-dependency, no new store, no DDL, no task-document edit.
-
-Out of scope, unchanged from the spec: the future orchestration layer (#4, #5, #8, #10, §5 intent routing);
-never-stored probability invention for a `noul`; automatic rubric rewriting; a background sampler (gate #7);
-federated recall (Jung); any identity, isolation or exactly-once claim; any live-measurement claim — the
-32-session re-test remains the first datapoint.
+**Out of scope (later units):** authoring research v6 (T4); re-measuring and re-deriving the floor (T5); the
+grader maths — choice credit, mean within a dimension, floor rescale, no-progress on the dimension vector,
+criterion-level recall/notes, the trimmed-mean ratchet (T6, recorded in `plan-grader-slices.md`); the teaching
+metrics (T7). No bar is lowered and the never-lower invariant is not touched anywhere in this unit.

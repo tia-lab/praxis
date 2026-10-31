@@ -783,6 +783,24 @@ acceptance here before building.
   migration, recomputing the score from the battery, or authoring probes for tasks beyond `research` in this
   unit (other tasks' probes are a later data pass). **G3 PASS (2026-10-31, verified by running): tsc 0, suite 301/301, scoring request byte-identical (zero drift, pinned), explain never a gate input, store `praxis.store/v2` untouched, `research.json` v5 / 19 probes. Engineer commits; the lead never commits.**
 
+- **2026-10-31 — quality-gate redesign authorized (quantile-bars, `cbc26826`).** Owner GO'd design A (`docs/quantile-bars-cbc26826/spec.md`) + plan B (`plan.md`) + implementation, and K3's **8-observation first-raise guard**. Scope: `docs/quantile-bars-cbc26826/`, `src/quality/{bar,scope,evaluate,index}.ts`, `src/runner/{step,engine/advance,engine/quality-loop,engine/types}.ts`, `src/types/{quality,schema,learning}.ts`, `src/pi/{descriptor,feedback,operations}.ts`, `.pi/praxis/tasks/**` (12 docs), `tests/`. Acceptance: per-dimension quantile bar (Q25 default, optional `quantileGate` selecting a RANK not a value) with a `max(0.5, Q)` hybrid floor; pure-AND gate (no mean, no Pareto, no tolerance); Q50 learning flag replacing the tolerance band; monotonic (never-lower, schema `to>=from` + max fold); calibration 20 @ 0.5; carried-per-instance population; first raise gated by an 8-observation two-half confirmation; replay v6 ~40.6% / v7 ~45.3% joint pass (±5) plus T1/T2-hybrid/monotone/compat tests. Not authorized: any store migration or DDL, a new event kind, a new dependency, a metrics table/view-event, rubric-criteria edits, the alignment gate, or the six-key result — and quantiles are computed on demand, never stored (data stays data).
+
+- **2026-10-31 — lead scope record: `src/quality/recall.ts` (quantile-bars S6 finish).** Added to unit
+  `cbc26826` by the lead to finish the dead-code removal: `recall.ts` read `bars.global` as a fallback,
+  which is dead after the cutover (no global bar is raised) and kept `GLOBAL_SCOPE` / `barsFromQuality` /
+  the EMA+Pareto constants referenced, so the S6 exit (grep → 0) could not be met without it. Authorized
+  change is bounded: the `?? bars.global` fallback becomes `?? ABSOLUTE_MIN` (the 0.5 floor) — a
+  correctness fix — enabling deletion of the global chain. Owner-overridable; if the owner prefers the
+  ten legacy readers kept instead, this line is the reversal and the S6 exit is amended rather than met.
+
+- **2026-10-31 — quantile-bars (`cbc26826`) ACCEPTED by owner.** The quality-gate redesign — measured
+  quantile bar, pure-AND gate, K3 first-raise guard (8-observation / n≥28 confirmation), Q50 learning
+  flag, optional `quantileGate`, and the EMA/Pareto/compound/global dead-code removal — is accepted and
+  shipped. Verified: `tsc` clean, 375/375 tests, dead-code grep 0, every file < 600 lines, the T1/T2/
+  monotone/compat proofs green, replay recorded in `docs/quantile-bars-cbc26826/acceptance.md`. Eight
+  commits `7d2fa08 → 20a49cb`. Open follow-up (NOT a blocker): make `replay-bars.mjs` drive the real
+  bar code for an exact from-history number; true steady-state behaviour needs a gated live run.
+
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a
 tool denies it, stop and correct host rooting rather than bypass the denial.

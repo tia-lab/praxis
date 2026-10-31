@@ -105,7 +105,7 @@ test("R8: the refusal handback carries each dimension's rationale beside the rec
     assert.equal(solves!.diagnosis?.length, 2, "and its structured answers");
     assert.equal(evidence!.rationale, undefined, "a dimension without probes carries none");
     // The failure itself is unchanged: the same bar, the same refused set.
-    assert.deepEqual(details.detail.compound.refused, ["solves"]);
+    assert.deepEqual(details.detail.refused, ["solves"]);
   } finally {
     setScorerForTest(undefined);
     setAlignJudgeForTest(undefined);

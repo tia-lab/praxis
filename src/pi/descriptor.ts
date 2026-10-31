@@ -248,7 +248,9 @@ export function stepDescriptor(
                   ...(dimension.quantileGate === undefined ? {} : { quantileGate: dimension.quantileGate }),
                   ...(dimension.probes === undefined ? {} : { criteria: dimension.probes.map(criterionBrief) }),
                 })),
-                threshold: learning?.bar ?? quality.threshold,
+                // S6: there is no global bar and no authored threshold in force; the standard the
+                // gate applies is per dimension, in `gate.dimensions`. This scalar reports the floor.
+                threshold: ABSOLUTE_MIN,
                 ...(learning?.gate === undefined ? {} : { gate: learning.gate }),
                 ...(learning?.judgment === undefined ? {} : { judgment: learning.judgment }),
                 policy: quality.policy,

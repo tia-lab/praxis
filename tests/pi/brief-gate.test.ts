@@ -97,7 +97,8 @@ test("an authored threshold is reported but never gates", async () => {
   try {
     setAlignJudgeForTest(fakeAlignJudge("aligned"));
     const quality = await briefOf(ws, "brief-below");
-    assert.equal(quality.threshold, 0.6, "the authored value is disclosed");
+    // S6: the brief reports the standard the GATE applies, which is per dimension; the scalar is the floor.
+    assert.equal(quality.threshold, 0.5, "the floor is the scalar standard");
     assert.equal(quality.gate.threshold, 0.5, "but the gate starts at the floor, not at it");
     for (const dimension of ["solves", "evidence", "trace"]) {
       assert.equal(quality.gate.dimensions[dimension], 0.5);

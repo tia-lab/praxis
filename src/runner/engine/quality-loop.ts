@@ -18,7 +18,8 @@ import { appendEvent, listEvents } from "../../store/events.ts";
 import { setStatus } from "../../store/instance.ts";
 import { traceOf, type Grant } from "../capabilities.ts";
 import type { Handoff, Verdict } from "../step.ts";
-import { DIMENSION_TOLERANCE, gateBar, recomputeBar, type Bars } from "../../quality/bar.ts";
+import { recomputeBar, type Bars } from "../../quality/bar.ts";
+import { ABSOLUTE_MIN } from "./types.ts";
 import { writeNote } from "../note-gate.ts";
 import { payloadOf } from "./support.ts";
 import { DEFAULT_MAX_ATTEMPTS, DEFAULT_ON_FAILURE, EVENT, type QualityAttempt } from "./types.ts";
@@ -112,25 +113,18 @@ function failedReasonFor(args: {
   } else {
     cause = "attempt budget of " + args.maxAttempts + " exhausted at attempt " + args.attempts;
   }
-  // The compound model: name every dimension that fell below its OWN bar past the tolerance band,
-  // and say separately whether the HARD MEAN gate failed. Numbers, never prose the agent must guess.
-  // The gate compares against the CAPPED bar, so the message must too: never claim a standard the
-  // gate did not apply (the ratchet may sit above the Pareto point).
-  const barOf = (id: string): number => gateBar(args.bars.perDimension.get(id) ?? args.bars.global, args.bars.pareto);
-  const below = args.verdict.dimensions.filter((dimension) => dimension.score < barOf(dimension.id) - DIMENSION_TOLERANCE);
-  const named = below.length === 0
-    ? ""
-    : "; below its bar: " +
-      below
-        .map((dimension) => dimension.id + " " + dimension.score.toFixed(2) + " < " + barOf(dimension.id).toFixed(2))
-        .join(", ");
-  const mean = args.verdict.mean ?? (args.verdict.dimensions.length === 0
-    ? 0
-    : args.verdict.dimensions.reduce((sum, dimension) => sum + dimension.score, 0) / args.verdict.dimensions.length);
-  const gateGlobal = gateBar(args.bars.global, args.bars.pareto);
-  const meanFailed = mean < gateGlobal;
-  return cause + "; step " + JSON.stringify(args.step) + " scored " + score + " with mean " + mean.toFixed(2) +
-    (meanFailed ? " under the global " + gateGlobal.toFixed(2) : "") + named;
+  // The PURE AND: name every dimension that fell below its own measured bar. Numbers, never prose
+  // the agent must guess, and no mean or Pareto claim the gate did not apply.
+  const barOf = (id: string): number => args.bars.perDimension.get(id) ?? ABSOLUTE_MIN;
+  const below = args.verdict.dimensions.filter((dimension) => dimension.score < barOf(dimension.id));
+  const named =
+    below.length === 0
+      ? ""
+      : "; below its bar: " +
+        below
+          .map((dimension) => dimension.id + " " + dimension.score.toFixed(2) + " < " + barOf(dimension.id).toFixed(2))
+          .join(", ");
+  return cause + "; step " + JSON.stringify(args.step) + " scored " + score + named;
 }
 
 /**

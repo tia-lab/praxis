@@ -13,7 +13,7 @@ import { buildHandoffs, gate, runStep, successorOf } from "../step.ts";
 import { assertObserver, assertStepActor } from "./authority.ts";
 import { acceptedRefs, currentHandoffs, loadPinnedFlow } from "./flow.ts";
 import { qualityRefusal, failureOutcome, recordAcceptance } from "./quality-loop.ts";
-import { compoundDecision, effectiveBars, perDimensionDecision, quantileBars, recomputeBar } from "../../quality/index.ts";
+import { effectiveBars, perDimensionDecision, quantileBars, recomputeBar } from "../../quality/index.ts";
 import {
   finishInstance,
   maxNoteAttempts,
@@ -182,7 +182,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
         // numbers, so every refusal says exactly what failed — not only the one at the bound.
         ...(verdict.quality === undefined || bars === undefined
           ? {}
-          : { compound: compoundDecision(verdict.quality.dimensions, bars) }),
+          : { refused: perDimensionDecision(verdict.quality.dimensions, { perDimension: bars.perDimension }).refused }),
       });
     }
 
@@ -283,7 +283,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
             // in numbers, on every refusal — not only on the one at the bound.
             ...(verdict.quality === undefined || bars === undefined
               ? {}
-              : { compound: compoundDecision(verdict.quality.dimensions, bars) }),
+              : { refused: perDimensionDecision(verdict.quality.dimensions, { perDimension: bars.perDimension }).refused }),
           });
         }
       }

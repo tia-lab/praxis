@@ -52,7 +52,8 @@ test("start shows the quality rubric in the step descriptor", async () => {
     const quality = started.step.brief.quality;
     assert.deepEqual(quality.dimensions.map((dimension: { id: string }) => dimension.id), ["solves", "evidence"]);
     assert.equal(quality.dimensions[0].statement, "the draft answers the stated goal");
-    assert.equal(quality.threshold, 0.6);
+    // S2/S6: the reported standard is the measured bar - the floor when nothing is raised.
+    assert.equal(quality.threshold, 0.5);
     assert.equal(quality.policy, "required");
     // The disclosure names the aggregation rule and the judging stance too, so the agent learns
     // the standard from the brief and never from the source (F1).
@@ -85,7 +86,8 @@ test("a below-threshold submit names each dimension score and its statement", as
     assert.equal(failure.code, "QUALITY_BELOW_THRESHOLD");
     const quality = failure.detail.quality;
     assert.equal(quality.overall, 0.3);
-    assert.equal(quality.threshold, 0.6);
+    // S2/S6: the reported standard is the measured bar - the floor when nothing is raised.
+    assert.equal(quality.threshold, 0.5);
     assert.equal(quality.policy, "required");
     assert.equal(quality.source, "jev");
     assert.deepEqual(
@@ -199,7 +201,9 @@ test("a refusal on a refuse edge reports the rubric of the step that judged", as
     assert.equal(failure.code, "QUALITY_BELOW_THRESHOLD");
     assert.equal(failure.detail.step, "derive");
     assert.equal(failure.detail.reworkTo, "draft");
-    assert.equal(failure.detail.quality.threshold, 0.7);
+    // The judged step declares a 0.7 authored floor, which sets nothing: the bar is the measured
+    // floor until work measures a level.
+    assert.equal(failure.detail.quality.threshold, 0.5);
     assert.deepEqual(
       failure.detail.quality.dimensions.map((dimension: { id: string; statement: string }) => [dimension.id, dimension.statement]),
       [["traces", "the derivation traces back to the draft"]],

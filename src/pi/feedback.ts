@@ -7,7 +7,8 @@ import { fail, isAppError } from "../types/errors.ts";
 import { QualityVerdictSchema } from "../types/schema.ts";
 import { inspect } from "../runner/engine/index.ts";
 import type { EngineOptions } from "../runner/engine/index.ts";
-import { briefRecall, effectiveBarsFor, escalatedLesson, gateBar } from "../quality/index.ts";
+import { ABSOLUTE_MIN } from "../runner/engine/types.ts";
+import { briefRecall, escalatedLesson, quantileBarsFor } from "../quality/index.ts";
 
 export const QUALITY_CODES: ReadonlySet<string> = new Set(["QUALITY_REQUIRED", "QUALITY_BELOW_THRESHOLD", "QUALITY_BLOCKED"]);
 
@@ -37,14 +38,15 @@ export function qualityFeedback(error: unknown, options: EngineOptions & { insta
     if (effective === undefined) return error;
     // The floor this attempt was judged against is the adaptive bar, not the authored threshold — and
     // the GATE caps it at the Pareto point, so the reported threshold is the one that decided.
-    const bars = node === undefined || task === undefined ? undefined : effectiveBarsFor(options, node.task, effective);
-    const bar = gateBar(bars?.global ?? effective.threshold, bars?.pareto);
+    // S2/S6: the standard reported is the MEASURED per-dimension bar, floored - never a mean or a cap.
+    const bars = node === undefined || task === undefined ? undefined : quantileBarsFor(options, node.task, effective);
+    const barOf = (id: string): number => Math.max(ABSOLUTE_MIN, bars?.perDimension.get(id) ?? ABSOLUTE_MIN);
     const statements = new Map(effective.dimensions.map((dimension) => [dimension.id, dimension.statement]));
     const dimensions = verdict.dimensions.map((dimension) => ({
       id: dimension.id,
       score: dimension.score,
       statement: statements.get(dimension.id) ?? "",
-      belowThreshold: dimension.score < bar,
+      belowThreshold: dimension.score < barOf(dimension.id),
       // The battery's structured why for this dimension, beside the recalled exemplars (D12a). Absent
       // when the task declares no probes or the battery was unavailable — never an empty object.
       ...(dimension.rationale === undefined ? {} : { rationale: dimension.rationale }),
@@ -70,7 +72,9 @@ export function qualityFeedback(error: unknown, options: EngineOptions & { insta
       ...(detail as Record<string, unknown>),
       quality: {
         overall: verdict.score,
-        threshold: bar,
+        // The scalar beside the dimension detail: the STRICTEST measured bar, which is the floor when
+        // nothing has been raised (the gate itself compares each dimension against its own).
+        threshold: bars === undefined || bars.perDimension.size === 0 ? ABSOLUTE_MIN : Math.max(ABSOLUTE_MIN, ...[...bars.perDimension.values()]),
         policy: effective.policy,
         dimensions,
         weakest,

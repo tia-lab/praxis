@@ -31,7 +31,6 @@ import { appendEvent } from "../store/events.ts";
 import { EVENT } from "../runner/engine/types.ts";
 import {
   ABSOLUTE_MIN,
-  DEFAULT_PARETO_THRESHOLD,
   DEFAULT_QUANTILE,
   FIRST_HALF,
   FIRST_RAISE_MIN,
@@ -70,15 +69,14 @@ import {
   sampleFor,
   scanEvents,
   scopeOf,
-  type Bars,
-} from "./scope.ts";import { DIMENSION_TOLERANCE } from "./scope.ts";
+} from "./scope.ts";
+export { DIMENSION_TOLERANCE } from "./scope.ts";
 export {
   GLOBAL_SCOPE,
   flooredBar,
   quantileBars,
   quantileBarsFor,
   type QuantileBars,
-  DIMENSION_TOLERANCE,
   scanEvents,
   ofTask,
   dimensionKey,
@@ -117,65 +115,10 @@ export interface GenuinePass {
  * its acceptance carries \`failed\` and its verdict never decided \`pass\` — so \`onFailure=continue\`
  * cannot inflate any bar.
  */
-export function genuinePasses(store: Store, task: string): GenuinePass[] {
-  const events = scanEvents(store, [EVENT.artifactAccepted, EVENT.qualityVerdict]);
-  const verdicts = new Map<string, Array<{ version: number; decision: string; score: number; mean: number; dimensions: Map<string, { score: number; key: string | undefined }> }>>();
-  for (const event of events) {
-    if (event.type !== EVENT.qualityVerdict) continue;
-    const key = event.instance + "\u0000" + String(event.payload.step);
-    const list = verdicts.get(key) ?? [];
-    const dimensions = new Map<string, { score: number; key: string | undefined }>();
-    for (const entry of Array.isArray(event.payload.dimensions) ? event.payload.dimensions : []) {
-      const cell = entry as { id?: unknown; score?: unknown; key?: unknown };
-      dimensions.set(String(cell.id), { score: Number(cell.score), key: typeof cell.key === "string" ? cell.key : undefined });
-    }
-    const values = [...dimensions.values()].map((dimension) => dimension.score);
-    list.push({
-      version: Number(event.payload.version),
-      decision: String(event.payload.decision),
-      score: Number(event.payload.score),
-      mean: typeof event.payload.mean === "number" ? event.payload.mean : values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length,
-      dimensions,
-    });
-    verdicts.set(key, list);
-  }
-  const passes: GenuinePass[] = [];
-  for (const event of events) {
-    if (event.type !== EVENT.artifactAccepted) continue;
-    if (!ofTask(event, task)) continue;
-    if (event.payload.failed !== undefined) continue;
-    const version = Number(event.payload.version);
-    const step = String(event.payload.step);
-    const attempts = (verdicts.get(event.instance + "\u0000" + step) ?? []).filter((verdict) => verdict.version <= version);
-    const own = attempts.find((verdict) => verdict.version === version && verdict.decision === "pass");
-    if (own === undefined) continue;
-    passes.push({
-      instance: event.instance,
-      step,
-      version,
-      score: own.score,
-      mean: own.mean,
-      dimensions: own.dimensions,
-      attempts: attempts.length,
-      at: event.at,
-    });
-  }
-  return passes;
-}
 
 /** Population standard deviation: the window's own spread, not a sample estimate. */
-export function stdev(values: readonly number[]): number {
-  if (values.length === 0) return 0;
-  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
-  return Math.sqrt(variance);
-}
 
 /** The lower quartile of the sorted window: one lucky high score cannot lift the bar. */
-export function lowerQuartile(sorted: readonly number[]): number {
-  if (sorted.length === 0) return 0;
-  return sorted[Math.floor((sorted.length - 1) * 0.25)];
-}
 
 /**
  * The exponential moving average of a series of genuine-pass values: `alpha = 2/(periods+1)`, seeded
@@ -183,21 +126,11 @@ export function lowerQuartile(sorted: readonly number[]): number {
  * It is the earned level the ratchet moves toward - a dip drags it, but `max(current, EMA)` means a
  * drag can never lower a bar. An empty series has no EMA.
  */
-export function emaOf(values: readonly number[], periods: number = BAR_EMA_PERIODS): number | undefined {
-  if (values.length === 0) return undefined;
-  const alpha = 2 / (periods + 1);
-  let ema = values[0];
-  for (let index = 1; index < values.length; index += 1) ema = alpha * values[index] + (1 - alpha) * ema;
-  return ema;
-}
 
 /**
  * The bar a gate actually compares against: the bar in force, capped at the Pareto point. Acceptance
  * stops tightening there while the ratchet keeps recording the level it reaches (option A).
  */
-export function gateBar(bar: number, pareto: number | undefined): number {
-  return Math.min(bar, pareto ?? DEFAULT_PARETO_THRESHOLD);
-}
 
 /**
  * The compound acceptance test, in ONE place so the scorer path, the gate and the audit cannot
@@ -216,20 +149,6 @@ export interface Compound {
   refused: string[];
 }
 
-export function compoundDecision(
-  dimensions: readonly { id: string; score: number }[],
-  bars: Pick<Bars, "global" | "perDimension"> & { readonly pareto?: number },
-): Compound {
-  const flagged: string[] = [];
-  const refused: string[] = [];
-  for (const dimension of dimensions) {
-    const bar = gateBar(bars.perDimension.get(dimension.id) ?? bars.global, bars.pareto);
-    if (dimension.score < bar - DIMENSION_TOLERANCE) refused.push(dimension.id);
-    else if (dimension.score < bar) flagged.push(dimension.id);
-  }
-  const mean = dimensions.length === 0 ? 0 : dimensions.reduce((sum, dimension) => sum + dimension.score, 0) / dimensions.length;
-  return { pass: refused.length === 0 && mean >= gateBar(bars.global, bars.pareto), mean, flagged, refused };
-}
 
 /** What one evaluation of one scope decided, so a caller (or a test) can assert it. */
 export type BarDecision =

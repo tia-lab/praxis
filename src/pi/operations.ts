@@ -24,7 +24,7 @@ import type { EngineOptions } from "../runner/engine/index.ts";
 import { projectConfig, projectMaxAttempts, withStore } from "../runner/engine/support.ts";
 import { afterOp, beforeOp } from "../runner/hooks.ts";
 import { noteStanding, recordNote } from "../runner/note-gate.ts";
-import { advanceEvaluated, compoundDecision, effectiveBarsFor, jevScorer, recallRanked, sampleIfDue, type Scorer } from "../quality/index.ts";
+import { advanceEvaluated, perDimensionDecision, quantileBarsFor, jevScorer, recallRanked, sampleIfDue, type Scorer } from "../quality/index.ts";
 import { anchorOf, jevAlignJudge, judgeOrder, orderDigestOf, softAlignment, softClause, uncheckedClause, type AlignJudge } from "../quality/jev-align.ts";
 import { artifactSummary, currentStepOf, learningView, stepDescriptor } from "./descriptor.ts";
 import { QUALITY_CODES, qualityFeedback } from "./feedback.ts";
@@ -275,9 +275,9 @@ function verdictSummaryOf(options: EngineOptions & { instance: string }, step: s
   // the record reflects rather than a second opinion.
   const node = view.flow.config.nodes.find((candidate) => candidate.id === step);
   const quality = node === undefined ? undefined : (view.flow.tasks.get(node.task)?.quality ?? view.flow.config.quality);
-  const compound = node === undefined || quality === undefined
+  const decisionOf = node === undefined || quality === undefined
     ? undefined
-    : compoundDecision(verdict.dimensions, effectiveBarsFor(options, node.task, quality));
+    : perDimensionDecision(verdict.dimensions, quantileBarsFor(options, node.task, quality));
   const mean = verdict.mean ?? (verdict.dimensions.length === 0
     ? 0
     : verdict.dimensions.reduce((sum, dimension) => sum + dimension.score, 0) / verdict.dimensions.length);
@@ -285,8 +285,8 @@ function verdictSummaryOf(options: EngineOptions & { instance: string }, step: s
     score: verdict.score,
     mean: Math.round(mean * 10000) / 10000,
     dimensions: verdict.dimensions.map((dimension) => ({ id: dimension.id, score: dimension.score })),
-    flagged: compound?.flagged ?? verdict.flagged ?? [],
-    refused: compound?.refused ?? [],
+    flagged: verdict.flagged ?? [],
+    refused: decisionOf?.refused ?? [],
     rubricDigest: verdict.rubricDigest,
   };
 }

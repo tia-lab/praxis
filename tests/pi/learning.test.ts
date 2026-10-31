@@ -66,10 +66,11 @@ test("the brief discloses the standard and the recall, and the same store yields
     const started = bag(await call(ws.cwd, { op: "start", order: "carry out the task this flow runs", flow: "flows/architect", requestId: "learn-brief" }));
     const quality = started.step.brief.quality;
     assert.deepEqual(quality.dimensions.map((dimension: { id: string }) => dimension.id), ["solves", "evidence"]);
-    assert.equal(quality.threshold, 0.6, "the floor in force is the effective bar");
+    // S6: the scalar standard is the floor; the measured standard is per dimension in the gate.
+    assert.equal(quality.threshold, 0.5, "the scalar standard is the floor");
     assert.equal(quality.aggregation, "min");
     assert.match(quality.judging, /MINIMUM/, "the agent is told how the judgments combine");
-    assert.equal(quality.recall.bar, 0.6);
+    assert.equal(quality.recall.bar, 0.6, "the recall set still reports its own bar");
     assert.equal(quality.recall.notes.length, 1, "the recorded lesson is injected");
     // S4/R27: the brief's recall set is built synchronously, with no judge, so its text is
     // WITHHELD and the case says so. The record (score, tags, relevance) is still disclosed.
@@ -103,7 +104,8 @@ test("a refusal re-injects the lesson aimed at the weakest dimension", async () 
     assert.equal(quality.weakest.id, "solves");
     assert.equal(quality.lesson.dimension, "solves", "the lesson targets the dimension that cost the most");
     assert.equal(quality.lesson.lesson, NOTE.tags[0].lesson);
-    assert.equal(quality.threshold, 0.6);
+    // The reported standard is the measured bar (the floor until work measures a level).
+    assert.equal(quality.threshold, 0.5);
   } finally {
     setScorerForTest(undefined);
     ws.dispose();

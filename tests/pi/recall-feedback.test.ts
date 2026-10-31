@@ -89,7 +89,7 @@ test("a below-bar refusal carries up to three recalled cases for the refused dim
     assert.equal(refused.isError, true, "the artifact is refused");
     const details = bag(refused);
     assert.equal(details.code, "QUALITY_BELOW_THRESHOLD");
-    assert.deepEqual(details.detail.compound.refused, ["solves"], "the refusal names the failed dimension");
+    assert.deepEqual(details.detail.refused, ["solves"], "the refusal names the failed dimension");
 
     const recall = details.detail.recall;
     assert.ok(recall, "the refusal carries the recalled examples");
@@ -134,7 +134,7 @@ test("a cold store omits the field entirely and leaves the rest of the detail un
     assert.equal(details.code, "QUALITY_BELOW_THRESHOLD");
     assert.equal("recall" in details.detail, false, "no cases, no field: not an empty object");
     // The feedback the agent already got is untouched.
-    assert.deepEqual(details.detail.compound.refused, ["solves"]);
+    assert.deepEqual(details.detail.refused, ["solves"]);
     assert.equal(typeof details.detail.quality.weakest.id, "string");
     assert.equal(details.detail.quality.weakest.id, "solves");
     void tick;

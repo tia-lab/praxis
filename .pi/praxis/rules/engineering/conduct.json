@@ -1,0 +1,12 @@
+{
+  "id": "conduct",
+  "version": 1,
+  "rules": [
+    { "id": "rules-are-obligations", "statement": "Apply every applicable rule as an obligation, not a suggestion, through research, specification, planning, implementation and review." },
+    { "id": "compliance-in-evidence", "statement": "Establish compliance in the actual data model, code and evidence. An acknowledgment, a checklist mark or a passing tool is not sufficient." },
+    { "id": "settle-before-building", "statement": "Do not begin dependent implementation until the minimum necessary data model, ownership, invariants and failure behavior are settled." },
+    { "id": "stop-on-violation", "statement": "Stop affected work when a rule is violated: preserve the state, record the violation, correct it and verify the correction before proceeding." },
+    { "id": "no-silent-waiver", "statement": "Never waive a rule silently, and never weaken requirements, tests or evidence to obtain acceptance." },
+    { "id": "explicit-valid-states", "statement": "Make valid states explicit and prevent invalid combinations. Complete every approved requirement before claiming completion." }
+  ]
+}

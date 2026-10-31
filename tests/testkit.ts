@@ -41,6 +41,8 @@ export interface TaskFixture {
   bindsSubject?: boolean;
   role?: string;
   quality?: unknown;
+  /** The task's rule-set refs (task-rules S2). */
+  rules?: unknown;
   version?: number;
   state?: "draft" | "published";
 }
@@ -91,6 +93,7 @@ export function writeTask(ws: Workspace, task: TaskFixture): void {
   if (task.bindsSubject !== undefined) document.bindsSubject = task.bindsSubject;
   if (task.role !== undefined) document.role = task.role;
   if (task.quality !== undefined) document.quality = task.quality;
+  if (task.rules !== undefined) document.rules = task.rules;
   // The document owns its version; the reference names only the path (spec R1, R5).
   const path = join(ws.tasks, `${task.id}.json`);
   mkdirSync(dirname(path), { recursive: true });

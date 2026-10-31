@@ -26,6 +26,7 @@ import { afterOp, beforeOp } from "../runner/hooks.ts";
 import { noteStanding, recordNote } from "../runner/note-gate.ts";
 import { advanceEvaluated, perDimensionDecision, quantileBarsFor, jevScorer, recallRanked, sampleIfDue, type Scorer } from "../quality/index.ts";
 import { anchorOf, jevAlignJudge, judgeOrder, orderDigestOf, softAlignment, softClause, uncheckedClause, type AlignJudge } from "../quality/jev-align.ts";
+import { authoredQuality } from "../runner/engine/rules.ts";
 import { artifactSummary, currentStepOf, learningView, stepDescriptor } from "./descriptor.ts";
 import { QUALITY_CODES, qualityFeedback } from "./feedback.ts";
 import type { PiSessionContext, PiToolResult } from "./host.ts";
@@ -274,7 +275,9 @@ function verdictSummaryOf(options: EngineOptions & { instance: string }, step: s
   // Refused/flagged come from the SAME compound test the gate used, so the hook sees the decision
   // the record reflects rather than a second opinion.
   const node = view.flow.config.nodes.find((candidate) => candidate.id === step);
-  const quality = node === undefined ? undefined : (view.flow.tasks.get(node.task)?.quality ?? view.flow.config.quality);
+  // IDENTITY (site 5): the bars this refusal is decided against, from the AUTHORED rubric.
+  const nodeTask = node === undefined ? undefined : view.flow.tasks.get(node.task);
+  const quality = node === undefined ? undefined : nodeTask === undefined ? view.flow.config.quality : authoredQuality(view.flow, nodeTask);
   const decisionOf = node === undefined || quality === undefined
     ? undefined
     : perDimensionDecision(verdict.dimensions, quantileBarsFor(options, node.task, quality));
@@ -306,7 +309,7 @@ async function sampleAfterAdvance(args: {
   try {
     const node = args.advanced.flow.config.nodes.find((candidate) => candidate.id === args.step);
     const task = node === undefined ? undefined : args.advanced.flow.tasks.get(node.task);
-    const quality = task?.quality ?? args.advanced.flow.config.quality;
+    const quality = task === undefined ? undefined : authoredQuality(args.advanced.flow, task);
     if (node === undefined || task === undefined || quality === undefined) return;
     if (!task.capabilities.includes("evaluate")) return;
     await sampleIfDue({
@@ -390,7 +393,7 @@ async function recallFeedback(
     const view = inspect({ ...options });
     const node = view.flow.config.nodes.find((candidate) => candidate.id === step);
     const task = node === undefined ? undefined : view.flow.tasks.get(node.task);
-    const quality = task?.quality ?? view.flow.config.quality;
+    const quality = task === undefined ? undefined : authoredQuality(view.flow, task);
     if (quality === undefined) return error;
     const statements = new Map(quality.dimensions.map((dimension) => [dimension.id, dimension.statement]));
     const refused = verdict.refused.length === 0 ? [...statements.keys()] : verdict.refused;

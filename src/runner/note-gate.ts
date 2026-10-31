@@ -22,6 +22,7 @@ import { parseWith, type Instance, type Quality } from "../types/schema.ts";
 import type { Store } from "../store/db.ts";
 import { appendEvent, listEvents } from "../store/events.ts";
 import { loadInstance, setStatus } from "../store/instance.ts";
+import { authoredQuality } from "./engine/rules.ts";
 import { fail } from "../types/errors.ts";
 import type { EngineOptions, OpenedFlow } from "./engine/index.ts";
 import { assertObserver } from "./engine/authority.ts";
@@ -173,7 +174,8 @@ export function pendingNote(store: Store, instance: Instance, flow: OpenedFlow):
     if (!accepted.has(node.id) || noted.has(node.id)) continue;
     const task = flow.tasks.get(node.task);
     if (task === undefined) continue;
-    const quality = task.quality ?? flow.config.quality;
+    // IDENTITY: the note's rubric is dimension ids and the attempt budget, never probe text (site 2).
+    const quality = authoredQuality(flow, task);
     if (quality === undefined) continue;
     return { step: node.id, task: node.task, taskVersion: task.version, quality, rubric: quality.dimensions };
   }

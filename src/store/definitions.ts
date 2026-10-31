@@ -24,8 +24,12 @@ import {
 } from "../types/schema.ts";
 import { type Store, storeCall } from "./db.ts";
 
-/** `flow` pins the flow document; `task` pins one task version; `assignment` pins the role map. */
-export const DefinitionKindSchema = z.enum(["flow", "task", "assignment"]);
+/**
+ * `flow` pins the flow document; `task` pins one task version; `assignment` pins the role map;
+ * `ruleset` pins the RAW BYTES of one rule-set file a task references (task-rules). The column is text
+ * and the key is already (instance, kind, id), so this is no DDL, no table and no schema-version bump.
+ */
+export const DefinitionKindSchema = z.enum(["flow", "task", "assignment", "ruleset"]);
 export type DefinitionKind = z.infer<typeof DefinitionKindSchema>;
 
 /** One row to write: the flow document, or one task version's canonical bytes. */

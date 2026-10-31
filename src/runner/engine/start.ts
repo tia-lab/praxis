@@ -84,6 +84,13 @@ export function start(options: StartOptions): Started {
         // publications. The version is the one the document declares (R3, R5).
         insertPublication(store, { task: ref, version: task.version, digest: taskDigest, at });
       }
+      // Task-rules: the RAW BYTES of every rule-set the flow's tasks reference, pinned inside this same
+      // transaction. The rule text is therefore stored exactly once - here, as the file was written - and
+      // never inside a task or an event. The column is TEXT and the key is (instance, kind, id), so this is
+      // no DDL, no table and no STORE_SCHEMA change. A flow whose tasks declare no rules pins nothing.
+      for (const set of flow.rules.values()) {
+        insertDefinition(store, { instance: id, kind: "ruleset", id: set.path, digest: set.digest, bytes: set.bytes });
+      }
       if (options.roles !== undefined && Object.keys(options.roles).length > 0) {
         const roles = parseWith(RoleAssignmentSchema, options.roles, "CONFIG_INVALID", "role assignment");
         const bytes = canonicalBytes(roles);

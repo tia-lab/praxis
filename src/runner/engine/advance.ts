@@ -10,6 +10,7 @@ import { readArtifact } from "../../store/artifacts.ts";
 import { grantFor } from "../capabilities.ts";
 import { buildResult } from "../result.ts";
 import { buildHandoffs, gate, runStep, successorOf } from "../step.ts";
+import { authoredQuality } from "./rules.ts";
 import { assertObserver, assertStepActor } from "./authority.ts";
 import { acceptedRefs, currentHandoffs, loadPinnedFlow } from "./flow.ts";
 import { qualityRefusal, failureOutcome, recordAcceptance } from "./quality-loop.ts";
@@ -119,7 +120,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
         };
       }
     }
-    const effectiveQuality = task.quality ?? flow.config.quality;
+    const effectiveQuality = authoredQuality(flow, task);
     // The standard enforced is the MEASURED per-dimension bar (a quantile of the carried population,
     // floored at ABSOLUTE_MIN) - never an authored threshold, a mean, a band or a cap.
     const floors = effectiveQuality === undefined ? undefined : quantileBars(store, node.task, effectiveQuality);

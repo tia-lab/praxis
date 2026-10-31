@@ -35,6 +35,11 @@ export function tasksDirOf(options: EngineOptions): string {
   return resolve(options.tasksDir ?? process.env.PRAXIS_TASKS_DIR ?? join(process.cwd(), ".pi/praxis/tasks"));
 }
 
+/** Rule-set library resolution: explicit, then env, then the project default (task-rules). */
+export function rulesDirOf(options: EngineOptions): string {
+  return resolve(options.rulesDir ?? process.env.PRAXIS_RULES_DIR ?? join(process.cwd(), ".pi/praxis/rules"));
+}
+
 /** Where a project declares its own defaults, relative to the project root. */
 export const PROJECT_CONFIG = ".pi/praxis/config.json";
 

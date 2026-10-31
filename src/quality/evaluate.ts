@@ -18,6 +18,7 @@ import { carriedPopulation, perDimensionDecision, quantileBarsFor, quantileOf, t
 import { ABSOLUTE_MIN } from "../runner/engine/types.ts";
 import { dimensionKey } from "./scope.ts";
 import { withStore } from "../runner/engine/support.ts";
+import { authoredQuality, judgeQuality } from "../runner/engine/rules.ts";
 import { RATIONALE_DIVERGENCE, RATIONALE_MAX } from "./jev-scorer.ts";
 
 /**
@@ -150,9 +151,20 @@ export async function evaluateArtifact(
   /** The bars in force; absent means the rubric's own seed floors (no history consulted). */
   bars: QuantileBars = floorBars(quality),
   /** The measured per-dimension bars the DECISION reads (S2). Absent means the floor only. */
-  gate?: { perDimension: ReadonlyMap<string, number>; q50?: ReadonlyMap<string, number | undefined> },
+  gate?: {
+    perDimension: ReadonlyMap<string, number>;
+    q50?: ReadonlyMap<string, number | undefined>;
+    /**
+     * The AUTHORED rubric, when the caller hands the judge a composed one (task-rules R9'): the ruler
+     * digest and therefore every cache key and identity read THIS, never the composed text. Defaults to
+     * `quality`, so a caller without rules is unchanged.
+     */
+    identity?: Quality;
+  },
 ): Promise<QualityVerdict> {
-  const rubricDigest = rulerDigest(quality, bars);
+  // Identity is the AUTHORED rubric: a cited rule's statement may change what the judge is asked, never
+  // which ruler the verdict was judged under (invariant I6).
+  const rubricDigest = rulerDigest(gate?.identity ?? quality, bars);
   if (scorer === undefined) return degraded(rubricDigest, "unavailable", "no scorer available");
   let raw: { dimensions: DimensionJudgment[]; rationale: string; scorer: string };
   try {
@@ -318,11 +330,16 @@ export async function advanceEvaluated(
     const view = inspect({ ...options });
     const node = view.flow.config.nodes.find((candidate) => candidate.id === view.instance.currentStep);
     const task = node === undefined ? undefined : view.flow.tasks.get(node.task);
-    const effective = task?.quality ?? view.flow.config.quality;
+    const effective = task === undefined ? view.flow.config.quality : authoredQuality(view.flow, task);
     if (effective !== undefined && task !== undefined && node !== undefined && task.capabilities.includes("evaluate")) {
       // The ruler is the rubric as declared; its own bars are the FLOOR per dimension (history-free),
       // so the digest is stable, while the DECISION reads the measured bars through `gate`.
+      // The AUTHORED ruler: bars, digest, cache key and the q50 keying all read it.
       const ruler = { ...effective, threshold: ABSOLUTE_MIN };
+      // The COMPOSED rubric: the scorer's request and nothing else (invariant I6). A task with no rules
+      // returns the AUTHORED object unchanged, so this fallback is the unreachable case.
+      const composed = judgeQuality(view.flow, task);
+      const judged = composed === undefined ? ruler : { ...composed, threshold: ABSOLUTE_MIN };
       const bars = floorBars(ruler);
       const subjectDigest = view.handoffs.length === 1 ? view.handoffs[0].digest : undefined;
       const artifactDigest = digest(canonicalBytes(options.artifact === undefined ? {} : options.artifact));
@@ -347,10 +364,10 @@ export async function advanceEvaluated(
       });
       const verdict = await evaluateArtifact(
         options.scorer,
-        ruler,
+        judged,
         { goal: task.goal, artifact: options.artifact, subjectDigest, ...(context === undefined ? {} : { context }) },
         bars,
-        { perDimension: measuredBars.perDimension, q50 },
+        { perDimension: measuredBars.perDimension, q50, identity: ruler },
       );
       return advance({ ...options, qualityVerdict: verdict });
     }

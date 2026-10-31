@@ -21,8 +21,10 @@ import { readDefinition } from "../../store/definitions.ts";
 import { listEvents } from "../../store/events.ts";
 import { grantFor } from "../capabilities.ts";
 import { digest, digestOf } from "../canonical.ts";
-import { messageOf, payloadOf, pinnedJson, tasksDirOf } from "./support.ts";
+import { messageOf, payloadOf, pinnedJson, rulesDirOf, tasksDirOf } from "./support.ts";
 import { EVENT, type EngineOptions, type HandoffRef, type OpenedFlow } from "./types.ts";
+import { loadRuleSet, type PinnedRuleSet } from "./rules.ts";
+import { RuleSetSchema } from "../../types/rules.ts";
 
 /**
  * Read one task unit by its path. The reference names the path; the document declares
@@ -65,6 +67,25 @@ function loadTask(tasksDir: string, ref: string): TaskConfig {
   return task;
 }
 
+/**
+ * Every rule-set the given tasks reference, loaded once per path. A flow whose tasks declare no `rules`
+ * returns an EMPTY map and never calls the loader: that is what keeps a rules-free project byte-identical
+ * (and what keeps it from touching a rules directory that may not exist).
+ */
+function loadReferencedRules(
+  tasks: ReadonlyMap<string, TaskConfig>,
+  load: (ref: string) => PinnedRuleSet,
+): ReadonlyMap<string, PinnedRuleSet> {
+  const sets = new Map<string, PinnedRuleSet>();
+  for (const task of tasks.values()) {
+    for (const ref of task.rules ?? []) {
+      if (sets.has(ref.set)) continue;
+      sets.set(ref.set, load(ref.set));
+    }
+  }
+  return sets;
+}
+
 /** Read, resolve, validate and digest the flow document. The digest is what an instance pins. */
 export function openFlow(options: EngineOptions): OpenedFlow {
   const path = resolve(
@@ -90,7 +111,9 @@ export function openFlow(options: EngineOptions): OpenedFlow {
     tasks.set(node.task, loadTask(tasksDir, node.task));
   }
   validateFlow(config, tasks);
-  return { config, flowDigest: digestOf(config), path, tasks };
+  // The rule-sets this flow's TASKS reference, read once: the same set shared by two tasks is loaded once,
+  // and a flow whose tasks declare none reads nothing at all (the unchanged case).
+  return { config, flowDigest: digestOf(config), path, tasks, rules: loadReferencedRules(tasks, (ref) => loadRuleSet(rulesDirOf(options), ref)) };
 }
 
 /** Refuse a flow whose references cannot be resolved (R1, R2, R7: typed refusal, zero writes). */
@@ -194,5 +217,26 @@ export function loadPinnedFlow(store: Store, instance: Instance): OpenedFlow {
     }
     tasks.set(node.task, task);
   }
-  return { config, flowDigest: flowRow.digest, path: "pinned:" + instance.flow, tasks };
+  return {
+    config,
+    flowDigest: flowRow.digest,
+    path: "pinned:" + instance.flow,
+    tasks,
+    // The pinned rule-sets: read back from the instance, digest verified against the bytes, so a finished
+    // run's rules cannot change when the file on disk does.
+    rules: loadReferencedRules(tasks, (ref) => {
+      const row = readDefinition(store, instance.id, "ruleset", ref);
+      const doc = parseWith(RuleSetSchema, pinnedJson(row.bytes, `rule-set ${ref}`), "PIN_CORRUPT", `pinned rule-set ${ref}`);
+      const actual = digest(row.bytes);
+      if (actual !== row.digest) {
+        throw fail("PIN_CORRUPT", `pinned rule-set ${ref} no longer matches its digest`, {
+          instance: instance.id,
+          set: ref,
+          pinned: row.digest,
+          actual,
+        });
+      }
+      return { path: ref, doc, bytes: row.bytes, digest: row.digest };
+    }),
+  };
 }

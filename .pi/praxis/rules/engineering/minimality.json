@@ -1,0 +1,17 @@
+{
+  "id": "minimality",
+  "version": 1,
+  "rules": [
+    { "id": "smallest-complete-system", "statement": "Build the smallest complete system from the smallest sufficient, clean data model." },
+    { "id": "data-model-before-mechanism", "statement": "Start from the required outcome and accepted constraints. Settle the smallest sufficient data structures, ownership, valid states, invariants and failure behavior before choosing operations, abstractions, layers or file organization." },
+    { "id": "load-bearing-first", "statement": "Build and verify the load-bearing behavior first, then require present necessity for every further addition." },
+    { "id": "bind-to-requirement", "statement": "Bind every type, field, variant and representation to a present requirement and the concrete failure its omission would cause." },
+    { "id": "one-owner-per-fact", "statement": "Define each fact once with one authoritative owner. Derive values rather than store them when storage is unnecessary." },
+    { "id": "no-speculative-surface", "statement": "Omit speculative fields, APIs, abstractions, configuration, persistence, compatibility, concurrency and scaffolding." },
+    { "id": "no-justification-by-elegance", "statement": "Reject future usefulness, convention, elegance and flexibility as sufficient justification for adding anything." },
+    { "id": "fewest-concepts", "statement": "Choose the complete solution with the fewest necessary concepts, owners, states and mechanisms." },
+    { "id": "measure-real-complexity", "statement": "Compare coupling, duplication, failure paths, public surface, testability and operational burden. Do not substitute line or file count for simplicity." },
+    { "id": "prefer-dominating-alternative", "statement": "Reject a candidate when a credible complete alternative is no worse in every relevant complexity dimension and better in at least one." },
+    { "id": "never-weaken-requirements", "statement": "Reduce mechanisms and effort, but never omit, defer, approximate or weaken an approved requirement to claim an efficiency gain." }
+  ]
+}

@@ -3,6 +3,7 @@
  * and the resource bounds the loop enforces. Pure declarations — no logic lives here.
  */
 import type { FlowConfig, Instance, QualityVerdict, Result, TaskConfig } from "../../types/schema.ts";
+import type { PinnedRuleSet } from "./rules.ts";
 
 export const EVENT = {
   instanceCreated: "instance.created",
@@ -112,6 +113,8 @@ export interface EngineOptions {
   configPath?: string;
   /** Task library root; default <cwd>/.pi/praxis/tasks or PRAXIS_TASKS_DIR. */
   tasksDir?: string;
+  /** Rule-set library root; default <cwd>/.pi/praxis/rules or PRAXIS_RULES_DIR. */
+  rulesDir?: string;
   /** Pinned timestamp for the artifact rows; defaults to the wall clock. */
   now?: string;
   /** Actor pinned at creation; default PRAXIS_ACTOR or "cli". */
@@ -159,6 +162,12 @@ export interface OpenedFlow {
   path: string;
   /** Keyed by the `id@version` reference a node carries. */
   tasks: ReadonlyMap<string, TaskConfig>;
+  /**
+   * The rule-sets this flow's TASKS reference, keyed by `rules/<path>`: read from the library when the
+   * flow is opened, read back from the instance's `ruleset` pins when a pinned flow is loaded. Empty for
+   * every flow whose tasks declare no `rules` - the unchanged case.
+   */
+  rules: ReadonlyMap<string, PinnedRuleSet>;
 }
 
 export interface Started {

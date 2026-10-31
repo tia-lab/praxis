@@ -15,6 +15,7 @@ import type { EngineOptions, HandoffRef, OpenedFlow } from "../runner/engine/ind
 import { withStore } from "../runner/engine/support.ts";
 import { ABSOLUTE_MIN } from "../runner/engine/types.ts";
 import { briefRecall, quantileBarsFor } from "../quality/index.ts";
+import { authoredQuality, judgeQuality } from "../runner/engine/rules.ts";
 import { carriedPopulation, quantileOf } from "../quality/bar.ts";
 import { dimensionKey } from "../quality/scope.ts";
 import { noteStanding } from "../runner/note-gate.ts";
@@ -114,7 +115,7 @@ interface LearningView {
  */
 export function learningView(options: EngineOptions, flow: OpenedFlow, instance: Instance): LearningView {
   const resolved = currentStepOf(flow, instance);
-  const quality: Quality | undefined = resolved.task.quality ?? flow.config.quality;
+  const quality: Quality | undefined = authoredQuality(flow, resolved.task);
   const standing = noteStanding(options, instance, flow);
   const recall =
     quality === undefined
@@ -206,7 +207,8 @@ export function stepDescriptor(
   const resolved = currentStepOf(flow, instance);
   const single = handoffs.length === 1 ? handoffs[0].digest : undefined;
   const grant = grantFor({ id: resolved.node.id, capabilities: resolved.task.capabilities });
-  const quality = resolved.task.quality ?? flow.config.quality;
+  // The BRIEF shows the question the judge is asked, statement included: the one composed site (site 4).
+  const quality = judgeQuality(flow, resolved.task);
   const ops: ("submit" | "read" | "note" | "check")[] = [];
   // A step that owes a note cannot submit: the reflection comes first (O3). The engine refuses the
   // submit anyway; saying so here means the agent learns it from the brief, not from a rejection.

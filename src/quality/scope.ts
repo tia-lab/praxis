@@ -80,7 +80,20 @@ export function dimensionKey(dimension: { id: string; statement: string; probes?
   const basis = criteria.length === 0
     ? "dimension:" + dimension.id + "\u0000" + dimension.statement
     : "dimension:" + dimension.id + "\u0000criteria\u0000" +
-      JSON.stringify(criteria.map((probe) => [probe.id, probe.type, probe.instructions, probe.criteria ?? null, probe.clean ?? null]));
+      JSON.stringify(
+        criteria.map((probe) => [
+          probe.id,
+          probe.type,
+          probe.instructions,
+          probe.criteria ?? null,
+          probe.clean ?? null,
+          // The CITATION is identity, and only the citation: the set path and the id, never the rule's
+          // statement, version or digest, so an edit to a cited statement re-asks the judge and' the
+          // bars stay exactly where they were (spec R9', amended 5.3). Absent on an uncited probe, so
+          // a rubric without citations keeps the key it has today.
+          probe.rule === undefined ? null : [probe.rule.set, probe.rule.id],
+        ]),
+      );
   return digest(basis).slice(7, 23);
 }
 

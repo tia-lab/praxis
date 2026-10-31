@@ -9,6 +9,7 @@ import { inspect } from "../runner/engine/index.ts";
 import type { EngineOptions } from "../runner/engine/index.ts";
 import { ABSOLUTE_MIN } from "../runner/engine/types.ts";
 import { briefRecall, escalatedLesson, quantileBarsFor } from "../quality/index.ts";
+import { authoredQuality } from "../runner/engine/rules.ts";
 
 export const QUALITY_CODES: ReadonlySet<string> = new Set(["QUALITY_REQUIRED", "QUALITY_BELOW_THRESHOLD", "QUALITY_BLOCKED"]);
 
@@ -34,7 +35,7 @@ export function qualityFeedback(error: unknown, options: EngineOptions & { insta
     const step = typeof refused === "string" ? refused : view.instance.currentStep;
     const node = view.flow.config.nodes.find((candidate) => candidate.id === step);
     const task = node === undefined ? undefined : view.flow.tasks.get(node.task);
-    const effective = task?.quality ?? view.flow.config.quality;
+    const effective = task === undefined ? undefined : authoredQuality(view.flow, task);
     if (effective === undefined) return error;
     // The floor this attempt was judged against is the adaptive bar, not the authored threshold — and
     // the GATE caps it at the Pareto point, so the reported threshold is the one that decided.

@@ -54,6 +54,15 @@ Praxis provides:
 - a **compact parent result**: the caller sees six keys — instance id, flow, status, accepted
   artifacts, a summary and the next action — never the internal event log or transcript.
 
+## Rules
+
+A **rule-set** is one JSON file under `.pi/praxis/rules/[path/]name.json` holding named one-line rules. A
+task references rule-sets (`rules: [{ "set": "rules/engineering" }]`), the step brief lists them in
+`brief.rules` in declared order, and a quality criterion may **cite** one (`rule: { set, id }`) - in which
+case the rule's statement is composed into that criterion's question and the judge answers it. Rules are
+**guidance, not an enforced invariant**: no gate, bar or verdict reads a rule, and editing a cited rule
+changes what the judge is asked, never a dimension's identity or its bar. The file owns what a rule says;
+`start` pins each referenced set's raw bytes, so a finished run keeps the rules it ran under.
 ## What This Is Not
 
 Praxis is not an OS sandbox, an authenticated multi-user service, a reasoning engine, a team

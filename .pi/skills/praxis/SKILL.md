@@ -234,6 +234,14 @@ note    { op:"note", instance, subjective:{ whatWrong, whatRight, whatBetter,
 Then continue with the next step the descriptor names. You never pick the next step: the flow
 does.
 
+## Rules
+
+A task may reference rule-sets (files under `.pi/praxis/rules/`), and the step brief lists them in
+`brief.rules` in the order the task declares them. They are GUIDANCE and, where a criterion cites one, a
+judged check: the rule's statement is composed into that criterion's question and the judge answers it like
+any other criterion. They are NEVER an enforced invariant - no gate, bar or decision reads a rule, and
+changing a rule's text never changes a score, a bar or a verdict already decided. What a rule says is owned
+by the rule-set file; the version an instance ran under is pinned at `start`.
 ## When something is wrong with Praxis itself
 
 If the tool refuses you in a way the brief cannot explain, or a field you need is missing from

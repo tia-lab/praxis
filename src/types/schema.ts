@@ -110,6 +110,14 @@ export const RequirementSchema = z.strictObject({
   section: z.string().min(1).max(64),
   /** Human guidance for this section, carried into the brief; never machine-graded. */
   note: z.string().min(1).max(500).optional(),
+  /**
+   * What this section is FOR, in the judge's terms (T1, R2). `note` is the agent-facing half and
+   * stays ungraded; this is the half the scorer is given when a criterion targets the section.
+   * Two fields, two audiences: never merged.
+   */
+  goal: z.string().min(1).max(500).optional(),
+  /** Why this section is required at all, carried to the judge beside its goal. */
+  rationale: z.string().min(1).max(500).optional(),
   /** Reject any field this clause does not name (an object section or each array entry). */
   strict: z.boolean().optional(),
   minItems: z.number().int().min(0).max(1000).optional(),
@@ -144,6 +152,8 @@ export {
   PROBES_PER_DIMENSION,
   PROBES_TOTAL,
   ProbeSchema,
+  SectionNameSchema,
+  type SectionName,
   QualityDimensionSchema,
   QualitySchema,
   type Probe,
@@ -236,6 +246,10 @@ export const TaskConfigSchema = z.strictObject({
   state: TaskStateSchema,
   /** What the agent must achieve in this stage. Required (A3). */
   goal: z.string().min(1).max(1000),
+  /** Why this stage exists: the judge's second context line, after the order (T1, R1). Optional. */
+  rationale: z.string().min(1).max(1000).optional(),
+  /** What this stage is NOT about: the boundary that makes padding measurable (T1, R1). Optional. */
+  scope: z.string().min(1).max(1000).optional(),
   capabilities: z.array(CapabilitySchema).max(8),
   produces: z.strictObject({ schema: SchemaNameSchema }),
   gate: GateSchema,
@@ -247,6 +261,24 @@ export const TaskConfigSchema = z.strictObject({
   quality: QualitySchema.optional(),
   /** A review must carry the digest of the version it judged (spec R6). */
   bindsSubject: z.boolean().optional(),
+}).superRefine((task, ctx) => {
+  // A criterion may only target a section the task DECLARES (T1, R4): otherwise it would judge a
+  // section that does not exist and silently score nothing. A task with no targeting adds no issue,
+  // so every document that does not use the feature parses exactly as before.
+  const clauses = task.requires === undefined ? [] : Array.isArray(task.requires) ? task.requires : [task.requires];
+  const declared = new Set(clauses.map((clause) => clause.section));
+  for (const dimension of task.quality?.dimensions ?? []) {
+    for (const probe of dimension.probes ?? []) {
+      for (const section of probe.sections ?? []) {
+        if (declared.has(section)) continue;
+        ctx.addIssue({
+          code: "custom",
+          path: ["quality", "dimensions", dimension.id, "probes", probe.id, "sections"],
+          message: "section " + JSON.stringify(section) + " is not declared in requires",
+        });
+      }
+    }
+  }
 });
 export type TaskConfig = z.infer<typeof TaskConfigSchema>;
 

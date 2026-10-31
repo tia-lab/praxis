@@ -153,6 +153,8 @@ export const StepDescriptorSchema = z.strictObject({
                     clean: z.string().min(1).max(64).optional(),
                     /** score: the authored levels, worst first. */
                     levels: z.array(z.string().min(1).max(200)).optional(),
+                    /** The sections this criterion judges; absent means the whole artifact (T1, R5). */
+                    sections: z.array(z.string().min(1).max(64)).min(1).max(6).optional(),
                   }),
                 )
                 .max(PROBES_PER_DIMENSION)

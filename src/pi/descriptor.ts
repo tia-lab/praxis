@@ -54,6 +54,9 @@ function criterionBrief(probe: Probe): Record<string, unknown> {
       ? { options: criteria, ...(probe.clean === undefined ? {} : { clean: probe.clean }) }
       : {}),
     ...(probe.type === "score" && Array.isArray(criteria) ? { levels: criteria } : {}),
+    // The sections this criterion judges, when it targets any (T1, R5): the same target the judge
+    // will be given, so the agent can see what each criterion is measured against.
+    ...(probe.sections === undefined ? {} : { sections: probe.sections }),
   };
 }
 

@@ -10,6 +10,17 @@ import { z } from "zod";
 
 /** A decomposed quality rubric a task is judged against (the quality floor). */
 /**
+ * A task section id: the same kebab form as a probe id, so a criterion's targeting and a task's
+ * `requires` clauses share ONE rule (T1). Declared here because the rubric is what points at them.
+ */
+export const SectionNameSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9-]+$/, "expected a lower-case kebab section id");
+export type SectionName = z.infer<typeof SectionNameSchema>;
+
+/**
  * One jev probe: an independent, calibrated question whose answer helps explain why a dimension
  * scored what it scored (verdict-rationale D4). Phrased POSITIVELY for `noul` (the probability that
  * the property holds), `choice` names its options and says which one is the satisfied answer,
@@ -29,11 +40,25 @@ export const ProbeSchema = z
       .optional(),
     /** `choice` only: the option key that counts as satisfied (the clean answer). */
     clean: z.string().min(1).max(64).optional(),
+    /**
+     * The artifact sections this criterion judges (T1, R3). Absent means it judges the WHOLE
+     * artifact, which is exactly today's behaviour. A declared id must name a section the task
+     * requires; the task schema refuses anything else (R4), so a target can never judge nothing.
+     */
+    sections: z.array(SectionNameSchema).min(1).max(6).optional(),
   })
   .superRefine((probe, ctx) => {
     const issue = (path: string, message: string): void => {
       ctx.addIssue({ code: "custom", path: [path], message });
     };
+    // Targeting is checked for every probe type, before the per-type shape rules (T1, R3).
+    if (probe.sections !== undefined) {
+      const seen = new Set<string>();
+      for (const section of probe.sections) {
+        if (seen.has(section)) issue("sections", "duplicate section " + JSON.stringify(section));
+        seen.add(section);
+      }
+    }
     if (probe.type === "noul") {
       if (probe.criteria !== undefined) issue("criteria", "a noul probe carries no criteria");
       if (probe.clean !== undefined) issue("clean", "a noul probe has no clean option");

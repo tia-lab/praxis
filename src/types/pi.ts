@@ -123,6 +123,24 @@ export const StepDescriptorSchema = z.strictObject({
     /** When the step binds a subject, the digest to carry as `subject`. */
     subject: DigestSchema.optional(),
     /**
+     * The rules this TASK follows (task-rules), in the order the task declares them and, inside one set,
+     * in the set document's own order. Absent when the task references none: the envelope is then
+     * byte-identical to the one before this field existed. Guidance for the agent - never a gate input.
+     */
+    rules: z
+      .array(
+        z.strictObject({
+          set: z.string().min(1).max(128),
+          version: z.int().min(1),
+          /** The set's own digest, so the brief names the bytes it came from. */
+          digest: DigestSchema,
+          id: z.string().min(1).max(64),
+          statement: z.string().min(1).max(280),
+        }),
+      )
+      .max(16)
+      .optional(),
+    /**
      * The quality floor this step is judged against, when the task (or the flow it inherits
      * from) declares one: the agent sees the standard before it submits, not only on refusal.
      * Bounded by the task document itself (at most 8 dimensions of at most 500 characters).
@@ -157,6 +175,13 @@ export const StepDescriptorSchema = z.strictObject({
                     levels: z.array(z.string().min(1).max(200)).optional(),
                     /** The sections this criterion judges; absent means the whole artifact (T1, R5). */
                     sections: z.array(z.string().min(1).max(64)).min(1).max(6).optional(),
+                    /**
+                     * Present when this criterion judges a NAMED RULE (task-rules): the rule text is
+                     * already inside `instructions`, and this is the reference it came from.
+                     */
+                    rule: z
+                      .strictObject({ set: z.string().min(1).max(128), id: z.string().min(1).max(64) })
+                      .optional(),
                   }),
                 )
                 .max(PROBES_PER_DIMENSION)

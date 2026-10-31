@@ -20,6 +20,17 @@ import {
   setSingleFlightWaitForTest,
 } from "../../src/quality/index.ts";
 import { RecallRankedSchema } from "../../src/types/learning.ts";
+import { setScreenForTest } from "../../src/quality/screen.ts";
+
+/**
+ * These cases are about the jev RANKING, so the instruction screen clears every case: the screen's
+ * own behaviour is proved in `recall-screen.test.ts` (S4, R25-R27). Without a judge the recall
+ * withholds every lesson's text, which would mask the ordering under test.
+ */
+setScreenForTest((async (request: JevRequest): Promise<JevResponse> => ({
+  model: "fake/screen",
+  answers: Object.fromEntries(Object.keys(request.questions).map((id) => [id, { type: "noul" as const, noul: 0.05 }])),
+})) as never);
 import {
   clock,
   dimensionScorer,

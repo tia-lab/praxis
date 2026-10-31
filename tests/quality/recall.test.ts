@@ -168,10 +168,19 @@ async function seed(ws: Workspace, tick: () => string, input: Seed): Promise<str
 }
 
 /** The ranking itself, read straight from the store: no instance to attribute the set to. */
-const rank = (ws: Workspace, quality: Quality = QUALITY) => {
+/**
+ * The recall set for the fixture store. `cleared` marks the set as having passed an instruction
+ * screen, so the budget case can exercise the TEXT budget: without a screen every case is withheld
+ * (S4, R27), which is the default and the safe state.
+ */
+const rank = (ws: Workspace, quality: Quality = QUALITY, cleared = false) => {
   const store = openStore(join(ws.store, "praxis.sqlite"));
   try {
-    return recallFor(store, TASK, 1, quality);
+    if (!cleared) return recallFor(store, TASK, 1, quality);
+    // Every candidate cleared by the screen, so the TEXT budget is what binds (S4, R27).
+    const ids = recallFor(store, TASK, 1, quality).notes.map((note) => note.id);
+    const screens = new Map(ids.map((id) => [id, { passed: true }] as const));
+    return recallFor(store, TASK, 1, quality, screens);
   } finally {
     store.close();
   }
@@ -325,7 +334,7 @@ test("the payload respects the token budget", async () => {
         text: long,
       });
     }
-    const set = rank(ws);
+    const set = rank(ws, QUALITY, true);
     const cost = set.notes.reduce(
       (sum, note) => sum + note.whatWrong.length + note.whatRight.length + note.whatBetter.length + note.tags.reduce((inner, tag) => inner + tag.lesson.length, 0),
       0,
@@ -360,8 +369,11 @@ test("lessons survive a bar raise, decayed but present, with the weak-set spanni
     const set = rank(ws);
     assert.equal(set.bar, 0.65);
     assert.equal(set.notes.length, 2, "the old-bar lesson is decayed, not discarded");
-    assert.match(set.notes[0].whatBetter, /raised-bar lesson/, "the current-bar lesson ranks first");
-    assert.match(set.notes[1].whatBetter, /old-bar lesson/);
+    // S4/R27: this set carries no screen, so text is withheld - the ORDER is read from the tags,
+    // which R26 keeps on a withheld case.
+    assert.equal(set.notes[0].whatBetter, "");
+    assert.match(set.notes[0].tags[0]!.lesson, /raised-bar lesson/, "the current-bar lesson ranks first");
+    assert.match(set.notes[1]!.tags[0]!.lesson, /old-bar lesson/);
   } finally {
     dispose(ws);
   }

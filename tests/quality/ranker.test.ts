@@ -291,7 +291,10 @@ test("R5: the answer is bounded and says when it was cut", async () => {
       assert.equal(cases.length, 10, "ten solved cases are in the store");
       const port = deterministicRanker();
       const ranked = port.rank({ need: { text: "stuck", tags: ["solves"] }, candidates: cases });
-      const bounded = (await import("../../src/quality/index.ts")).applyBounds(ranked, 10);
+      // A cleared screen, so the TEXT budget is what this case measures (S4 withholds the text
+      // of an unscreened case, which is proved in `recall-screen.test.ts`).
+      const cleared = new Map(ranked.map((candidate) => [candidate.instance + "/" + candidate.step + "/" + String(candidate.version), { passed: true }]));
+      const bounded = (await import("../../src/quality/index.ts")).applyBounds(ranked, 10, 1200, cleared);
       const chars = bounded.reduce((sum, one) => sum + one.lesson.whatWrong.length + one.lesson.whatRight.length + one.lesson.whatBetter.length + one.lesson.tags.reduce((inner, tag) => inner + tag.lesson.length, 0), 0);
       assert.ok(bounded.length < 10, "the token budget stops the list before the count bound: " + bounded.length);
       assert.ok(Math.ceil(chars / 4) <= 1200, "the payload stays inside the budget: " + Math.ceil(chars / 4));

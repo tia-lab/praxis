@@ -11,7 +11,7 @@
  * dropped in later as an opt-in — it is NOT built here and jev-search is not a dependency.
  */
 import { LearningNoteSchema } from "../types/learning.ts";
-import { parseWith, TaskConfigSchema, type TaskConfig } from "../types/schema.ts";
+import { parseWith, TaskConfigSchema, type Quality, type TaskConfig } from "../types/schema.ts";
 import type { Store } from "../store/db.ts";
 import { readDefinition } from "../store/definitions.ts";
 import { loadInstance } from "../store/instance.ts";
@@ -20,7 +20,8 @@ import { loadPinnedFlow } from "../runner/engine/flow.ts";
 import { withStore } from "../runner/engine/support.ts";
 import { EVENT } from "../runner/engine/types.ts";
 import type { EngineOptions } from "../runner/engine/types.ts";
-import { scanEvents } from "./bar.ts";
+import { dimensionKey, scanEvents } from "./bar.ts";
+import { WITHHELD_NOTE } from "./screen.ts";
 import { scoreCandidate } from "./recall.ts";
 
 /** What the agent says it needs, in its own words plus the dimensions it wants covered. */
@@ -179,10 +180,37 @@ function pinnedQuality(store: Store, instance: string, task: string): TaskConfig
  * a stub note has no lesson, a continued-FAILED acceptance is not a solution, and an acceptance with
  * no note cannot say what was learned. Anything else is not evidence and is not returned.
  */
-export function collectCases(store: Store): ExperienceCase[] {
+/**
+ * The dimensions whose identity changed since some case was judged under it (R28): the exclusion,
+ * recorded once per recall set rather than per case.
+ */
+export function excludedFor(
+  all: readonly ExperienceCase[],
+  scoped: readonly ExperienceCase[],
+  keys: ReadonlyMap<string, string>,
+): string[] {
+  const kept = new Set(scoped.flatMap((item) => item.lesson.tags.map((tag) => tag.dimension)));
+  const dropped = new Set(all.flatMap((item) => item.lesson.tags.map((tag) => tag.dimension)));
+  return [...dropped].filter((dimension) => !kept.has(dimension) && keys.has(dimension)).sort();
+}
+
+/**
+ * The current identity key of every dimension, from the rubric in force (S4, R28).
+ */
+export function rubricKeys(quality: Quality): Map<string, string> {
+  return new Map(quality.dimensions.map((dimension) => [dimension.id, dimensionKey(dimension)]));
+}
+
+/**
+ * Every solved case in the store, oldest first. `currentKeys`, when given, scopes each case's tags to
+ * the dimensions whose identity is UNCHANGED: a lesson judged under an old criterion is not evidence
+ * about the current one, so it is dropped for that dimension (R28, D15) and a case left with no tags
+ * is not recalled at all. A case judged before verdicts carried keys keeps its tags.
+ */
+export function collectCases(store: Store, currentKeys?: ReadonlyMap<string, string>): ExperienceCase[] {
   const events = scanEvents(store, [EVENT.artifactAccepted, EVENT.qualityVerdict, EVENT.learningNote, EVENT.barRaised]);
   const notes = new Map<string, { agent: string; at: string; note: ReturnType<typeof LearningNoteSchema.parse> }>();
-  const verdicts = new Map<string, { score: number; mean: number; flagged: string[]; rationales: Map<string, string> }>();
+  const verdicts = new Map<string, { score: number; mean: number; flagged: string[]; rationales: Map<string, string>; keys: Map<string, string> }>();
   const authorities = new Map<string, Set<string>>();
   const raisesByTask = new Map<string, { to: number; at: string }[]>();
   for (const event of events) {
@@ -211,6 +239,13 @@ export function collectCases(store: Store): ExperienceCase[] {
               return typeof cell.id === "string" && typeof cell.rationale === "string" ? [[cell.id, cell.rationale]] : [];
             }),
           ),
+          // The dimension identity each judgment was made under (S4, R28).
+          keys: new Map(
+            (Array.isArray(payload.dimensions) ? payload.dimensions : []).flatMap((entry) => {
+              const cell = entry as { id?: unknown; key?: unknown };
+              return typeof cell.id === "string" && typeof cell.key === "string" ? [[cell.id, cell.key]] : [];
+            }),
+          ),
         },
       );
     } else if (event.type === EVENT.barRaised) {
@@ -233,11 +268,20 @@ export function collectCases(store: Store): ExperienceCase[] {
     if (note === undefined || verdict === undefined || task === "") continue;
     const subjective = note.note.subjective;
     if (subjective === null) continue;
+    // R28: a tag survives only when the dimension it speaks about has the SAME identity now.
+    const kept = currentKeys === undefined
+      ? subjective.tags
+      : subjective.tags.filter((tag) => {
+          const recorded = verdict.keys.get(tag.dimension);
+          const current = currentKeys.get(tag.dimension);
+          return recorded === undefined || current === undefined || recorded === current;
+        });
+    if (kept.length === 0) continue;
     const quality = pinnedQuality(store, instance, task);
     const raises = raisesByTask.get(task) ?? [];
     const barThen = quality === undefined ? 0 : foldBar(raises, quality.threshold, note.at);
     const corroborationBy = new Map<string, number>();
-    for (const tag of subjective.tags) {
+    for (const tag of kept) {
       const agents = [...(authorities.get(tag.dimension) ?? new Set<string>())].filter((agent) => agent !== note.agent).length;
       corroborationBy.set(tag.dimension, agents);
     }
@@ -259,7 +303,7 @@ export function collectCases(store: Store): ExperienceCase[] {
         whatWrong: clip(subjective.whatWrong, 400),
         whatRight: clip(subjective.whatRight, 400),
         whatBetter: clip(subjective.whatBetter, 400),
-        tags: subjective.tags.map((tag) => ({ dimension: tag.dimension, lesson: clip(tag.lesson, 240) })),
+        tags: kept.map((tag) => ({ dimension: tag.dimension, lesson: clip(tag.lesson, 240) })),
       },
       signals: { barThen, levels: raises.filter((raise) => raise.at > note.at).length, corroborationBy },
     });
@@ -282,6 +326,8 @@ export interface RecallPayload {
   need: string;
   count: number;
   truncated: boolean;
+  /** Dimensions excluded because a case's identity changed since it was judged (S4, R28). */
+  excluded?: string[];
   cases: Array<{
     score: number;
     relevance: RankedCase["relevance"];
@@ -290,16 +336,41 @@ export interface RecallPayload {
     /** The relevant dimension's rationale, by reference from the verdict (verdict-rationale D12c). */
     rationale?: string;
     lesson: ExperienceCase["lesson"];
+    /** True only when this case's text passed the instruction screen (S4, R26). */
+    screened: boolean;
+    /** The code-owned line a withheld case carries instead of its text. */
+    withheld?: string;
   }>;
 }
 
 /** Cut the ranked list to the caller's bound and the payload budget, and say whether it was cut. */
-export function applyBounds(ranked: readonly RankedCase[], max: number, budget = 1200): RecallPayload["cases"] {
+/** One case's stable key in the screen's namespace. */
+export const caseKey = (candidate: { instance: string; step: string; version: number }): string =>
+  candidate.instance + "/" + candidate.step + "/" + String(candidate.version);
+
+/**
+ * Cut the ranked list to the caller's bound and the payload budget, and say whether it was cut.
+ *
+ * `screens` carries what the instruction screen concluded per case (S4, R25-R27). A case whose text
+ * PASSED is served as it is; a case that failed, or that no screen judged, keeps its record (score,
+ * relevance, provenance, tags) and loses its free text, replaced by one code-owned line. There is no
+ * warning-and-serve option: the agent cannot un-read a sentence (O6).
+ */
+export function applyBounds(
+  ranked: readonly RankedCase[],
+  max: number,
+  budget = 1200,
+  screens?: ReadonlyMap<string, { passed: boolean }>,
+): RecallPayload["cases"] {
   const kept: RecallPayload["cases"] = [];
   let tokens = 0;
   for (const candidate of ranked) {
     if (kept.length >= max) break;
-    const cost = lessonTokens(candidate);
+    const cleared = screens?.get(caseKey(candidate))?.passed === true;
+    const lesson = cleared
+      ? candidate.lesson
+      : { whatWrong: "", whatRight: "", whatBetter: "", tags: candidate.lesson.tags };
+    const cost = cleared ? lessonTokens(candidate) : Math.ceil(lesson.tags.reduce((sum, tag) => sum + tag.lesson.length + tag.dimension.length, 0) / 4) + 8;
     if (tokens + cost > budget && kept.length > 0) break;
     tokens += cost;
     kept.push({
@@ -317,7 +388,9 @@ export function applyBounds(ranked: readonly RankedCase[], max: number, budget =
       },
       outcome: candidate.outcome,
       ...(candidate.rationale === undefined ? {} : { rationale: candidate.rationale }),
-      lesson: candidate.lesson,
+      lesson,
+      screened: cleared,
+      ...(cleared ? {} : { withheld: WITHHELD_NOTE }),
     });
   }
   return kept;
@@ -341,10 +414,20 @@ export function recallExperience(
     const task = node === undefined ? undefined : flow.tasks.get(node.task);
     const tags = input.tags ?? (task?.quality?.dimensions.map((dimension) => dimension.id) ?? []);
     const need: QueryNeed = { text: input.need, tags };
-    const candidates = collectCases(store);
-    const ranked = activeRanker().rank({ need, candidates });
+    // S4/R28: scope every case to the dimensions whose identity is still the one it was judged under,
+    // and record the dimensions that had to be excluded.
+    const keys = task?.quality === undefined ? undefined : rubricKeys(task.quality);
+    const all = collectCases(store, keys);
+    const excluded = keys === undefined ? [] : excludedFor(collectCases(store), all, keys);
+    const ranked = activeRanker().rank({ need, candidates: all });
     const cases = applyBounds(ranked, max);
-    return { need: input.need, count: cases.length, truncated: cases.length < ranked.length, cases };
+    return {
+      need: input.need,
+      count: cases.length,
+      truncated: cases.length < ranked.length,
+      ...(excluded.length === 0 ? {} : { excluded }),
+      cases,
+    };
   });
 }
 

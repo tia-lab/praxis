@@ -10,6 +10,7 @@
  */
 import { LearningNoteSchema, RecallSetSchema, type RecallNote, type RecallSet } from "../types/learning.ts";
 import { parseWith, type Quality } from "../types/schema.ts";
+import { WITHHELD_NOTE } from "./screen.ts";
 import type { Store } from "../store/db.ts";
 import { appendEvent } from "../store/events.ts";
 import { withStore } from "../runner/engine/support.ts";
@@ -221,6 +222,8 @@ function candidates(store: Store, task: string, quality: Quality, weakSet: reado
         whatRight: clip(subjective.whatRight, 400),
         whatBetter: clip(subjective.whatBetter, 400),
         tags: subjective.tags.map((tag) => ({ dimension: tag.dimension, lesson: clip(tag.lesson, 240) })),
+        screened: false,
+        withheld: WITHHELD_NOTE,
       },
       relevance,
       tags: subjective.tags.map((tag) => ({ dimension: tag.dimension, lesson: tag.lesson })),
@@ -283,7 +286,24 @@ function withExemplar(chosen: readonly Candidate[], ranked: readonly Candidate[]
  * The RecallSet for a task version: the selected lessons plus the weak-set and bar they were ranked
  * against, so the disclosure is reproducible. Cold start returns an empty set, never invented text.
  */
-export function recallFor(store: Store, task: string, taskVersion: number, quality: Quality): RecallSet {
+/**
+ * The note as it may be SERVED (S4, R26-R27): a case whose text passed the screen is served as it
+ * is; every other case keeps its record and loses its free text. `screens` is keyed by note id and
+ * is supplied by a caller that ran the screen (the sync path never has one, so it withholds).
+ */
+function serve(note: RecallNote, screens?: ReadonlyMap<string, { passed: boolean }>): RecallNote {
+  if (screens?.get(note.id)?.passed === true) return { ...note, screened: true };
+  return { ...note, whatWrong: "", whatRight: "", whatBetter: "", screened: false, withheld: WITHHELD_NOTE };
+}
+
+export function recallFor(
+  store: Store,
+  task: string,
+  taskVersion: number,
+  quality: Quality,
+  /** Screens a caller already ran, keyed by note id. Absent means nothing was screened. */
+  screens?: ReadonlyMap<string, { passed: boolean }>,
+): RecallSet {
   const weakSet = weakSetFor(store, task, taskVersion, quality);
   const ranked = candidates(store, task, quality, weakSet);
   const selected = ranked.length === 0 ? [] : withExemplar(select(ranked), ranked);
@@ -293,7 +313,7 @@ export function recallFor(store: Store, task: string, taskVersion: number, quali
     {
       bar: effectiveBars(store, task, quality).global,
       weakSet,
-      notes: clipped.map((candidate) => candidate.note),
+      notes: clipped.map((candidate) => serve(candidate.note, screens)),
     },
     "RESULT_INVALID",
     "recall set",

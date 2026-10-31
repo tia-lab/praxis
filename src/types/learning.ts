@@ -195,6 +195,13 @@ export const RecallNoteSchema = z.strictObject({
   whatRight: z.string().max(1000),
   whatBetter: z.string().max(1000),
   tags: z.array(LearningTagSchema).max(8),
+  /**
+   * True only when this case's text passed the instruction screen (S4, R26). A case that failed, or
+   * that could not be screened, keeps its record and loses its text; `withheld` says why, in one
+   * code-owned line. Never absent: an unjudged case is disclosed, not silently served.
+   */
+  screened: z.boolean(),
+  withheld: z.string().min(1).max(200).optional(),
 });
 export type RecallNote = z.infer<typeof RecallNoteSchema>;
 
@@ -234,6 +241,14 @@ export const RecallRankedSchema = z.strictObject({
         step: StepIdSchema,
         version: z.int().min(1),
         jev: z.number().min(0).max(1),
+        /** The instruction screen's verdict for this case, recorded with the ranking (S4, R26). */
+        screen: z
+          .strictObject({
+            instructs: z.number().min(0).max(1),
+            outside: z.number().min(0).max(1),
+            passed: z.boolean(),
+          })
+          .optional(),
       }),
     )
     .max(5),
@@ -246,5 +261,10 @@ export const RecallSetSchema = z.strictObject({
   bar: z.number().min(0).max(1),
   weakSet: z.array(z.string().min(1).max(64)).max(8),
   notes: z.array(RecallNoteSchema).max(5),
+  /**
+   * Dimensions whose identity key changed since a case was judged, so that case was excluded for
+   * them (S4, R28, D15). Recorded once per set: the exclusion is evidence, not a silent filter.
+   */
+  excluded: z.array(z.string().min(1).max(64)).max(8).optional(),
 });
 export type RecallSet = z.infer<typeof RecallSetSchema>;

@@ -71,7 +71,12 @@ test("the brief discloses the standard and the recall, and the same store yields
     assert.match(quality.judging, /MINIMUM/, "the agent is told how the judgments combine");
     assert.equal(quality.recall.bar, 0.6);
     assert.equal(quality.recall.notes.length, 1, "the recorded lesson is injected");
-    assert.equal(quality.recall.notes[0].whatBetter, NOTE.whatBetter);
+    // S4/R27: the brief's recall set is built synchronously, with no judge, so its text is
+    // WITHHELD and the case says so. The record (score, tags, relevance) is still disclosed.
+    assert.equal(quality.recall.notes[0].whatBetter, "");
+    assert.equal(quality.recall.notes[0].screened, false);
+    assert.match(String(quality.recall.notes[0].withheld), /withheld/);
+    assert.ok(quality.recall.notes[0].tags.length >= 1, "the structured reference survives");
     assert.equal(typeof quality.recall.notes[0].relevance, "number");
 
     // Determinism (F8): the same durable state rebuilds the same brief byte for byte.

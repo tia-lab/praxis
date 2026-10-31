@@ -315,6 +315,10 @@ export const RecallCaseSchema = z.strictObject({
     at: TimestampSchema,
   }),
   outcome: z.literal("pass"),
+  /** True only when this case's text passed the instruction screen (S4, R26). */
+  screened: z.boolean(),
+  /** The code-owned line a withheld case carries instead of its text. */
+  withheld: z.string().min(1).max(200).optional(),
   /**
    * The recorded rationale of THIS exemplar's verdict for the dimension the query is about — by
    * reference from the `quality.verdict` event, never a third stored copy (verdict-rationale D12c).
@@ -335,6 +339,8 @@ export const RecallEnvelopeSchema = z.strictObject({
   need: z.string().min(1).max(500),
   count: z.int().min(0).max(10),
   truncated: z.boolean(),
+  /** Dimensions excluded because a case's identity changed since it was judged (S4, R28). */
+  excluded: z.array(z.string().min(1).max(64)).max(8).optional(),
   cases: z.array(RecallCaseSchema).max(10),
 });
 export type RecallEnvelope = z.infer<typeof RecallEnvelopeSchema>;

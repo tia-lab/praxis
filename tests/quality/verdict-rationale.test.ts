@@ -208,10 +208,16 @@ test("R12: the budget counts the exemplar's rationale, so the bound still holds"
   };
   const long = "x".repeat(RATIONALE_MAX);
   const withLine = { ...candidate, rationale: long };
-  assert.equal(applyBounds([candidate], 3).length, 1, "fits without a rationale");
+  // Cleared screens, so the budget is spent on TEXT: an unscreened case is withheld (S4, R27).
+  const cleared = (case1: typeof candidate) => new Map([[case1.instance + "/" + case1.step + "/" + String(case1.version), { passed: true }]]);
+  assert.equal(applyBounds([candidate], 3, 1200, cleared(candidate)).length, 1, "fits without a rationale");
   // 240 chars ≈ 68 tokens: with a second case the budget must now stop earlier than it would alone.
   const second = { ...candidate, instance: "i2", rationale: long };
-  const kept = applyBounds([withLine, second], 3, 120);
+  const both = new Map([
+    [withLine.instance + "/" + withLine.step + "/" + String(withLine.version), { passed: true }],
+    [second.instance + "/" + second.step + "/" + String(second.version), { passed: true }],
+  ]);
+  const kept = applyBounds([withLine, second], 3, 120, both);
   assert.ok(kept.length <= 1, "the rationale is paid for in the budget: " + kept.length);
   assert.equal(kept[0]?.rationale, long, "and it is carried onto the payload case");
 });

@@ -15,6 +15,7 @@
 import { evaluate } from "pi-jev";
 import type { JevRequest } from "pi-jev";
 import { RecallRankedSchema, type RecallRanked } from "../types/learning.ts";
+import { screenCases, type ScreenOutcome } from "./screen.ts";
 import { parseWith } from "../types/schema.ts";
 import type { Store } from "../store/db.ts";
 import { appendEvent } from "../store/events.ts";
@@ -35,6 +36,9 @@ import {
   JEV_POOL,
   SINGLE_FLIGHT_WAIT_MS,
   type DistinctChoice,
+  caseKey,
+  excludedFor,
+  rubricKeys,
   type DistinctOutcome,
   type DistinctRanker,
   type QueryNeed,
@@ -204,6 +208,8 @@ interface RecallState {
   need: QueryNeed;
   ranked: RankedCase[];
   max: number;
+  /** Dimensions excluded because a case's identity changed since it was judged (S4, R28). */
+  excluded: string[];
   fresh: RecallRanked | undefined;
 }
 
@@ -244,9 +250,50 @@ function fromEntry(entry: RecallRanked, ranked: readonly RankedCase[]): Distinct
 }
 
 /** The payload builder shared by every path: at most `max` cases, within the token budget. */
-function payloadOf(need: string, ordered: readonly RankedCase[], total: number, max: number): RecallPayload {
-  const cases = applyBounds(ordered, max);
-  return { need, count: cases.length, truncated: cases.length < total, cases };
+function payloadOf(
+  need: string,
+  ordered: readonly RankedCase[],
+  total: number,
+  max: number,
+  screens?: ReadonlyMap<string, { passed: boolean }>,
+  excluded?: readonly string[],
+): RecallPayload {
+  const cases = applyBounds(ordered, max, 1200, screens);
+  return {
+    need,
+    count: cases.length,
+    truncated: cases.length < total,
+    ...(excluded === undefined || excluded.length === 0 ? {} : { excluded: [...excluded] }),
+    cases,
+  };
+}
+
+/**
+ * Screen the chosen cases in ONE batched call (S4, R25). A case's text is what the screen judges; a
+ * throw propagates and every case is withheld by the caller (R27).
+ */
+async function screenChosen(chosen: readonly DistinctChoice[]): Promise<Map<string, ScreenOutcome>> {
+  return screenCases(
+    chosen.map((pick) => ({
+      key: caseKey(pick.case),
+      text: [pick.case.lesson.whatWrong, pick.case.lesson.whatRight, pick.case.lesson.whatBetter]
+        .filter((part) => part.trim() !== "")
+        .join("\n"),
+    })),
+  );
+}
+
+/** The screens a cached entry already recorded, so a fresh hit costs no call at all. */
+function screensOf(entry: RecallRanked, ranked: readonly RankedCase[]): Map<string, ScreenOutcome> {
+  const byKey = new Map(ranked.map((candidate) => [caseKey(candidate), candidate] as const));
+  const screens = new Map<string, ScreenOutcome>();
+  for (const pick of entry.chosen) {
+    if (pick.screen === undefined) continue;
+    const candidate = byKey.get(pick.instance + "/" + pick.step + "/" + String(pick.version));
+    if (candidate === undefined) continue;
+    screens.set(caseKey(candidate), pick.screen);
+  }
+  return screens;
 }
 
 /** The in-process single flight: concurrent misses in one process share one jev call. */
@@ -267,7 +314,11 @@ export async function recallRanked(
     const task = node === undefined ? undefined : flow.tasks.get(node.task);
     const tags = input.tags ?? (task?.quality?.dimensions.map((dimension) => dimension.id) ?? []);
     const need: QueryNeed = { text: input.need, tags };
-    const candidates = collectCases(store);
+    // S4/R28: cases are scoped to the dimensions whose identity is unchanged, and the exclusions
+    // are reported once with the set.
+    const keys = task?.quality === undefined ? undefined : rubricKeys(task.quality);
+    const candidates = collectCases(store, keys);
+    const excluded = keys === undefined ? [] : excludedFor(collectCases(store), candidates, keys);
     const ranked = activeRanker().rank({ need, candidates });
     const key: RankedKey = {
       // The task REF as the flow knows it (`tasks/<path>`), never the bare id.
@@ -277,10 +328,12 @@ export async function recallRanked(
       coverDigest: coverDigestOf(tags),
       watermark: candidates.length,
     };
-    return { instance: instance.id, key, need, ranked, max, fresh: freshEntry(store, key) };
+    return { instance: instance.id, key, need, ranked, max, excluded, fresh: freshEntry(store, key) };
   });
 
-  const deterministic = (): RecallPayload => payloadOf(input.need, state.ranked, state.ranked.length, max);
+  // No screen ran on this path (jev down, cold pool, or a deterministic fallback), so the payload
+  // withholds every case's text and says so per case (R27).
+  const deterministic = (): RecallPayload => payloadOf(input.need, state.ranked, state.ranked.length, max, undefined, state.excluded);
 
   // Nothing solved yet: there is nothing to rank and nothing to cache, so no model call is made.
   if (state.ranked.length === 0 || state.key.task === "") return deterministic();
@@ -289,7 +342,9 @@ export async function recallRanked(
   // the relevance numbers in the payload are the same computation the deterministic path would produce.
   if (state.fresh !== undefined) {
     const cached = fromEntry(state.fresh, state.ranked);
-    if (cached.length > 0) return payloadOf(input.need, cached.map((pick) => pick.case), state.ranked.length, max);
+    if (cached.length > 0) {
+      return payloadOf(input.need, cached.map((pick) => pick.case), state.ranked.length, max, screensOf(state.fresh, state.ranked), state.excluded);
+    }
   }
 
   const key = keyOf(state.key);
@@ -319,6 +374,15 @@ export async function recallRanked(
   const outcome = await computed;
   if (outcome === undefined) return deterministic();
 
+  // S4/R25: ONE batched screen for the whole chosen set, on the miss path only. A screen that cannot
+  // answer leaves the map empty, so every case is served as a record without text (R27).
+  let screens = new Map<string, ScreenOutcome>();
+  try {
+    screens = await screenChosen(outcome.chosen);
+  } catch {
+    screens = new Map<string, ScreenOutcome>();
+  }
+
   if (outcome.persist) {
     // The write is its own small transaction AFTER jev returned; a failure costs only the cache.
     try {
@@ -345,6 +409,7 @@ export async function recallRanked(
                   step: pick.case.step,
                   version: pick.case.version,
                   jev: Math.round(pick.jev * 10000) / 10000,
+                  ...(screens.has(caseKey(pick.case)) ? { screen: screens.get(caseKey(pick.case))! } : {}),
                 })),
                 at,
               },
@@ -359,5 +424,5 @@ export async function recallRanked(
       // Cache only: the answer already exists, so a failed write changes nothing about this call.
     }
   }
-  return payloadOf(input.need, outcome.chosen.map((pick) => pick.case), state.ranked.length, max);
+  return payloadOf(input.need, outcome.chosen.map((pick) => pick.case), state.ranked.length, max, screens, state.excluded);
 }

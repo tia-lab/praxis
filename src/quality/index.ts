@@ -48,7 +48,10 @@ export {
 export {
   activeRanker,
   applyBounds,
+  caseKey,
   collectCases,
+  excludedFor,
+  rubricKeys,
   deterministicRanker,
   DUPLICATE_JACCARD,
   JEV_CLIP,

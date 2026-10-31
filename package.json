@@ -25,7 +25,7 @@
 		"prepare": "husky || true"
 	},
 	"dependencies": {
-		"pi-jev": "github:tia-lab/pi-jev#v0.2.1",
+		"pi-jev": "github:tia-lab/pi-jev#v0.2.3",
 		"zod": "4.6.7"
 	},
 	"peerDependencies": {

@@ -4,7 +4,7 @@
     "": {
       "name": "pi-praxis",
       "dependencies": {
-        "pi-jev": "github:tia-lab/pi-jev#v0.2.1",
+        "pi-jev": "github:tia-lab/pi-jev#v0.2.3",
         "zod": "4.6.7",
       },
       "devDependencies": {
@@ -375,7 +375,7 @@
 
     "path-key": ["path-key@3.1.1", "", {}, "sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q=="],
 
-    "pi-jev": ["pi-jev@github:tia-lab/pi-jev#9e601aa", { "peerDependencies": { "@earendil-works/pi-ai": "*", "@earendil-works/pi-coding-agent": "*" } }, "tia-lab-pi-jev-9e601aa"],
+    "pi-jev": ["pi-jev@github:tia-lab/pi-jev#02f3b26", { "peerDependencies": { "@earendil-works/pi-ai": "*", "@earendil-works/pi-coding-agent": "*" } }, "tia-lab-pi-jev-02f3b26"],
 
     "picocolors": ["picocolors@1.1.1", "", {}, "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=="],
 

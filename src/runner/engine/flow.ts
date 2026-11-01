@@ -21,9 +21,11 @@ import { readDefinition } from "../../store/definitions.ts";
 import { listEvents } from "../../store/events.ts";
 import { grantFor } from "../capabilities.ts";
 import { digest, digestOf } from "../canonical.ts";
-import { messageOf, payloadOf, pinnedJson, rulesDirOf, tasksDirOf } from "./support.ts";
+import { messageOf, payloadOf, pinnedJson, profileDirOf, rulesDirOf, tasksDirOf } from "./support.ts";
 import { EVENT, type EngineOptions, type HandoffRef, type OpenedFlow } from "./types.ts";
 import { loadRuleSet, type PinnedRuleSet } from "./rules.ts";
+import { loadProfile } from "./profile.ts";
+import { ProfileSchema, type PinnedProfile } from "../../types/profile.ts";
 import { RuleSetSchema } from "../../types/rules.ts";
 
 /**
@@ -72,6 +74,29 @@ function loadTask(tasksDir: string, ref: string): TaskConfig {
  * returns an EMPTY map and never calls the loader: that is what keeps a rules-free project byte-identical
  * (and what keeps it from touching a rules directory that may not exist).
  */
+/**
+ * Every DOMAIN profile the flow's nodes declare, loaded once per id. A node's own `domains` win; a flow's
+ * `domains` are the default for nodes that declare none. No domains anywhere means an EMPTY map and no
+ * filesystem access - which is what keeps a domain-free project byte-identical.
+ */
+function loadReferencedProfiles(
+  config: FlowConfig,
+  load: (ref: string) => PinnedProfile,
+): ReadonlyMap<string, PinnedProfile> {
+  const profiles = new Map<string, PinnedProfile>();
+  const flowDefault = config.domains ?? [];
+  for (const ref of flowDefault) {
+    if (!profiles.has(ref)) profiles.set(ref, load(ref));
+  }
+  for (const node of config.nodes) {
+    for (const ref of node.domains ?? []) {
+      if (profiles.has(ref)) continue;
+      profiles.set(ref, load(ref));
+    }
+  }
+  return profiles;
+}
+
 function loadReferencedRules(
   tasks: ReadonlyMap<string, TaskConfig>,
   load: (ref: string) => PinnedRuleSet,
@@ -113,7 +138,16 @@ export function openFlow(options: EngineOptions): OpenedFlow {
   validateFlow(config, tasks);
   // The rule-sets this flow's TASKS reference, read once: the same set shared by two tasks is loaded once,
   // and a flow whose tasks declare none reads nothing at all (the unchanged case).
-  return { config, flowDigest: digestOf(config), path, tasks, rules: loadReferencedRules(tasks, (ref) => loadRuleSet(rulesDirOf(options), ref)) };
+  return {
+    config,
+    flowDigest: digestOf(config),
+    path,
+    tasks,
+    rules: loadReferencedRules(tasks, (ref) => loadRuleSet(rulesDirOf(options), ref)),
+    // The DOMAIN profiles the flow's NODES declare (a node's own list, else the flow default). Only the
+    // domain layer is read: conduct and role belong to the host (gate #2).
+    profiles: loadReferencedProfiles(config, (ref) => loadProfile(profileDirOf(options), ref)),
+  };
 }
 
 /** Refuse a flow whose references cannot be resolved (R1, R2, R7: typed refusal, zero writes). */
@@ -224,6 +258,20 @@ export function loadPinnedFlow(store: Store, instance: Instance): OpenedFlow {
     tasks,
     // The pinned rule-sets: read back from the instance, digest verified against the bytes, so a finished
     // run's rules cannot change when the file on disk does.
+    profiles: loadReferencedProfiles(config, (ref) => {
+      const row = readDefinition(store, instance.id, "profile", ref);
+      const doc = parseWith(ProfileSchema, pinnedJson(row.bytes, `profile ${ref}`), "PIN_CORRUPT", `pinned profile ${ref}`);
+      const actual = digest(row.bytes);
+      if (actual !== row.digest) {
+        throw fail("PIN_CORRUPT", `pinned profile ${ref} no longer matches its digest`, {
+          instance: instance.id,
+          profile: ref,
+          pinned: row.digest,
+          actual,
+        });
+      }
+      return { path: ref, doc, bytes: row.bytes, digest: row.digest };
+    }),
     rules: loadReferencedRules(tasks, (ref) => {
       const row = readDefinition(store, instance.id, "ruleset", ref);
       const doc = parseWith(RuleSetSchema, pinnedJson(row.bytes, `rule-set ${ref}`), "PIN_CORRUPT", `pinned rule-set ${ref}`);

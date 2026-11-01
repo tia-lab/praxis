@@ -29,7 +29,7 @@ import { type Store, storeCall } from "./db.ts";
  * `ruleset` pins the RAW BYTES of one rule-set file a task references (task-rules). The column is text
  * and the key is already (instance, kind, id), so this is no DDL, no table and no schema-version bump.
  */
-export const DefinitionKindSchema = z.enum(["flow", "task", "assignment", "ruleset"]);
+export const DefinitionKindSchema = z.enum(["flow", "task", "assignment", "ruleset", "profile"]);
 export type DefinitionKind = z.infer<typeof DefinitionKindSchema>;
 
 /** One row to write: the flow document, or one task version's canonical bytes. */

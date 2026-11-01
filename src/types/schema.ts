@@ -10,6 +10,7 @@ import { fail, type Code } from "./errors.ts";
 import { IssueConfigSchema } from "./issue.ts";
 import { KEBAB, pathUnder } from "./paths.ts";
 import { TaskRulesSchema } from "./rules.ts";
+import { DOMAINS_PER_NODE_MAX, DomainRefSchema } from "./profile.ts";
 
 // The path grammar moved to `paths.ts` (the file cap); re-exported so no importer moves.
 export { KEBAB, pathUnder } from "./paths.ts";
@@ -301,7 +302,17 @@ export type TaskRef = z.infer<typeof TaskRefSchema>;
  * One node of the flow: an id and the task unit it runs. The flow owns the wiring, so
  * a node carries no capability, gate or schema and a third key is refused (spec R2).
  */
-export const NodeSchema = z.strictObject({ id: StepIdSchema, task: TaskRefSchema });
+/**
+ * One node of the flow: an id and the task unit it runs. The flow owns the wiring, so a node carries no
+ * capability, gate or schema and a third key is refused (spec R2) - except the OPTIONAL `domains`, the one
+ * dynamic conduct layer (domain injection): the DOMAIN profiles this step runs under, which the brief injects.
+ */
+export const NodeSchema = z.strictObject({
+  id: StepIdSchema,
+  task: TaskRefSchema,
+  /** The domain profiles this STEP runs under; absent means the flow-level default (then none). */
+  domains: z.array(DomainRefSchema).max(DOMAINS_PER_NODE_MAX).optional(),
+});
 export type Node = z.infer<typeof NodeSchema>;
 
 /** The three declared edge kinds (spec R7): `data`, `join`, `refuse`. */
@@ -333,6 +344,12 @@ export function parseTaskRef(value: unknown): string {
  */
 export const FlowConfigSchema = z
   .strictObject({
+  /**
+   * The DOMAIN profiles every step of this flow runs under, when a node declares none (domain injection).
+   * Absent means the flow declares no default, and a flow with no domains anywhere behaves exactly as it did
+   * before this field existed.
+   */
+  domains: z.array(DomainRefSchema).max(DOMAINS_PER_NODE_MAX).optional(),
     schema: z.literal("praxis.flow/v2"),
     flow: FlowNameSchema,
     nodes: z.array(NodeSchema).min(1).max(16),

@@ -4,6 +4,7 @@
  */
 import type { FlowConfig, Instance, QualityVerdict, Result, TaskConfig } from "../../types/schema.ts";
 import type { PinnedRuleSet } from "./rules.ts";
+import type { PinnedProfile } from "../../types/profile.ts";
 
 export const EVENT = {
   instanceCreated: "instance.created",
@@ -115,6 +116,8 @@ export interface EngineOptions {
   tasksDir?: string;
   /** Rule-set library root; default <cwd>/.pi/praxis/rules or PRAXIS_RULES_DIR. */
   rulesDir?: string;
+  /** Profile library root; default <cwd>/.pi/praxis/profile or PRAXIS_PROFILE_DIR. */
+  profileDir?: string;
   /** Pinned timestamp for the artifact rows; defaults to the wall clock. */
   now?: string;
   /** Actor pinned at creation; default PRAXIS_ACTOR or "cli". */
@@ -168,6 +171,12 @@ export interface OpenedFlow {
    * every flow whose tasks declare no `rules` - the unchanged case.
    */
   rules: ReadonlyMap<string, PinnedRuleSet>;
+  /**
+   * The DOMAIN profiles this flow's NODES declare, keyed by bare id: read from the library when the flow
+   * is opened, read back from the instance's `profile` pins when a pinned flow is loaded. Empty for every
+   * flow that declares no domains - the unchanged case. Conduct and role are NEVER resolved here.
+   */
+  profiles: ReadonlyMap<string, PinnedProfile>;
 }
 
 export interface Started {

@@ -36,6 +36,10 @@ export function tasksDirOf(options: EngineOptions): string {
 }
 
 /** Rule-set library resolution: explicit, then env, then the project default (task-rules). */
+export function profileDirOf(options: EngineOptions): string {
+  return resolve(options.profileDir ?? process.env.PRAXIS_PROFILE_DIR ?? join(process.cwd(), ".pi/praxis/profile"));
+}
+
 export function rulesDirOf(options: EngineOptions): string {
   return resolve(options.rulesDir ?? process.env.PRAXIS_RULES_DIR ?? join(process.cwd(), ".pi/praxis/rules"));
 }

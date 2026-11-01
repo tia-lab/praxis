@@ -16,6 +16,7 @@ import { withStore } from "../runner/engine/support.ts";
 import { ABSOLUTE_MIN } from "../runner/engine/types.ts";
 import { briefRecall, quantileBarsFor } from "../quality/index.ts";
 import { authoredQuality, judgeQuality, resolveRules } from "../runner/engine/rules.ts";
+import { resolveDomains } from "../runner/engine/profile.ts";
 import { carriedPopulation, quantileOf } from "../quality/bar.ts";
 import { dimensionKey } from "../quality/scope.ts";
 import { noteStanding } from "../runner/note-gate.ts";
@@ -212,6 +213,15 @@ export function stepDescriptor(
   // The BRIEF shows the question the judge is asked, statement included: the one composed site (site 4).
   const quality = judgeQuality(flow, resolved.task);
   const rules = resolved.task.rules === undefined ? [] : resolveRules(resolved.task, flow.rules);
+  // The DOMAIN layer, resolved once: the node's own list or the flow default, from the sets this flow's
+  // open or pinned view already holds. Conduct and role are NOT composed here (gate #2).
+  const domains = resolveDomains(resolved.node, flow.config, (ref) => {
+    const pinned = flow.profiles.get(ref);
+    if (pinned === undefined) {
+      throw fail("PROFILE_NOT_FOUND", "domain " + ref + " is not resolved for this flow", { reason: "profile-missing", profile: ref });
+    }
+    return pinned;
+  });
   const ops: ("submit" | "read" | "note" | "check")[] = [];
   // A step that owes a note cannot submit: the reflection comes first (O3). The engine refuses the
   // submit anyway; saying so here means the agent learns it from the brief, not from a rejection.
@@ -269,6 +279,20 @@ export function stepDescriptor(
         // The rules this task follows (task-rules S3), in the plan 4 order: refs as declared, the
         // set's own document order inside each. Absent for a task that references none, so its
         // envelope is byte-identical to the one before this field existed (I1, R12).
+        // The injected domain block: what the agent reads BESIDE its fixed conduct and role.
+        ...(domains.length === 0
+          ? {}
+          : {
+              domain: domains.map((profile) => ({
+                id: profile.path,
+                version: profile.doc.version,
+                digest: profile.digest,
+                overview: profile.doc.overview,
+                invariants: profile.doc.invariants,
+                prefer: profile.doc.prefer,
+                avoid: profile.doc.avoid,
+              })),
+            }),
         ...(rules.length === 0
           ? {}
           : {

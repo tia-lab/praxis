@@ -88,6 +88,11 @@ export function start(options: StartOptions): Started {
       // transaction. The rule text is therefore stored exactly once - here, as the file was written - and
       // never inside a task or an event. The column is TEXT and the key is (instance, kind, id), so this is
       // no DDL, no table and no STORE_SCHEMA change. A flow whose tasks declare no rules pins nothing.
+      // Domain profiles: the raw bytes of every profile the flow's NODES declare, pinned with the row so a
+      // finished run's injected domain cannot change when the library does. TEXT column, existing key - no DDL.
+      for (const profile of flow.profiles.values()) {
+        insertDefinition(store, { instance: id, kind: "profile", id: profile.path, digest: profile.digest, bytes: profile.bytes });
+      }
       for (const set of flow.rules.values()) {
         insertDefinition(store, { instance: id, kind: "ruleset", id: set.path, digest: set.digest, bytes: set.bytes });
       }

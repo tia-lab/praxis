@@ -114,10 +114,19 @@ export function composeQuestion(sections: readonly SectionIntent[], probe: Pick<
   return clipTo("Judge ONLY the " + ids + " section(s)" + about + ". Criterion: " + probe.instructions, COMPOSED_MAX);
 }
 
+/**
+ * The ONE `choice` question builder (verdict rationale + branch routing). A branch decision asks the
+ * same typed question a `choice` probe does, so it is built here once and shared, never re-shaped in
+ * the router (R9). The probe's own instructions and options are carried verbatim.
+ */
+export function choiceQuestion(instructions: string, criteria: Record<string, string>): Question {
+  return { type: "choice", instructions, criteria };
+}
+
 /** The question a criterion asks: its own authored type, instructions and options, unchanged. */
 function questionOf(probe: Probe): Question {
   if (probe.type === "choice") {
-    return { type: "choice", instructions: probe.instructions, criteria: probe.criteria as Record<string, string> };
+    return choiceQuestion(probe.instructions, probe.criteria as Record<string, string>);
   }
   if (probe.type === "score") {
     return { type: "score", instructions: probe.instructions, criteria: probe.criteria as string[] };

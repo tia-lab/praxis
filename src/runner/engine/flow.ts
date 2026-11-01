@@ -170,8 +170,11 @@ export function validateFlow(config: FlowConfig, tasks: ReadonlyMap<string, Task
     grantFor({ id: node.id, capabilities: task.capabilities });
     if (task.bindsSubject !== true) continue;
     const sources = consumedBy.get(node.id) ?? [];
-    const data = config.edges.filter((edge) => edge.kind === "data" && edge.to === node.id);
-    if (sources.length !== 1 || data.length !== 1) {
+    // One incoming source, and it may be a data edge OR one branch arm (R5). A join stays refused:
+    // a subject bound through a group has no single subject to judge.
+    const incoming = config.edges.filter((edge) => edge.kind !== "refuse" && edge.to === node.id);
+    const source = incoming.length === 1 ? incoming[0] : undefined;
+    if (source === undefined || source.kind === "join") {
       throw fail(
         "CONFIG_INVALID",
         "node " + JSON.stringify(node.id) + " binds a subject, so it takes exactly one data source",
@@ -207,9 +210,11 @@ export function acceptedRefs(store: Store, instance: string): ArtifactRef[] {
 export function currentHandoffs(flow: OpenedFlow, instance: Instance, accepted: readonly ArtifactRef[]): HandoffRef[] {
   const node = flow.config.nodes.find((candidate) => candidate.id === instance.currentStep);
   if (node === undefined) return [];
+  // A branch arm the instance actually ran is a consumed source like any other (R6), so the
+  // readout names it; the arms that never fired contribute nothing because they have no artifact.
   const sources = new Set(
     flow.config.edges
-      .filter((edge) => (edge.kind === "data" || edge.kind === "join") && edge.to === node.id)
+      .filter((edge) => edge.kind !== "refuse" && edge.to === node.id)
       .map((edge) => edge.from),
   );
   return accepted

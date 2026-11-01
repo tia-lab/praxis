@@ -27,6 +27,8 @@ export const EVENT = {
   rubricSampled: "rubric.sampled",
   /** S3: a due raise was withheld because the identity has no stable sample. */
   barHeld: "bar.held",
+  /** Flow Unit 1 (branch): the ONE durable record of which labelled arm an accepted artifact took. */
+  branchDecided: "branch.decided",
 } as const;
 
 /**
@@ -142,12 +144,31 @@ export interface StartOptions extends EngineOptions {
   roles?: Record<string, string>;
 }
 
+/**
+ * The route a deciding step takes, computed OUTSIDE the store and passed in as data (D4, R8). The
+ * engine validates it, records it and routes on it; it is never a tool argument the agent authors.
+ */
+export interface RouteDecision {
+  /** The branch label this accepted artifact chose. */
+  label: string;
+  /** Which router produced it, recorded so a decision names its own source. */
+  router: string;
+  /** The model that answered, when it said. */
+  model?: string;
+  /** A bounded explanation, when the router gave one. */
+  reason?: string;
+  /** The digest of the artifact judged: the decision is bound to these exact bytes. */
+  digest: string;
+}
+
 export interface AdvanceOptions extends EngineOptions {
   instance: string;
   /** Parsed artifact payload supplied by the caller for the node being run. */
   artifact?: unknown;
   /** A quality verdict pre-computed outside any transaction (quality eval); enforced by the gate. */
   qualityVerdict?: QualityVerdict;
+  /** A route pre-computed outside any transaction (branch R8); required by a deciding step. */
+  route?: RouteDecision;
 }
 
 export interface InspectOptions extends EngineOptions {

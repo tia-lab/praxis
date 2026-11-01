@@ -76,11 +76,33 @@ function versionOf(handoff: Handoff): number {
 }
 
 /**
- * The node this one hands off to: the earliest node it feeds, never "the first edge as
- * declared". An ambiguous set (two data targets or two join groups) is refused here and
- * again at load, so a flow cannot choose its own successor by edge order (defect 2).
+ * The node this one hands off to. A DECIDING node routes by its recorded label and can never
+ * return `undefined` — an unresolved route is a refusal, never an implicit completion (R7).
+ * Every other node keeps the rule below: the earliest node it feeds, never "the first edge as
+ * declared". An ambiguous set (two data targets or two join groups) is refused here and again
+ * at load, so a flow cannot choose its own successor by edge order (defect 2).
  */
-export function successorOf(config: FlowConfig, nodeId: string): string | undefined {
+export function successorOf(config: FlowConfig, nodeId: string, label?: string): string | undefined {
+  const deciding = config.nodes.find((candidate) => candidate.id === nodeId)?.decide;
+  if (deciding !== undefined) {
+    const arms = config.edges.filter((edge) => edge.kind === "branch" && edge.from === nodeId);
+    const labels = arms.map((edge) => edge.label);
+    if (label === undefined) {
+      throw fail("ROUTE_INVALID", "node " + JSON.stringify(nodeId) + " decides its successor but no label was supplied", {
+        node: nodeId,
+        labels,
+      });
+    }
+    const arm = arms.find((edge) => edge.label === label);
+    if (arm === undefined) {
+      throw fail("ROUTE_INVALID", "node " + JSON.stringify(nodeId) + " declares no branch arm labelled " + JSON.stringify(label), {
+        node: nodeId,
+        label,
+        labels,
+      });
+    }
+    return arm.to;
+  }
   const outgoing = config.edges.filter(
     (edge) => (edge.kind === "data" || edge.kind === "join") && edge.from === nodeId,
   );

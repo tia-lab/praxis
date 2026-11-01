@@ -36,6 +36,8 @@ export interface TaskFixture {
   id: string;
   capabilities: string[];
   schema: string;
+  /** The NODE's one-of-N router (branch R2); never written into the task document. */
+  decide?: unknown;
   goal?: string;
   requires?: unknown;
   bindsSubject?: boolean;
@@ -48,9 +50,11 @@ export interface TaskFixture {
 }
 
 export interface EdgeFixture {
-  kind: "data" | "join" | "refuse";
+  kind: "data" | "join" | "branch" | "refuse";
   from: string;
   to: string;
+  /** The option a `branch` edge carries (R1); present iff the kind is `branch`. */
+  label?: string;
 }
 
 export function workspace(): Workspace {
@@ -126,6 +130,8 @@ export function writeFlow(
     nodes: nodes.map((node) => ({
       id: node.id,
       task: taskRef(node.id),
+      // The router is a NODE attribute: the task atom stays reusable and unaware of the wiring.
+      ...(node.decide === undefined ? {} : { decide: node.decide }),
       ...(nodeDomains?.[node.id] === undefined ? {} : { domains: [...nodeDomains[node.id]] }),
     })),
     edges: wiring,

@@ -18,13 +18,14 @@ import { missingFor } from "../runner/requirements.ts";
 import { ISSUE_CATEGORIES, issueTemplate } from "../types/issue.ts";
 import { ISSUE_DISABLED, openIssue } from "../runner/issues.ts";
 import { grantFor, requireGrant } from "../runner/capabilities.ts";
-import { digest, digestOf } from "../runner/canonical.ts";
+import { canonicalBytes, digest, digestOf } from "../runner/canonical.ts";
 import { inspect, openFlow, qualityHistory, readStepArtifact, start } from "../runner/engine/index.ts";
 import type { EngineOptions } from "../runner/engine/index.ts";
-import { projectConfig, projectMaxAttempts, withStore } from "../runner/engine/support.ts";
+import { branchDecisionFor, projectConfig, projectMaxAttempts, withStore } from "../runner/engine/support.ts";
+import type { RouteDecision } from "../runner/engine/types.ts";
 import { afterOp, beforeOp } from "../runner/hooks.ts";
 import { noteStanding, recordNote } from "../runner/note-gate.ts";
-import { advanceEvaluated, perDimensionDecision, quantileBarsFor, jevScorer, recallRanked, sampleIfDue, type Scorer } from "../quality/index.ts";
+import { advanceEvaluated, jevRouteRouter, jevScorer, perDimensionDecision, quantileBarsFor, recallRanked, routeOf, sampleIfDue, type RouteRouter, type Scorer } from "../quality/index.ts";
 import { anchorOf, jevAlignJudge, judgeOrder, orderDigestOf, softAlignment, softClause, uncheckedClause, type AlignJudge } from "../quality/jev-align.ts";
 import { authoredQuality } from "../runner/engine/rules.ts";
 import { artifactSummary, currentStepOf, learningView, stepDescriptor } from "./descriptor.ts";
@@ -247,6 +248,46 @@ export function setScorerForTest(scorer: Scorer | undefined): void {
   scorerOverride = scorer;
 }
 
+/**
+ * The submit-path branch router. It defaults to the real pi-jev adapter; an injected fake replaces
+ * it so no unit test reaches the network, and `undefined` restores the default.
+ */
+let routerOverride: RouteRouter | undefined;
+
+/** Replace the submit-path router; `undefined` restores the pi-jev default. */
+export function setRouterForTest(router: RouteRouter | undefined): void {
+  routerOverride = router;
+}
+
+/** The route a deciding step takes (R8, R11): computed outside the store, and never re-asked once recorded. */
+async function routeFor(args: {
+  options: EngineOptions & { instance: string };
+  artifact: unknown;
+  step: string;
+}): Promise<RouteDecision | undefined> {
+  const view = inspect(args.options);
+  const node = view.flow.config.nodes.find((candidate) => candidate.id === args.step);
+  if (node === undefined || node.decide === undefined) return undefined;
+  const artifactDigest = digest(canonicalBytes(args.artifact === undefined ? {} : args.artifact));
+  const recorded = withStore(args.options, (store) => branchDecisionFor(store, args.options.instance, node.id, artifactDigest));
+  if (recorded !== undefined) return undefined;
+  const task = view.flow.tasks.get(node.task);
+  if (task === undefined) {
+    throw fail("TASK_NOT_FOUND", "step " + JSON.stringify(node.id) + " names an unresolved task " + node.task, {
+      step: node.id,
+      task: node.task,
+    });
+  }
+  return routeOf(routerOverride ?? jevRouteRouter(), {
+    instructions: node.decide.instructions,
+    criteria: node.decide.criteria,
+    artifact: typeof args.artifact === "string" ? args.artifact : JSON.stringify(args.artifact === undefined ? {} : args.artifact),
+    digest: artifactDigest,
+    step: node.id,
+    goal: task.goal,
+  });
+}
+
 /** The codes a quality floor can refuse with; only these carry per-dimension feedback. */
 
 /**
@@ -337,12 +378,16 @@ export async function submitOperation(args: PraxisToolArgs, ctx: PiSessionContex
   const artifact = args.artifact;
   await beforeOp("before_submit", { op: "submit", instance, step, artifact, artifactDigest: digestOf(artifact === undefined ? {} : artifact) });
   try {
+    // A deciding step needs its route as DATA before the engine runs (D4); a non-deciding step
+    // computes nothing, so a branch-free submit is byte-identical (R12).
+    const route = await routeFor({ options: { ...options, instance, actor }, artifact, step });
     const advanced = await advanceEvaluated({
       ...options,
       instance,
       artifact,
       actor,
       scorer: scorerOverride ?? jevScorer(),
+      ...(route === undefined ? {} : { route }),
     });
     // S3/D12 (R24): the rubric sample runs HERE — at the awaiting boundary, after the transaction
     // `advance` just closed — and only when a raise is due on an identity nobody has sampled. A

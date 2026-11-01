@@ -27,7 +27,7 @@ import {
 import type { PiSessionContext, PiToolDefinition, PiToolResult } from "./host.ts";
 
 // The pre-split public surface, unchanged for every caller.
-export { actorFor, engineOptions, failure, ok, setAlignJudgeForTest, setScorerForTest } from "./operations.ts";
+export { actorFor, engineOptions, failure, ok, setAlignJudgeForTest, setRouterForTest, setScorerForTest } from "./operations.ts";
 export { stepDescriptor } from "./descriptor.ts";
 
 export const PRAXIS_TOOL_NAME = "praxis";

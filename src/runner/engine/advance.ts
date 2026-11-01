@@ -13,6 +13,7 @@ import { buildHandoffs, gate, runStep, successorOf } from "../step.ts";
 import { authoredQuality } from "./rules.ts";
 import { assertObserver, assertStepActor } from "./authority.ts";
 import { acceptedRefs, currentHandoffs, loadPinnedFlow } from "./flow.ts";
+import { snapshotActive } from "./active.ts";
 import { qualityRefusal, failureOutcome, recordAcceptance } from "./quality-loop.ts";
 import { ABSOLUTE_MIN } from "./types.ts";
 import { perDimensionDecision, quantileBars, recomputeBar } from "../../quality/index.ts";
@@ -52,6 +53,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
     if (instance.status === "completed") {
       const accepted = acceptedRefs(store, instance.id);
       const flow = loadPinnedFlow(store, instance);
+      snapshotActive(instance, flow, storeDir);
       return { instance, result: buildResult(instance, accepted), flow, handoffs: currentHandoffs(flow, instance, accepted) };
     }
     if (instance.status !== "running") {
@@ -297,6 +299,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
         : (finishInstance(store, instance, flow, at) ??
           setStatus(store, instance.id, { status: "running", currentStep: node.id }, instance.revision));
     const acceptedNow = acceptedRefs(store, instance.id);
+    snapshotActive(updated, flow, storeDir, at);
     return { instance: updated, result: buildResult(updated, acceptedNow), flow, handoffs: currentHandoffs(flow, updated, acceptedNow) };
   });
 }

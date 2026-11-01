@@ -8,6 +8,7 @@ import { transact } from "../../store/db.ts";
 import { insertInstance } from "../../store/instance.ts";
 import { appendEvent } from "../../store/events.ts";
 import { insertDefinition, insertPublication, readDefinition } from "../../store/definitions.ts";
+import { snapshotActive } from "./active.ts";
 import { ROLE_DEFINITION_ID } from "../identity.ts";
 import { canonicalBytes, digest } from "../canonical.ts";
 import { instanceIdFor, openFlow } from "./flow.ts";
@@ -49,6 +50,8 @@ export function start(options: StartOptions): Started {
           },
         );
       }
+      // The host reads this at the next run boundary: the step the session is on right now.
+      snapshotActive(existing, flow, storeDir);
       return { instance: existing, flow, created: false };
     }
 
@@ -123,6 +126,7 @@ export function start(options: StartOptions): Started {
       },
       at,
     });
+    snapshotActive(instance, flow, storeDir, at);
     return { instance, flow, created: true };
   });
 }

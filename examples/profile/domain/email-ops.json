@@ -1,0 +1,22 @@
+{
+  "id": "email-ops",
+  "version": 1,
+  "layer": "domain",
+  "name": "Email operations",
+  "description": "Inbound mail: threading, quoted context, the greeting and the signature, and the one ask the sender made.",
+  "overview": "What the subject demands when the artifact is a mail thread: respect the thread, quote what you answer, and answer the ask the sender actually made.",
+  "invariants": [
+    "Treat the thread as context: an answer that ignores what was already said reopens the question.",
+    "Quote the sentence you answer when the thread carries more than one question.",
+    "Keep the greeting and the signature proportional to the thread's own register."
+  ],
+  "prefer": [
+    "Put the answer first and the explanation after it.",
+    "Preserve the sender's identifiers (order reference, ticket id) verbatim.",
+    "Close with the one action the sender should take next, if any."
+  ],
+  "avoid": [
+    "Do not restate the whole thread; quote only the part you answer.",
+    "Do not change the subject line of a thread you are replying into."
+  ]
+}

@@ -1,0 +1,97 @@
+{
+  "id": "review",
+  "version": 1,
+  "state": "published",
+  "gate": "section-requirements",
+  "goal": "judge a drafted reply against the message it answers and record each finding with its consequence",
+  "rationale": "A review that says 'looks good' moves the defect to the customer; findings with a consequence and a location are what make the loop converge.",
+  "scope": "The draft against the inbound message. Not a rewrite of the draft, not style preferences the message does not require.",
+  "capabilities": [
+    "artifact.read",
+    "artifact.write",
+    "emit",
+    "evaluate"
+  ],
+  "produces": {
+    "schema": "praxis.artifact.review/v1"
+  },
+  "role": "support-lead",
+  "bindsSubject": true,
+  "requires": [
+    {
+      "section": "findings",
+      "minItems": 1,
+      "each": [
+        "claim",
+        "consequence",
+        "evidence"
+      ],
+      "goal": "Name each defect, the consequence for the customer, and the place in the draft where it appears.",
+      "rationale": "A finding without a consequence or a location cannot be fixed or disputed."
+    },
+    {
+      "section": "assessment",
+      "required": [
+        "verdict",
+        "coverage"
+      ],
+      "goal": "State the verdict and which parts of the message the draft answers.",
+      "rationale": "The verdict is the decision the loop routes on; coverage is what a reader checks it against."
+    }
+  ],
+  "quality": {
+    "dimensions": [
+      {
+        "id": "findings-located",
+        "statement": "Each finding names the place in the draft where the defect appears and the consequence it causes.",
+        "probes": [
+          {
+            "id": "location-named",
+            "type": "noul",
+            "instructions": "Each finding names the place in the draft where the defect appears.",
+            "sections": [
+              "findings"
+            ]
+          },
+          {
+            "id": "consequence-stated",
+            "type": "noul",
+            "instructions": "Each finding states the consequence the defect causes for the customer.",
+            "sections": [
+              "findings"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "verdict-supported",
+        "statement": "The assessment verdict follows from the findings recorded above it.",
+        "probes": [
+          {
+            "id": "verdict-follows",
+            "type": "noul",
+            "instructions": "The stated verdict follows from the findings recorded above it.",
+            "sections": [
+              "assessment",
+              "findings"
+            ]
+          },
+          {
+            "id": "coverage-stated",
+            "type": "score",
+            "instructions": "How completely does the assessment state which parts of the message the draft answers?",
+            "criteria": [
+              "the assessment names no part of the message",
+              "the assessment names some parts of the message",
+              "the assessment names each part of the message the draft answers"
+            ],
+            "sections": [
+              "assessment"
+            ]
+          }
+        ]
+      }
+    ],
+    "policy": "required"
+  }
+}

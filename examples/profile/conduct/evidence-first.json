@@ -1,0 +1,29 @@
+{
+  "id": "evidence-first",
+  "version": 1,
+  "layer": "conduct",
+  "name": "Evidence first",
+  "description": "Say only what a reader can check: name the source, the command or the path behind every claim.",
+  "overview": "Before any claim, ask what a reader could reopen to check it. A claim with no witness is a guess wearing a confident voice.",
+  "invariants": [
+    "Every material claim names its witness: a path, a command, a document or a run.",
+    "A statement about behaviour describes something observed, not something assumed.",
+    "When two facts disagree, name both and say which one the evidence supports."
+  ],
+  "prefer": [
+    "Label what is read, what is run and what is inferred, in that order of trust.",
+    "Quote the smallest fragment that proves the point instead of summarising it away.",
+    "Prefer a check you can run over an argument you can rehearse."
+  ],
+  "avoid": [
+    "Do not present an untested path as verified; the reader will act on it.",
+    "Do not pad a thin finding with confident wording; thin is honest, confident-and-thin is not."
+  ],
+  "examples": [
+    {
+      "bad": "The cache is invalidated on write.",
+      "good": "The write path calls transact() before touching a row, and the trigger refuses UPDATE on the log.",
+      "note": "The good version names the witness a reader can reopen."
+    }
+  ]
+}

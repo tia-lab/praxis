@@ -1,0 +1,125 @@
+{
+  "id": "triage",
+  "version": 1,
+  "state": "published",
+  "gate": "section-requirements",
+  "goal": "sort one inbound message into exactly one route and show the message text that justifies the choice",
+  "rationale": "A route chosen without quoting the message is a guess the next stage has to redo; the evidence is what makes the sort reviewable.",
+  "scope": "One inbound message and the route it takes. Not the reply itself, not the customer's history, and no invented facts about the sender.",
+  "capabilities": [
+    "artifact.write",
+    "emit",
+    "evaluate"
+  ],
+  "produces": {
+    "schema": "praxis.artifact.triage/v1"
+  },
+  "role": "support-analyst",
+  "requires": [
+    {
+      "section": "message",
+      "required": [
+        "summary",
+        "from",
+        "subject"
+      ],
+      "goal": "Restate the inbound message in enough detail that a reader who has not seen it can follow the decision.",
+      "rationale": "The judgement below is only checkable against a faithful restatement of what arrived."
+    },
+    {
+      "section": "classification",
+      "required": [
+        "label",
+        "evidence",
+        "alternatives",
+        "confidence"
+      ],
+      "goal": "Name one route, quote the message text that supports it, and say why the other routes do not apply.",
+      "rationale": "One label plus quoted evidence plus the rejected alternatives is what makes a sort reproducible."
+    }
+  ],
+  "quality": {
+    "dimensions": [
+      {
+        "id": "evidence-cited",
+        "statement": "The classification quotes or names the message text that supports the chosen label.",
+        "probes": [
+          {
+            "id": "quotes-support-label",
+            "type": "noul",
+            "instructions": "The classification quotes or names the exact message text that supports the chosen label.",
+            "sections": [
+              "classification",
+              "message"
+            ]
+          },
+          {
+            "id": "evidence-strength",
+            "type": "score",
+            "instructions": "How directly does the recorded evidence support the chosen label?",
+            "criteria": [
+              "the evidence is a restatement of the topic rather than message text",
+              "the evidence names message text that bears on the label",
+              "the evidence quotes the decisive message text and ties it to the label"
+            ],
+            "sections": [
+              "classification",
+              "message"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "one-route",
+        "statement": "The classification names exactly one label and states the reason each other label was rejected.",
+        "probes": [
+          {
+            "id": "single-label",
+            "type": "noul",
+            "instructions": "The classification names exactly one label.",
+            "sections": [
+              "classification"
+            ]
+          },
+          {
+            "id": "alternatives-rejected",
+            "type": "noul",
+            "instructions": "The classification states, for each other route, the reason that route was rejected.",
+            "sections": [
+              "classification"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "message-restated",
+        "statement": "The message section states who sent it, what it asks for and any deadline it names.",
+        "probes": [
+          {
+            "id": "asks-stated",
+            "type": "noul",
+            "instructions": "The message section states what the sender asks for.",
+            "sections": [
+              "message"
+            ]
+          },
+          {
+            "id": "deadline-stated",
+            "type": "choice",
+            "instructions": "Does the message section state the deadline the message names?",
+            "criteria": {
+              "deadline_recorded": "the section states the deadline the message names, or states that the message names none",
+              "deadline_omitted": "the message names a deadline that the section leaves out",
+              "deadline_invented": "the section states a deadline the message does not name"
+            },
+            "clean": "deadline_recorded",
+            "sections": [
+              "message"
+            ]
+          }
+        ]
+      }
+    ],
+    "policy": "required"
+  }
+}

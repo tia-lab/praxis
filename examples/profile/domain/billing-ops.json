@@ -1,0 +1,22 @@
+{
+  "id": "billing-ops",
+  "version": 1,
+  "layer": "domain",
+  "name": "Billing operations",
+  "description": "Money claims: amounts, currency, the period they cover and the authority to promise a refund or a credit.",
+  "overview": "What the subject demands when the message is about money: every amount is stated with its currency and period, and no refund is promised without the authority to grant it.",
+  "invariants": [
+    "State each amount with its currency and the period it covers.",
+    "Distinguish a charge that appears from a charge that is owed; only the second can be disputed.",
+    "Promise a refund or a credit only when the message establishes the authority to grant it."
+  ],
+  "prefer": [
+    "Show the arithmetic that produced a figure, so the customer can check it.",
+    "Name the billing period a charge belongs to rather than the date it posted.",
+    "Use the payment provider's own vocabulary for a transaction state."
+  ],
+  "avoid": [
+    "Do not round a figure the customer is reconciling.",
+    "Do not call a pending authorization a charge."
+  ]
+}

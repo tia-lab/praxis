@@ -1,0 +1,95 @@
+{
+  "id": "reply",
+  "version": 1,
+  "state": "published",
+  "gate": "section-requirements",
+  "goal": "answer the inbound message in the words the customer can act on, and name the next step",
+  "rationale": "The reply is the only part of the run the customer sees; a reply that answers a neighbouring question costs another round trip.",
+  "scope": "The reply to this message. Not the classification, not the customer's history, and no fact the message does not contain.",
+  "capabilities": [
+    "artifact.read",
+    "artifact.write",
+    "emit",
+    "evaluate"
+  ],
+  "produces": {
+    "schema": "praxis.artifact.reply/v1"
+  },
+  "role": "support-analyst",
+  "requires": [
+    {
+      "section": "reply",
+      "required": [
+        "opening",
+        "answer",
+        "next-step"
+      ],
+      "goal": "Draft the reply: greet, answer, and name what happens next.",
+      "rationale": "A reply a customer cannot act on is an unanswered message with better formatting."
+    },
+    {
+      "section": "coverage",
+      "required": [
+        "questions",
+        "unanswered"
+      ],
+      "goal": "List each question the message asks and where the reply answers it; name anything left open.",
+      "rationale": "Coverage is how a reader checks the reply against the message without re-reading both."
+    }
+  ],
+  "quality": {
+    "dimensions": [
+      {
+        "id": "answers-each-question",
+        "statement": "The reply states an answer to each question the message asks, and names any question it leaves open.",
+        "probes": [
+          {
+            "id": "questions-listed",
+            "type": "noul",
+            "instructions": "The coverage section lists each question the message asks.",
+            "sections": [
+              "coverage"
+            ]
+          },
+          {
+            "id": "answers-pointed",
+            "type": "noul",
+            "instructions": "The reply states an answer to each question the coverage section lists.",
+            "sections": [
+              "reply",
+              "coverage"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "reply-actionable",
+        "statement": "The reply carries an opening, an answer and a named next step a customer can act on.",
+        "probes": [
+          {
+            "id": "next-step-named",
+            "type": "noul",
+            "instructions": "The reply names the next step and who owns it.",
+            "sections": [
+              "reply"
+            ]
+          },
+          {
+            "id": "readiness",
+            "type": "score",
+            "instructions": "How ready to send is the reply?",
+            "criteria": [
+              "the reply is a sketch with placeholders",
+              "the reply answers but leaves the next step unnamed",
+              "the reply is ready to send: opening, answer and named next step"
+            ],
+            "sections": [
+              "reply"
+            ]
+          }
+        ]
+      }
+    ],
+    "policy": "required"
+  }
+}

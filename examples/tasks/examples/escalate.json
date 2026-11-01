@@ -1,0 +1,94 @@
+{
+  "id": "escalate",
+  "version": 1,
+  "state": "published",
+  "gate": "section-requirements",
+  "goal": "hand the message to the owner who can decide it, with the ask and the deadline stated",
+  "rationale": "An escalation that names no owner or no ask is a message forwarded, not a decision requested.",
+  "scope": "The escalation and its handoff. Not the customer's reply, and no claim about what the owner will decide.",
+  "capabilities": [
+    "artifact.read",
+    "artifact.write",
+    "emit",
+    "evaluate"
+  ],
+  "produces": {
+    "schema": "praxis.artifact.escalation/v1"
+  },
+  "role": "support-lead",
+  "requires": [
+    {
+      "section": "escalation",
+      "required": [
+        "need",
+        "blocked-on",
+        "urgency"
+      ],
+      "goal": "State what the customer needs, what blocks the analyst from meeting it, and by when it must be met.",
+      "rationale": "Need, blocker and deadline are the three facts an owner needs before deciding."
+    },
+    {
+      "section": "handoff",
+      "required": [
+        "owner",
+        "ask"
+      ],
+      "goal": "Name the owner and the one decision you are asking for.",
+      "rationale": "A named owner and a single ask make the escalation actionable rather than a broadcast."
+    }
+  ],
+  "quality": {
+    "dimensions": [
+      {
+        "id": "blocker-named",
+        "statement": "The escalation names the specific blocker that keeps the analyst from answering.",
+        "probes": [
+          {
+            "id": "blocker-specific",
+            "type": "noul",
+            "instructions": "The escalation names a specific blocker rather than a general difficulty.",
+            "sections": [
+              "escalation"
+            ]
+          },
+          {
+            "id": "need-quoted",
+            "type": "noul",
+            "instructions": "The escalation names the message text that states what the customer needs.",
+            "sections": [
+              "escalation"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "handoff-actionable",
+        "statement": "The handoff names the owner and one decision the owner can make now.",
+        "probes": [
+          {
+            "id": "owner-named",
+            "type": "noul",
+            "instructions": "The handoff names the owner of the decision.",
+            "sections": [
+              "handoff"
+            ]
+          },
+          {
+            "id": "ask-singular",
+            "type": "score",
+            "instructions": "How decidable is the ask in the handoff?",
+            "criteria": [
+              "the handoff asks for a status update",
+              "the handoff asks a question the owner must first research",
+              "the handoff asks one decision the owner can make now"
+            ],
+            "sections": [
+              "handoff"
+            ]
+          }
+        ]
+      }
+    ],
+    "policy": "required"
+  }
+}

@@ -13,6 +13,8 @@ import { KEBAB } from "./paths.ts";
 
 /** The three layers. Only `domain` is composed per step by this unit. */
 export const PROFILE_LAYERS = ["conduct", "role", "domain"] as const;
+/** One layer name. */
+export type ProfileLayer = (typeof PROFILE_LAYERS)[number];
 
 /** How many profiles one node may declare (and how many a brief may carry). */
 export const DOMAINS_PER_NODE_MAX = 6;

@@ -17,30 +17,33 @@ import {
   DOMAINS_PER_NODE_MAX,
   ProfileSchema,
   type ComposedDomains,
+  type ProfileLayer,
   type PinnedProfile,
 } from "../../types/profile.ts";
 import { digest } from "../canonical.ts";
 import { messageOf } from "./support.ts";
 
-/** The layer this unit resolves. A domain reference cannot reach another one. */
+/** The layer the brief resolves by default. A domain reference cannot reach another one. */
 export const DOMAIN_LAYER = "domain";
 
 /**
- * Read one domain profile from the library: `<profileDir>/domain/<id>.json`, parsed, with `id` equal to the
- * reference and `layer` equal to the folder it came from. A missing file is `PROFILE_NOT_FOUND`; bad bytes, a
- * bad shape, a wrong layer or a mismatched id is `PROFILE_INVALID`. Every refusal fires before anything is
- * written.
+ * Read one profile of ANY layer: `<profileDir>/<layer>/<id>.json`, parsed, with `id` equal to the reference and
+ * `layer` equal to the folder it came from. A missing file is `PROFILE_NOT_FOUND`; bad bytes, a bad shape, a
+ * wrong layer or a mismatched id is `PROFILE_INVALID`. Every refusal fires before anything is written.
+ *
+ * The same body served the domain layer alone; the composed-prompt unit needs conduct and role too, so the
+ * layer became an argument instead of a constant. Nothing else changed: the checks are the same checks.
  */
-export function loadProfile(profileDir: string, ref: string): PinnedProfile {
-  const path = join(profileDir, DOMAIN_LAYER, ref + ".json");
+export function loadProfileLayer(profileDir: string, layer: ProfileLayer, id: string): PinnedProfile {
+  const path = join(profileDir, layer, id + ".json");
   let bytes: Uint8Array;
   try {
     bytes = readFileSync(path);
   } catch (error) {
-    throw fail("PROFILE_NOT_FOUND", "domain profile " + ref + " is not readable", {
+    throw fail("PROFILE_NOT_FOUND", layer + " profile " + id + " is not readable", {
       reason: "profile-missing",
-      profile: ref,
-      layer: DOMAIN_LAYER,
+      profile: id,
+      layer,
       path,
       cause: messageOf(error),
     });
@@ -49,18 +52,22 @@ export function loadProfile(profileDir: string, ref: string): PinnedProfile {
   try {
     raw = JSON.parse(Buffer.from(bytes).toString("utf8")) as unknown;
   } catch (error) {
-    throw fail("PROFILE_INVALID", "domain profile " + ref + " is not JSON", { profile: ref, path, reason: messageOf(error) });
+    throw fail("PROFILE_INVALID", layer + " profile " + id + " is not JSON", { profile: id, layer, path, reason: messageOf(error) });
   }
-  const doc = parseWith(ProfileSchema, raw, "PROFILE_INVALID", "domain profile " + ref);
-  if (doc.layer !== DOMAIN_LAYER) {
-    throw fail("PROFILE_INVALID", "domain profile " + ref + " declares another layer", { profile: ref, layer: doc.layer, path });
+  const doc = parseWith(ProfileSchema, raw, "PROFILE_INVALID", layer + " profile " + id);
+  if (doc.layer !== layer) {
+    throw fail("PROFILE_INVALID", layer + " profile " + id + " declares another layer", { profile: id, layer: doc.layer, path });
   }
-  if (doc.id !== ref) {
-    throw fail("PROFILE_INVALID", "domain profile " + ref + " declares a different identity", { profile: ref, id: doc.id, path });
+  if (doc.id !== id) {
+    throw fail("PROFILE_INVALID", layer + " profile " + id + " declares a different identity", { profile: id, id: doc.id, path });
   }
-  return { path: ref, doc, bytes, digest: digest(bytes) };
+  return { path: id, doc, bytes, digest: digest(bytes) };
 }
 
+/** The domain layer, with its exact previous behaviour: every existing caller is unchanged. */
+export function loadProfile(profileDir: string, ref: string): PinnedProfile {
+  return loadProfileLayer(profileDir, DOMAIN_LAYER, ref);
+}
 /**
  * The domains in force for one node: the NODE's own `domains` when it declares them, otherwise the flow-level
  * default. A node that declares none and a flow that declares none yields an empty list, so a project with no

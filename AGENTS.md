@@ -877,6 +877,61 @@ date and are not rewritten; task folders, wherever an entry names them, live und
   isolation/identity/exactly-once claim, and a standing instruction that the file is updated on every
   architecture change. Docs only; no code or schema; the lead verifies on return.
 
+- **2026-11-01 — flow Unit 1: BRANCH ACCEPTED (first flow-controls primitive, team-built).** Owner GO
+  via the lead's standing review-loop (dispatch architect → review PASS → dispatch engineer → review
+  → accept). Lead design brief `docs/FLOWS.md`; unit `docs/tasks/branch-d0472c5f/{research,spec,plan}.md`
+  by architect-1 (accepted G1/G2/G3, finalized in Manifold); implementation by engineer-1 (Manifold
+  assignment `d701be54`, finalized accept). Decisions frozen in the spec: D1 branch = node `decide`
+  attribute + edge `label` (criteria-key↔label bijection), NOT a decider edge-kind; D2 exclusive-merge
+  derived slot rule, no `merge` marker; D3 a deciding node is a normal task node and the decision is a
+  `branch.decided` EVENT, never an artifact; D4 the route is computed OUTSIDE the engine and passed in
+  via the `qualityVerdict`-style seam, so `advance` stays synchronous. Scope (the plan's
+  affected-declarations table): new `src/types/flow.ts` (flow-document block moved out of `schema.ts`
+  to hold the 600 cap) and `src/quality/jev-branch.ts` (the fail-CLOSED route router reusing an
+  extracted `choiceQuestion`); edits to `src/types/{schema,errors,pi}.ts`, `src/runner/step.ts`,
+  `src/runner/engine/{advance,flow,types,support}.ts`, `src/quality/{jev-scorer,index}.ts`,
+  `src/pi/{operations,tool}.ts`, `tests/testkit.ts`, `tests/types/errors.test.ts`, and new
+  `tests/{runner/branch,quality/jev-branch,pi/branch-submit}.test.ts`. Two new codes
+  `ROUTE_UNAVAILABLE`/`ROUTE_INVALID` (TAXONOMY_SIZE 34→36; `pi.ts` mirror drift-checked by
+  `satisfies`). Verified independently by the lead this session (commands run): `tsc` 0; full suite
+  438/438 (0 fail, 0 skipped) with NO network (branch oracles use fakes); every budget file <600
+  (`operations.ts` 589); `.pi/praxis/flows`, `.pi/praxis/tasks` and `src/store` byte-untouched (git
+  empty) with no DDL/store-schema bump; 16 branch oracles genuine (R11 counting-fake zero-call replay,
+  R8 four write-free refusals, fail-closed ROUTE assertions). Committed by engineer-1 as `b04a04e` ([160] feat(flow): branch, 23 files +2154/−464) through
+  the husky hook (`npm run check` 0 and 438/438 immediately pre-commit); the lead does not commit, and the
+  `AGENTS.md` ledger edit is carried separately. NOT authorized by
+  this unit: wait, trigger, human node, nesting (separate flow-controls units, gates #4/#6/#7/#8);
+  agent-chosen routes; CLI routing (documented boundary R15); any isolation/identity/exactly-once
+  claim — gates #1/#3 stay open.
+
+- **2026-11-01 — flow Unit 2 Slice A: WAIT + TRIGGER (durable park/resume) ACCEPTED.** Owner GO after
+  the lead presented the reviewed spec/plan with the two open gates flagged. Spec-first:
+  `docs/tasks/wait-trigger-f330a0aa/{research,spec,plan}.md` by architect-1 (accepted G1/G2/G3; Manifold
+  design assignment `59e9bcf7` completed); Slice-A implementation by engineer-1 (Manifold assignment
+  `36b94e97`, finalized accept). Decisions frozen in the spec: D1 wait = node attribute (not a task-less
+  node, not a task field); D2 park/resume as durable EVENTS (`instance.parked`/`wait.resumed`, event-fold,
+  no table/DDL); D3 two park sites + a load-time rule (a `refuse` edge may not target a wait node); D4
+  LAZY timeout evaluated only in `resume` (NO scheduler/daemon), fails closed; D5 trigger = host seam,
+  config-trust actor; D6 deterministic equality matcher (no jev). Scope: `src/types/{schema,flow,errors,pi}.ts`,
+  `src/store/instance.ts` (TRANSITIONS only), `src/runner/engine/{types,start,advance,index,inspect}.ts`,
+  `src/runner/result.ts`, new `src/runner/engine/wait.ts` (`arriveAt`/`resume`/`matchEvent`/`deadlineOf`),
+  `src/cli.ts` (`resume --event`), `tests/testkit.ts`, `tests/types/errors.test.ts`, new
+  `tests/runner/{wait,wait-resume}.test.ts`. Two codes `WAIT_TIMEOUT`/`WAIT_EVENT_INVALID`
+  (TAXONOMY_SIZE 36→38, `pi.ts` mirror drift-checked). Verified independently by the lead this session:
+  `tsc` 0; full suite green (12 new wait oracles) with NO network; every budget file <600 (`wait.ts` 214,
+  `operations.ts` untouched 589); `wait.ts` has NO `new Date()`/timer/daemon (lazy, grep clean);
+  `src/store/db.ts` byte-untouched (no DDL), `instance.ts` +7/−2 (TRANSITIONS only); `.pi/praxis/flows`
+  and `.pi/praxis/tasks` byte-untouched; oracles genuine (four WAIT_EVENT_INVALID zero-write refusals,
+  lazy WAIT_TIMEOUT→failed no-receipt, idempotent double-resume one receipt, stranger INSTANCE_FORBIDDEN,
+  receipt stores only declared fields). One justified beyond-plan touch: `inspect.ts` gained a one-line
+  `waitTypeOf(flow,instance)` arg to `buildResult` so a parked result's `nextAction` reads `wait: <type>`
+  (R10) — minimal, disclosed by diff. Committed by engineer-1 as `a61a279` ([161] feat(flow): wait+trigger slice A, 20 files +1213/−28)
+  through the husky hook (`npm run check` 0 and 450/450 immediately pre-commit). GATED PARTS NOT BUILT (surfaced, owner-reserved): retention/purge of parked instances (#6), any
+  scheduler/sweeper/daemon (#7), a Pi-tool `op=resume`, brief enrichment, a timeout branch. Follow-ups
+  agreed with the owner: A.5 `sweep` CLI verb (host-cron timeout firing, no daemon) when time-based
+  escalation must auto-fire; then the nesting unit to finish the 6-primitive algebra. No
+  isolation/identity/exactly-once claim — gates #1/#3/#6/#7 stay open.
+
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a
 tool denies it, stop and correct host rooting rather than bypass the denial.

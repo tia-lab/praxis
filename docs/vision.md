@@ -257,7 +257,7 @@ Blocked/failed/aborted results return a stable typed reason, current step, and p
 ## 13. Open design gates
 
 1. **Isolation:** broker-only tool confinement versus OS sandbox; specify what is actually enforceable.
-2. **Pi host seam:** supported out-of-context invocation, cancellation and restart behavior; do not depend on undocumented Fabric internals.
+2. **Pi host seam:** supported out-of-context invocation, cancellation and restart behavior; do not depend on undocumented Fabric internals. *Exercised, not closed:* the extension now composes the whole system prompt at `before_agent_start` and reads the active-step snapshot (`docs/composed-prompt-c0c929ff/`) — the host is inside the prompt trust path, and nothing here is an isolation claim.
 3. **Trusted identity:** source of actor binding with/without Manifold.
 4. **Flow expansion:** who may propose, approve, and activate new steps and capabilities; whether active instances can migrate.
 5. **Artifact contract:** JSON Schema dialect, canonical digest rules, rendering, acceptance ownership.
@@ -294,6 +294,52 @@ reconciles them with what was actually built, without erasing the open gates.
   architect scenario (durable resume midway, deny-before-execute) is not yet run end to end.
 
 "Deferred" means a conscious owner choice not to build it now; it does not mean the gate is met.
+
+## 13b. Runtime conduct profiles and the reasoning/orchestration boundary (2026-10-31, design-only, owner-directed)
+
+Owner and lead settled the following shape in discussion. It is **design-only**: it authorizes no
+code, dependency, schema, store or extension change, and it relaxes no gate. It records a decided
+direction and its guards so a later bounded unit can be scoped against it.
+
+**Reframing — reasoning is the provider.** No runtime layer changes *how* a model reasons; that
+faculty is the LLM provider's, changed only by training. Orchestration layers change only the
+**inputs** (context, instructions, tools, goal, decomposition) and the **use** (gating, iteration,
+preservation) of reasoning. So "Praxis must not become a reasoning engine" reads precisely: Praxis is
+not the reasoner and must not fabricate reasoning — but **shaping how reasoning is directed and used,
+via briefs, rules and conduct profiles, is Praxis's own job, not a trespass.** Occam's distinct
+necessity between "the raw faculty" and "Praxis's work-scoped orchestration" is under review and is
+not assumed; nothing here depends on an Occam interface that is not observed today.
+
+**Conduct profiles (deferred increment, extends the rules atom).** A profile is a composable bundle
+of **conduct guidance** — the rules atom one level up — not a capability grant and not cognition.
+Composition is resolved once per instance at the Pi `before_agent_start` seam and **appended** as a
+named system-prompt section (`appendSystemPrompt` / a `praxis/profile` section), **never**
+`forceSystemPrompt`, which would strip the harness identity:
+
+```
+main              (always — base conduct)
+ + role           (from the Manifold assignment: architect / engineer / researcher)
+ + category        (from the FLOW: e.g. quant-research vs code-research)
+ + task-rules      (from the task atom, category-agnostic)
+   ↓ intersected against the capability ceiling (in code), appended as one section, pinned per instance
+```
+
+**Selection is declared, not inferred.** A task is a reusable, category-agnostic atom: the same
+`research` atom runs under a quant-research flow and a code-research flow. The **category is a
+property of the context, not the task** — owned by the flow (one owner per fact); the role is owned
+by the assignment. The category is therefore known prior at `op=start` and composed deterministically;
+it is not re-derived from the task. A jev selector is **reserved** for a genuinely generic flow that
+must infer a category from the goal, and only under four guards: (1) closed set — unknown names
+invalid, known-but-unauthorized denied; (2) fail-closed — no/stale/unauthorized decision falls back to
+`main + role` only, never a guess that adds surface; (3) conduct-only — a profile never amplifies the
+`project ∩ profile ∩ parent ∩ flow ∩ step` ceiling, which stays enforced in code; (4) pinned per
+instance — the decision `{type, goal digest, available set} → chosen subset` is recorded and not
+re-judged mid-run.
+
+**Sequencing.** After the task-rules unit: flow-level rule-sets (= profiles) with deterministic
+selection first; the guarded jev selector only if a declared map genuinely cannot express the choice.
+The `before_agent_start` injection depends on gate #2 (Pi host seam) and the role source depends on
+gate #3 (trusted identity); neither gate is closed by this note.
 
 ## 14. First vertical slice — architect
 

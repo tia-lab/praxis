@@ -129,7 +129,7 @@ export function createPromptHook(options: PromptHookOptions): (event: BeforeAgen
       domains: domainsOf(storeDirOf(options)),
       environment: event.systemPrompt,
     });
-    if (env.PRAXIS_PROMPT_TRACE !== undefined) {
+    if ((env.PRAXIS_PROMPT_TRACE ?? process.env.PRAXIS_PROMPT_TRACE) !== undefined) {
       trace(
         "praxis-prompt " +
           JSON.stringify({

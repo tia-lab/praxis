@@ -1,7 +1,7 @@
 {
   "format": 1,
   "projectId": "praxis",
-  "active": "tester",
+  "active": "praxis-dev",
   "limits": {
     "maxActiveAttempts": 8,
     "reservedAttempts": 1
@@ -11,6 +11,9 @@
       "mode": "clone"
     },
     "tester": {
+      "mode": "clone"
+    },
+    "praxis-dev": {
       "mode": "clone"
     }
   }

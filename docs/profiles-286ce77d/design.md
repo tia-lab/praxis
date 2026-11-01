@@ -25,6 +25,34 @@ Not in this unit: any code. Not in this design: a fourth mechanism, a rule engin
 
 ## 2. The atom
 
+> **Status: provisional.** The owner is finalising a closed, runtime-validated schema; no profile is
+> authored or rewritten until it lands. §2.0 records what the lock changes and what it does not.
+
+### 2.0 Schema status, and the adaptation plan
+
+The shape below (a free-form `body`) is **provisional**. The locked shape is a closed object — `id`,
+`version`, `layer`, `name`, `description`, plus `overview`, `invariants[]`, `prefer[]`, `avoid[]` and
+optionally `examples[]` and `body` — and nothing new is written until it is fixed.
+
+What the lock does **not** change, because this design does not key on it: the atom's identity
+(`id == filename`, `layer == folder`, `version`), the four owners (§3), the resolution order and its
+provenance headers (§4), the fail-closed matrix (§5), the pin (§6), the precedence (§7) and the advisory
+guards (§8) all read `{layer, id, version}` — never the body's internal shape.
+
+What it changes, mechanically, when the schema arrives:
+
+| today | locked field | the move |
+| --- | --- | --- |
+| the `# X profile` title and the stance paragraph | `name`, `description`, `overview` | the stance becomes `overview` |
+| `## Project and task requirements` | `invariants[]` | one entry per sentence that must hold |
+| `## Role obligations` bullets | `invariants[]` or `prefer[]` | a hard obligation becomes an invariant; a default worth preferring becomes a preference |
+| the "do not" clauses already in each body | `avoid[]` | one entry each |
+| `## Deliverable` | `invariants[]` or `prefer[]` | whichever the sentence actually is |
+| the closing advisory sentence | stays in force | it is a property of every profile, not a field |
+
+The mapping is a plan, not a decision: it exists so the adaptation is a mechanical move rather than a
+re-authoring, and it will be checked line by line against the locked schema.
+
 Path: `.pi/praxis/profile/<layer>/<name>.json`, `layer ∈ {conduct, role, domain}`, the same path grammar the
 task, rule-set and flow references use (`pathUnder`, one segment rule). **`id` equals the last path segment**,
 and a document whose `id` disagrees with its filename is refused, exactly as a task is.
@@ -191,8 +219,8 @@ Nothing in this unit depends on Shape B landing: the content is valid today and 
 
 ## 10. Acceptance oracles (content, runnable now)
 
-1. Every file in `profile/role/` and `profile/domain/` parses as JSON, carries exactly
-   `{id, version, layer, name, description, body}`, and `id` equals its filename.
+1. *(Provisional until the lock, §2.0.)* Every file in `profile/role/` and `profile/domain/` parses as JSON,
+   carries exactly the locked field set, and `id` equals its filename.
 2. `layer` equals the folder name; `version` is an integer ≥ 1; `description` ≤ 240 characters.
 3. Every body ends with the advisory sentence, verbatim.
 4. No body contains `occam_`, `reasoning_protocols`, `extends` or `select_profile`; no body names a tool that

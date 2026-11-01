@@ -1,8 +1,12 @@
 # Design — the profile system: three layers, four owners, one pinned resolution
 
 Task: profiles · Hash: 286ce77d · Gate: design (G2/G3 combined per the unit) · Status: draft · Date: 2026-10-31
-Content unit: `.pi/praxis/profile/{role,domain}/*.json`. **No runtime code in this unit** — the loader and the
-selector are Shape B (§9). No `src/` file, schema, store or extension is touched.
+Content unit: `.pi/praxis/profile/{conduct,role,domain}/*.json`. **No runtime code in this unit** — the loader and
+the selector are Shape B (§9). No `src/` file, schema, store or extension is touched.
+
+amended 2026-10-31 — §0 kept byte-identical (hash8 unchanged); §2 replaced by the owner-locked schema; the
+advisory line moved from every body to one resolver-appended line; §4 now states the field-wise union and the
+injection order; §10 oracles rewritten; §11 records O1–O3 closed — the owner locked the schema and the layout.
 
 ## 0. Contract
 
@@ -25,57 +29,64 @@ Not in this unit: any code. Not in this design: a fourth mechanism, a rule engin
 
 ## 2. The atom
 
-> **Status: provisional.** The owner is finalising a closed, runtime-validated schema; no profile is
-> authored or rewritten until it lands. §2.0 records what the lock changes and what it does not.
+**Status: locked by the owner (2026-10-31).** Every file in `.pi/praxis/profile/` parses against the schema
+below; this section is a contract, not a proposal.
 
-### 2.0 Schema status, and the adaptation plan
+### 2.0 What the lock changed
 
-The shape below (a free-form `body`) is **provisional**. The locked shape is a closed object — `id`,
-`version`, `layer`, `name`, `description`, plus `overview`, `invariants[]`, `prefer[]`, `avoid[]` and
-optionally `examples[]` and `body` — and nothing new is written until it is fixed.
+The locked shape is the closed object below: structured fields the runtime validates, plus an optional prose
+spine for the one layer that needs it.
 
 What the lock does **not** change, because this design does not key on it: the atom's identity
 (`id == filename`, `layer == folder`, `version`), the four owners (§3), the resolution order and its
 provenance headers (§4), the fail-closed matrix (§5), the pin (§6), the precedence (§7) and the advisory
 guards (§8) all read `{layer, id, version}` — never the body's internal shape.
 
-What it changes, mechanically, when the schema arrives:
+The ten profiles moved, mechanically:
 
-| today | locked field | the move |
+| before | locked field | the move that was made |
 | --- | --- | --- |
 | the `# X profile` title and the stance paragraph | `name`, `description`, `overview` | the stance becomes `overview` |
 | `## Project and task requirements` | `invariants[]` | one entry per sentence that must hold |
 | `## Role obligations` bullets | `invariants[]` or `prefer[]` | a hard obligation becomes an invariant; a default worth preferring becomes a preference |
 | the "do not" clauses already in each body | `avoid[]` | one entry each |
 | `## Deliverable` | `invariants[]` or `prefer[]` | whichever the sentence actually is |
-| the closing advisory sentence | stays in force | it is a property of every profile, not a field |
+| the closing advisory sentence | — | **removed from every profile**; the resolver appends the single advisory line once (§4) |
+| the flowing Occam prose | `body` | kept for `conduct/occam` only (≤ 4000); roles and domains omit it |
 
-The mapping is a plan, not a decision: it exists so the adaptation is a mechanical move rather than a
-re-authoring, and it will be checked line by line against the locked schema.
+The mapping is the record of a move that has been made, not a proposal; §10 verifies the result.
 
 Path: `.pi/praxis/profile/<layer>/<name>.json`, `layer ∈ {conduct, role, domain}`, the same path grammar the
 task, rule-set and flow references use (`pathUnder`, one segment rule). **`id` equals the last path segment**,
 and a document whose `id` disagrees with its filename is refused, exactly as a task is.
 
 ```ts
-// Shape B (src/types/profile.ts): the whole shape, nothing optional.
-export const ProfileLayerSchema = z.enum(["conduct", "role", "domain"]);
-
-export const ProfileSchema = z.strictObject({
-  id: z.string().regex(KEBAB),                  // kebab; must equal the file's last segment
+// Shape B (src/types/profile.ts).
+ProfileSchema = z.strictObject({
+  id: z.string().regex(KEBAB),              // MUST equal the file's last path segment
   version: z.int().min(1),
-  layer: ProfileLayerSchema,
+  layer: z.enum(['conduct','role','domain']), // MUST equal the folder it sits in
   name: z.string().min(1).max(64),
-  description: z.string().min(1).max(240),      // one line: when to use this profile
-  body: z.string().min(1).max(8000),            // the markdown the agent receives
-});
+  description: z.string().min(1).max(240),   // META ONLY — selection/catalog line, NOT injected as conduct
+  overview: z.string().min(1).max(280),      // injected first: 1-2 line intent
+  invariants: z.array(z.string().min(1).max(280)).max(12), // always-hold
+  prefer: z.array(z.string().min(1).max(280)).max(12),     // do
+  avoid: z.array(z.string().min(1).max(280)).max(12),      // don't (+ why, calm)
+  examples: z.array(z.strictObject({ bad: z.string().max(280).optional(), good: z.string().max(280).optional(), note: z.string().max(280).optional() })).max(6).optional(),
+  body: z.string().min(1).max(4000).optional(), // optional flowing prose spine; occam uses it, roles/domains usually omit
+}).refine(p => (p.invariants.length + p.prefer.length + p.avoid.length) > 0 || !!p.body, 'a profile must carry content');
 ```
 
-Six fields, all required, strict: an unrecognised key is a refusal rather than a silent pass. There is no
-`extends`, no `tools`, no `capabilities`, no `priority`: the layer field already carries composition, the
-resolver already owns order, and a profile must never be able to name a permission.
+Nine fields are required and two optional (`examples`, `body`). The object is **strict**: an unknown key is
+`PROFILE_INVALID`, a typed refusal rather than a silent pass. `description` is metadata — the selection line,
+never injected; `overview` is what the agent reads first. The three entry arrays are capped at 12 of 280
+characters each, so a profile states obligations instead of writing an essay, and the refine requires content:
+at least one entry across the three arrays, or a `body`. There is no `extends`, no `tools`, no `capabilities`,
+no `priority` — the layer already carries composition, the resolver already owns order, and a profile must never
+be able to name a permission.
 
-Every body ends with the same advisory sentence:
+**No profile carries the advisory sentence.** The resolver appends it **once** to the composed output (§4), so
+it cannot drift between files and a new profile cannot omit it. The single line is:
 
 > This profile guides behavior. It does not enforce gates, prove truth, install hooks, or grant any permission.
 
@@ -105,9 +116,9 @@ behaviour rather than conduct, and no profile can enforce them anyway. The super
 document would bind the work to one seat and destroy that reuse. A task may reference rule-sets; that is the
 only profile-adjacent fact it owns.
 
-The three authored layers never restate each other. A role body contains no conduct core and no subject method;
-a domain body contains no role obligation. A role opens by naming the two sections it inherits and stating that
-it cannot weaken or widen them.
+The three authored layers never restate each other. A role carries no conduct core and no subject method; a
+domain carries no role obligation. Each role's `overview` states that it layers on the conduct frame and cannot
+weaken or widen it.
 
 ## 4. Resolution
 
@@ -115,14 +126,23 @@ Resolved **once per instance**, at `op=start` (and again at `before_agent_start`
 library). Order of assembly, first to last:
 
 ```text
-conduct/<default>.body            (mandatory, exactly one)
-role/<assignment role>.body       (optional; declared or absent)
-domain/<flow domain>.body         (optional; declared or absent)
-task.rules bodies                 (the task's rule-sets, already resolved by the rules unit)
+overview      = conduct, then role, then domain      (ordered, one or two lines each)
+body          = the prose spine when a layer has one  (conduct; roles and domains usually omit it)
+invariants    = UNION(conduct, role, domain, task rules)
+prefer        = UNION(conduct, role, domain, task rules)
+avoid         = UNION(conduct, role, domain, task rules)
+examples      = UNION(conduct, role, domain)          (any that declare them)
+advisory      = one line, appended once by the resolver
 ```
 
-Each block is introduced by a one-line provenance header — `## Role: architect (v1)` — so the agent can tell
-which layer a sentence came from, and so the resolved text is auditable without reading the store.
+**Field-wise union, not text concatenation.** Each field is merged across the layers; entries keep their own
+wording and a duplicate collapses to one. `overview` is the exception — it is ordered, one line per layer,
+because it is the agent's first orientation. On a direct conflict, precedence decides (§7).
+
+**Injection order** is fixed: `overview` → `body` (when present) → `invariants` → `prefer` → `avoid` →
+`examples` → the advisory line. Each section opens with a one-line provenance header naming the layers that
+contributed (`## Invariants (conduct, role)`), so the agent can tell which layer an entry came from and the
+resolved text is auditable without reading the store.
 
 The resolver is pure: `(project config, assignment, flow, task, profile files) → { blocks, ids, versions, digests }`.
 It reads no store, writes nothing, and returns a value; the caller pins it (§6) and hands the text to the agent.
@@ -174,10 +194,11 @@ schema change (event payloads are free-form). Two runs with the same ids and ver
 task rules  >  domain  >  role  >  conduct
 ```
 
-The more specific owner wins a **conflict of instruction**: a task rule beats a domain method, a domain method
-beats a role habit, and all of them sit inside the conduct frame. Precedence is a documented reading order, not
-an enforcement: it resolves what to do when two layers point different ways; it never deletes a required check,
-never widens a permission and never overrides the project's own instructions.
+The more specific owner wins a **direct conflict**: a task rule beats a domain method, a domain method beats a
+role habit, and all of them sit inside the conduct frame. It applies only where two layers actually disagree —
+non-conflicting entries are unioned and all of them hold (§4). Precedence is a documented reading order, not an
+enforcement: it never deletes a required check, never widens a permission and never overrides the project's own
+instructions.
 
 The layers are ordered by *ownership specificity*, not by recency: a later file does not beat an earlier one, and
 neither does a newer version.
@@ -219,35 +240,29 @@ Nothing in this unit depends on Shape B landing: the content is valid today and 
 
 ## 10. Acceptance oracles (content, runnable now)
 
-1. *(Provisional until the lock, §2.0.)* Every file in `profile/role/` and `profile/domain/` parses as JSON,
-   carries exactly the locked field set, and `id` equals its filename.
-2. `layer` equals the folder name; `version` is an integer ≥ 1; `description` ≤ 240 characters.
-3. Every body ends with the advisory sentence, verbatim.
-4. No body contains `occam_`, `reasoning_protocols`, `extends` or `select_profile`; no body names a tool that
-   this runtime does not have; no body carries a coercive register (an "iron law", "no exceptions", an all-caps
-   mandate) — every profile states its obligations as guidance.
-5. No role body restates the conduct core: a role opens with its stance and the two inherited sections only.
-6. No domain body states a role obligation; a domain states subject specifics only.
-7. The resolver order, the mandatory conduct default, the failure matrix, the pin and the precedence are stated
-   once each in this document and agree with each other.
+1. Every file in `profile/{conduct,role,domain}/` parses as JSON against the §2 `strictObject`: the nine required
+   keys, no unknown key, and every string inside its bound (280 per entry, 240 for `description`, 64 for `name`,
+   4000 for `body`).
+2. `id` equals the filename's last segment and `layer` equals the folder; `version` is an integer ≥ 1.
+3. The refine holds: at least one entry across `invariants`/`prefer`/`avoid`, or a `body`.
+4. No profile contains `occam_`, `reasoning_protocols`, `extends` or `select_profile`, names no tool this runtime
+   lacks, and carries no coercive register (an "iron law", "no exceptions", an all-caps mandate).
+5. No profile carries the advisory sentence — the resolver appends it once (§4); a file that contains it fails.
+6. No role restates the conduct core and no domain states a role obligation; each adds only what its layer owns.
+7. `conduct/occam.json` exists (it is mandatory) and its `body` is the flowing discipline, ≤ 4000 characters,
+   with the hard sentences lifted into `invariants` and the prohibitions into `avoid`.
 
-## 11. Open items for the lead
+## 11. Closed items (the lock)
 
-- **O1 (blocking for the taxonomy).** `conduct/occam.json` does **not** exist. The conduct file is
-  `.pi/praxis/profile/occam.json` and its header does not match the schema in §2:
-
-  | | existing file | the schema |
-  | --- | --- | --- |
-  | path | `profile/occam.json` | `profile/conduct/occam.json` |
-  | layer | `"role": "main"` | `"layer": "conduct"` |
-  | extra key | `_poc` | none (strict) |
-
-  The body text needs no change. The minimal migration is `git mv` plus two header lines, and it was **not
-  applied** because the unit says to stop and flag any shape change to that file.
-- **O2.** `.pi/praxis/profile/test.json` is an untracked live-test POC with a `statements` array, which is not a
-  profile. It should move out of the tree (or be deleted) before the taxonomy is enforced; left untouched here.
-- **O3.** The existing conduct body closes with "…grant additional authority"; the new profiles close with
-  "…grant any permission" per the unit brief. Harmonising the conduct line is a one-line edit, batched with O1.
+- **O1 — closed.** The conduct file moved to `profile/conduct/occam.json` and was adapted to the locked schema:
+  `layer: "conduct"`, `_poc` dropped, the hard sentences lifted into `invariants`, the prohibitions into `avoid`,
+  and the flowing discipline kept in `body` (≤ 4000).
+- **O2 — closed.** `profile/test.json` (the POC marker with a `statements` array) was deleted; the tree is now
+  exactly `conduct/occam.json`, seven `role/*.json` and two `domain/*.json`.
+- **O3 — closed by removal.** No profile carries the advisory line any more; the resolver appends the one line
+  (§4), so there is no per-file wording to harmonise.
+- **Versions stay at 1.** Nothing has ever resolved or pinned these files (Shape B is unbuilt), so this is a
+  schema change rather than a published-version change: no instance can be holding an older reading.
 
 ## 12. Minimality ledger
 

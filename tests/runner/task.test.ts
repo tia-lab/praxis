@@ -19,6 +19,6 @@ test("a changed contract is a different task", () => {
 });
 
 test("the folder is slug plus hash and never leaves docs", () => {
-  assert.equal(taskFolder("Loop-back for review", contract), "docs/loop-back-for-review-" + hash8(contract));
+  assert.equal(taskFolder("Loop-back for review", contract), "docs/tasks/loop-back-for-review-" + hash8(contract));
   assert.throws(() => taskFolder("---", contract));
 });

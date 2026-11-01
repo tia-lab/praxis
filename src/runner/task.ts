@@ -26,9 +26,9 @@ export function hash8(contract: TaskContract): string {
   return createHash("sha256").update(canonicalBlock(contract), "utf8").digest("hex").slice(0, 8);
 }
 
-/** docs/<slug>-<hash8>: the one folder an authorized unit of work owns. */
+/** docs/tasks/<slug>-<hash8>: the one folder an authorized unit of work owns. */
 export function taskFolder(slug: string, contract: TaskContract): string {
   const clean = slug.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
   if (clean.length === 0) throw new Error("task slug must contain a letter or digit");
-  return "docs/" + clean + "-" + hash8(contract);
+  return "docs/tasks/" + clean + "-" + hash8(contract);
 }

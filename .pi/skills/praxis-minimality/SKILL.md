@@ -5,30 +5,47 @@ description: Scope and minimality decisions — use when adding a file, field, d
 
 # Praxis minimality
 
-## Load the canon first — 109 lines, bounded
+## Canon — in this repo, one copy, no external drift
 
-1. `/home/tia/_DEV/AI/occam/rules/INVARIANTS.md` — MIN-001…MIN-012 (27 lines)
-2. `/home/tia/_DEV/AI/occam/rules/CODE.md` — decision ladder, ownership, failure,
-   tests, evidence (82 lines)
+**Decision (2026-11-01, lead direction): the canon is in-repo.** The two external files
+previously pinned here by sha256 — `/home/tia/_DEV/AI/occam/rules/INVARIANTS.md` and
+`CODE.md` — are **no longer read and no longer pinned**. They were the source text for
+conduct Praxis now owns as data, and a digest pin on another repository's file is drift
+waiting to fail on someone else's commit.
 
-Read both before plan or review work. Pinned at authoring time:
+Two in-repo files, and nothing else:
 
-```
-INVARIANTS.md  6323cee19accc8c667270da668e56be9a79d2a98d52f24d3736c6abcfd238afd
-CODE.md        d2e2c8158f3ad557afb02888c0bc10a5c84dcf40b2e4023f7d55d05c90e2c823
-```
+1. `.pi/praxis/rules/engineering/minimality.json` — the minimality rule set: 11 rules
+   with stable ids, `smallest-complete-system`, `data-model-before-mechanism`,
+   `load-bearing-first`, `bind-to-requirement`, `one-owner-per-fact`,
+   `no-speculative-surface`, `no-justification-by-elegance`, `fewest-concepts`,
+   `measure-real-complexity`, `prefer-dominating-alternative`,
+   `never-weaken-requirements`.
+2. `.pi/praxis/profile/conduct/occam.json` — the conduct layer the agent actually
+   receives in its composed system prompt: `overview`, `invariants`, `prefer`,
+   `avoid`, `body`.
 
-If either file is unreadable, or a digest no longer matches, **stop and report**. Do
-not improvise minimality and do not silently follow a drifted canon.
+**Why this does not lose the canon.** The rule set carries the ladder and its ids; the
+conduct profile carries the invariants; both are versioned in this repo, and the
+conduct profile is literally what the runtime injects — so the canon cannot say one
+thing while the agent is told another. What is *not* carried over is the external
+`MIN-0xx` numbering. `MIN-0xx` ids in earlier ledger, plan and review text remain
+valid as historical notation for that external canon; new work cites the ids below.
 
-Ownership: Occam owns the canon; this skill owns the Praxis consequences and the
-citation duty. Where they conflict, the canon wins. Occam is inspiration, not a
-dependency — no `occam_reason`, no role skills, no package.
+Read both before plan or review work. If either file is missing or does not parse,
+**stop and report** — do not improvise minimality and do not fall back to another
+repository.
+
+Ownership: Praxis owns both files; this skill owns the Praxis consequences and the
+citation duty. Occam is inspiration, not a dependency — no `occam_reason`, no role
+skills, no package, and no read of another repo at plan time.
 
 ## Citation duty
 
-Every plan entry, review finding and blocker cites the id it serves (`MIN-004`). A
-minimality claim without an id is rhetoric.
+Every plan entry, review finding and blocker cites what it serves:
+`minimality/no-speculative-surface` for a rule id, or `occam: "Never guess"` — the
+opening words of a conduct invariant, greppable in the profile — for conduct. A
+minimality claim without a citation is rhetoric.
 
 ## Praxis consequences — owned here, not in the canon
 

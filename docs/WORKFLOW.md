@@ -6,13 +6,18 @@ document shapes, roles and stop conditions.
 (`docs/vision.md`). Where they disagree, this file is wrong about procedure and
 `AGENTS.md` about scope; the owner resolves it. No fact is stated twice.
 
-**Binding principles:** `MIN-001`…`MIN-012`
-(`/home/tia/_DEV/AI/occam/rules/INVARIANTS.md`) and the conduct in
-`/home/tia/_DEV/AI/occam/rules/CODE.md`. Both are read-only inspiration, not a
-dependency. The Occam role skills and the `occam_reason` tool are **out of scope**:
-Occam is not installed here, is not a Praxis dependency, and its instrumentation
-gates are inapplicable. Cite `MIN-0xx` in every plan entry, finding and blocker so
-a minimality claim is checkable instead of rhetorical.
+**Binding principles:** the in-repo conduct profile
+`.pi/praxis/profile/conduct/occam.json` and the in-repo rule sets under
+`.pi/praxis/rules/`. The conduct profile is the text the agent actually receives in
+its composed prompt, and the rule sets are versioned beside it: the canon cannot drift
+from what runs.
+`.pi/skills/praxis-minimality/` owns the canon statement and the citation rules; cite
+a rule id (`minimality/smallest-complete-system`) in every plan entry, finding and
+blocker so a minimality claim is checkable instead of rhetorical. `MIN-0xx` ids
+appear in earlier ledger, plan and review text: they are historical notation for the
+external Occam canon, read-only inspiration and not a dependency. The Occam role
+skills and the `occam_reason` tool are **out of scope** — Occam is not installed
+here and its instrumentation gates are inapplicable.
 
 ## 1. Task identity
 
@@ -68,7 +73,7 @@ G0 CONTRACT → G1 RESEARCH → G2 SPEC → G3 PLAN → G4 IMPLEMENT → G5 REVI
 | G2 | `spec.md` or §4 waiver | requirement ids with failure behaviour and oracle; model with one owner per fact; exclusions; alternatives; review PASS | amend, new attempt |
 | G3 | `plan.md` | affected-declaration table; steps ordered by dependency; checks table; recovery; out of scope; LOC budget; review PASS | amend, new attempt |
 | G4 | code | each step's narrow check executed and inspected; plan coverage current; no unplanned declaration | return to G3 |
-| G5 | `review.md` | findings against requirement ids; minimality challenged (`MIN-006`, `MIN-009`, `MIN-010`); verdict PASS | return to G3/G4 |
+| G5 | `review.md` | findings against requirement ids; minimality challenged (`minimality/no-speculative-surface`, `minimality/measure-real-complexity`, `minimality/prefer-dominating-alternative`); verdict PASS | return to G3/G4 |
 | G6 | — | the **owner** accepts the artifact against the statement | reopen |
 
 Hard rules:
@@ -80,12 +85,39 @@ Hard rules:
   reviewer PASS are not acceptance.
 - A gate is re-entered only by a new attempt recorded in `review.md`.
 
+### 2.1 The loop as practised
+
+The diagram above is the gate ladder. This is the order work actually moves in.
+
+```
+align → design + plan → lead-verify → implement → live-probe → owner accepts
+```
+
+- **align** (G0) — intent, target, frozen and open decisions, limits, acceptance. A
+  unit whose outcome two materially different results could satisfy is not aligned;
+  align before commissioning research or a team.
+- **design + plan** (G1/G2/G3, moving together) — a spec may be frozen
+  **provisional**: unpassed, its open contradictions deliberately left for the plan
+  and the code to find. Research is recorded in the task folder, not staged as its own
+  ceremony, when the sources are already in hand and named at `path:line`.
+- **lead-verify** — the review at each of those gates. Reviews are **incremental**
+  (§3).
+- **implement** (G4) — ordered slices, each behind the same checks (`tsc`, the suite,
+  the narrow test), one commit per slice, never a red commit.
+- **live-probe** (G5) — a real agent on a real flow answering from its injected
+  prompt (`docs/LIVE-TEST.md`). No unit test establishes this.
+- **accept** (G6) — only the owner's statement completes a task.
+
+A heavy full-document review loop — every attempt re-reading the whole artifact — was
+tried and **stopped by the owner**: it produced ceremony instead of findings. Do not
+re-introduce it.
+
 ## 3. Review contract
 
 One section per gate attempt in `review.md`:
 
 ```
-## G2 spec — attempt 1 — FAIL — 2026-10-30T10:12:00Z
+## <gate> <artifact> — attempt <n> — <PASS|FAIL> — <ISO-8601 UTC>
 subject: docs/<slug>-<hash8>/spec.md sha256:<64 hex>
 reviewer: <identity>  independence: self|independent
 findings:
@@ -95,8 +127,10 @@ verdict basis: R1 checked by <how>; R2 <how>
 
 - A verdict without a `sha256` of every reviewed file is void.
 - `independence: independent` requires a different session that did not author the
-  subject. Until Manifold is active and a reviewer session exists, every verdict is
-  `independence: self`; write it plainly and never claim otherwise.
+  subject. Most verdicts here are written by the lead, including a lead driving
+  separate herdr/Manifold agents: record what was actually independently **verified**
+  (commands run, greps, diffs) and keep `independence: self` for authorship. Never
+  claim an independence you cannot point at.
 - The author never writes `review.md`.
 - Findings are ranked by consequence and name a concrete consequence plus the
   check that would establish resolution. Speculation and taste are advisory at
@@ -104,6 +138,15 @@ verdict basis: R1 checked by <how>; R2 <how>
 - Blocking findings are resolved or explicitly carried into the next attempt;
   cancelling one needs evidence, not a re-reading.
 - `contour_review` is a structural aid. It is not independence and not acceptance.
+
+### Incremental reviews
+
+A reviewer receives the changed lines, the previous verdict and the subject digest,
+and judges **the delta and what cites it** — not the whole document again. That is
+the owner's standing direction and what makes a review attempt per slice affordable.
+
+A full-document review is reserved for a subject whose model changed, and the
+verdict's first line says so.
 
 ## 4. Spec waiver
 
@@ -137,17 +180,17 @@ Default is one author. Compose more only against a named gap.
 - Handoff carries goal, exclusions, acceptance, claimed paths, artifact paths and
   `hash8`. Return carries artifact, evidence, verdict. Never a transcript.
 - Every seat must be justified by evidence in the compose reason; no seats for
-  hypothetical futures (`MIN-006`).
-- Manifold activation is an owner action and project state; this file grants nothing.
-  While it is inactive there are no teams, assignments or independent reviewers. When
-  it is active a verdict is still `independence: self` unless a separate session
-  actually produced it.
+  hypothetical futures (`minimality/no-speculative-surface`).
+- Manifold is in use: the lead staffs seats through herdr/Manifold agents. This file
+  grants no assignment authority of its own, and an assignment does not manufacture
+  independence — a verdict is `independence: independent` only when a separate
+  session that did not author the subject produced it.
 
 ## 6. Invariants
 
 Binding without restatement:
 
-- `MIN-001`…`MIN-012` (header).
+- The in-repo conduct profile and minimality rule set (header), cited by rule id.
 - `docs/vision.md` §11 (1–12) by reference.
 - `AGENTS.md` product and security constraints.
 
@@ -187,8 +230,9 @@ assignment instead, or open the claim on `tests/` for the owner of the code unde
 3. `index.ts` is the only allowed barrel. Any other index file is a defect.
 4. Start every unit from its data structure; functions and module boundaries derive
    from the model, never the reverse.
-5. Every declaration is bound to a requirement (`MIN-004`) and listed in the plan;
-   unrequested additions are blocking findings (`MIN-006`).
+5. Every declaration is bound to a requirement (`minimality/bind-to-requirement`) and
+   listed in the plan; unrequested additions are blocking findings
+   (`minimality/no-speculative-surface`).
 6. Typed, discriminated failures. No string throws, no fabricated recovery.
 7. Inject clock and IDs where behaviour depends on them; no ambient `Date.now()`.
 8. Tests: narrow first, failure and recovery paths included, assertions derived

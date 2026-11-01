@@ -50,9 +50,67 @@ Effective permissions are the intersection:
 
 **Enforcement limit:** broker checks only constrain calls routed through Praxis. A strong claim that an agent _cannot touch anything else_ requires blocking alternate tool paths or using an OS sandbox. This must be a separate integration gate, not a prompt instruction.
 
-## 4. Illustrative configuration
+## 4. Illustrative configuration — as built
 
-Proposed entry: `.pi/praxis/config.json`; all paths relative to the canonical project root. Strict parsing rejects unknown keys, traversal, escaping symlinks, and missing files.
+**As built.** These are the shapes the runtime reads today; the pre-build proposal that
+this section used to carry follows, marked as intent. Paths are relative to the canonical
+project root and parsing is strict — unknown keys and traversal are refused.
+
+`.pi/praxis/config.json` is `praxis.project/v1` and holds project **defaults** only:
+
+```json
+{ "schema": "praxis.project/v1", "defaults": { "maxAttempts": 10 } }
+```
+
+`defaults` may also carry `storeDir` and the seat `role` claimed when `PRAXIS_ROLE` is
+unset. `role` is a default, not a grant: gate #3 (trusted identity) stays open, so
+whoever can edit this file can claim a seat.
+
+A **flow** is `praxis.flow/v2`: **nodes over task ids**, with control flow as **edges** —
+there are no step kinds and no per-step tool lists. A node may declare the **domain
+profiles** that step runs under; the task atom never does:
+
+```json
+{
+  "schema": "praxis.flow/v2",
+  "flow": "flows/engineering/feature",
+  "nodes": [
+    { "id": "research", "task": "tasks/discovery/research" },
+    { "id": "implement", "task": "tasks/build/implement", "domains": ["code"] }
+  ],
+  "edges": [
+    { "kind": "data", "from": "research", "to": "implement" },
+    { "kind": "refuse", "from": "review", "to": "plan" }
+  ]
+}
+```
+
+A **task** is a reusable atom under `.pi/praxis/tasks/**`: goal, section contract,
+rubric, capabilities and optional rule references. It stays category- and
+domain-agnostic so several flows can reuse it.
+
+A **profile** is a conduct layer under `.pi/praxis/profile/{conduct,role,domain}/`.
+Conduct and role are the agent's **fixed system identity**; the domain is the one
+dynamic layer, declared by the flow node. All layers are composed into the agent's
+**whole system prompt** at `before_agent_start`: conduct → role → domain? →
+environment (Pi's own prompt, nested last). That composition is the product surface —
+not a config key, and not a per-step tool list. Design and its guards: §13b.
+
+What survives from the proposal unchanged: instances pin the definitions they ran
+under, so a config change affects new instances only; nesting, concurrency and
+maintenance budgets remain **proposals, not calibrated limits**; and memory
+maintenance is still deferred (§13, gate #7).
+
+### Original vision (kept as intent, superseded as contract)
+
+The following described a `praxis.config/v1` with global profile/flow/template maps and
+`praxis.flow/v1` steps carrying `kind`, `tools` and `completion`. None of it is the built
+contract: profiles are layered conduct composed into the prompt, flows are nodes and
+edges over task atoms, and the artifact contract is per task, not per flow. It is kept
+because the intent it records — strict parsing, pinned definitions, no silent
+migration — is still binding.
+
+All numeric values below are proposals, not calibrated limits.
 
 ```json
 {
@@ -71,8 +129,6 @@ Proposed entry: `.pi/praxis/config.json`; all paths relative to the canonical pr
 	"memory": { "enabled": false, "maintenanceEveryTurns": 20 }
 }
 ```
-
-All numeric values are **proposals, not calibrated limits**. Existing instances pin their config/profile/flow/template digests. Config changes affect new instances unless an authorized instance migration is performed.
 
 Example profile `profiles/architect.json`:
 
@@ -96,30 +152,13 @@ Example flow `flows/architect.json`:
 	"id": "architect",
 	"artifact": "architecture-spec",
 	"steps": [
-		{
-			"id": "inspect",
-			"kind": "agent",
-			"tools": ["read", "grep", "find"],
-			"completion": "sources-recorded"
-		},
-		{
-			"id": "reason",
-			"kind": "agent",
-			"runtimes": ["occam", "fabric"],
-			"completion": "decisions-recorded"
-		},
-		{
-			"id": "draft",
-			"kind": "artifact",
-			"template": "architecture-spec",
-			"completion": "schema-valid"
-		},
+		{ "id": "inspect", "kind": "agent", "tools": ["read", "grep", "find"], "completion": "sources-recorded" },
+		{ "id": "reason", "kind": "agent", "runtimes": ["occam", "fabric"], "completion": "decisions-recorded" },
+		{ "id": "draft", "kind": "artifact", "template": "architecture-spec", "completion": "schema-valid" },
 		{ "id": "review", "kind": "validation", "completion": "acceptance-passed" }
 	]
 }
 ```
-
-These are **illustrative contracts**; freeze exact schema and error names before implementation.
 
 ## 5. Runtime lifecycle
 
@@ -204,6 +243,12 @@ It **must not** silently edit original receipts, historical events, owner permis
 ## 10. Parent-facing API
 
 Proposed operations: `praxis.run`, `praxis.status`, `praxis.inspect`, `praxis.resume`, `praxis.abort`. All mutations require stable request IDs and permission checks.
+
+**As built:** there is one `praxis` tool with operations `start`, `check`, `submit`,
+`note`, `read`, `recall` — `start` opens *or re-opens* the instance its request id
+names, so resume is a re-call rather than a separate operation, and abort is not
+offered. The parent receives the six-key result plus the step descriptor, never the
+event log or the transcript.
 
 Illustrative result:
 
@@ -341,19 +386,40 @@ selection first; the guarded jev selector only if a declared map genuinely canno
 The `before_agent_start` injection depends on gate #2 (Pi host seam) and the role source depends on
 gate #3 (trusted identity); neither gate is closed by this note.
 
-## 14. First vertical slice — architect
+## 14. First vertical slice — as built
 
-**Scenario:** an authorized architect runs `praxis.run` for a bounded architecture task.
+**Intended scenario (kept):** an authorized architect runs one bounded architecture task end
+to end, and a restart midway resumes from durable state without duplicating effects.
 
-1. Resolve the actor from trusted host binding; authorize the `architect` flow.
-2. Pin definition digests and create the durable instance.
-3. `inspect`: use only permitted read/search tools; record source references.
-4. `reason`: use an explicitly allowed adapter (or block with a named reason); record decisions and evidence.
-5. `draft`: incrementally populate the structured architecture artifact.
-6. `review`: validate schema **and** task acceptance; on failure block with exact unmet check.
-7. Persist final artifact and receipts; return only a short result with artifact path/digest.
-8. Restart midway: resume from durable state without duplicating effects.
-9. Negative test: an unauthorized tool or alternate flow is denied before execution.
+**What shipped is that slice, shaped differently.** There is no `praxis.run` and no
+per-step `inspect → reason → draft → review` kinds or per-step tool lists. The flow is a
+`praxis.flow/v2` document over task atoms, and one `praxis` tool walks it:
+
+1. `praxis { op: "start", flow, requestId, order }` pins the flow and its task definitions
+   and opens — or re-opens — the durable instance. The order is judged for alignment
+   before anything is created.
+2. The step descriptor arrives with the brief: `goal`, `produces`, `requires`, the quality
+   rubric with its **effective** bar, the capabilities and the ops live for this step
+   (`check`, `submit`, `read`, `note`, `recall`).
+3. `op: "check"` dry-runs the artifact against the section contract and records nothing;
+   `op: "submit"` advances exactly one step or refuses with a typed code and a detail
+   naming the failed check.
+4. The deterministic gate (schema, nonce, subject digest, section requirements) says whether
+   the document is admissible; **the quality floor decides acceptance**. Schema-valid is not
+   task-complete, and a below-bar refusal carries per-dimension scores, the weakest
+   dimension and recall.
+5. An accepted step owes a learning note (`op: "note"`); the engine writes the objective
+   half from the record, so the omission is recorded, not silently dropped.
+6. The parent receives the six-key result plus the step descriptor — never the event log or
+   the transcript.
+7. Restarting is re-calling `op: "start"` with the same request id: state is durable and a
+   request id always addresses the same instance.
+
+**Still open, stated plainly.** An alternate flow or step that the task does not cover is
+refused before dispatch, but a capability the current step does not grant is denied only on
+**calls routed through the tool** — an agent with direct shell or Fabric access bypasses it
+(gate #1). And the full scenario run end to end against the real host, with durable resume
+midway and deny-before-execute observed live, is not yet recorded as complete (§13a, P9).
 
 **Definition of done:** one real Pi-hosted run produces a validated artifact; permission checks, durable resume, evidence and compact output are observed. A green unit suite alone is insufficient.
 

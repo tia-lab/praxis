@@ -20,9 +20,10 @@ no package. Its protocol gates are inapplicable; its principles bind as conduct,
 `praxis-minimality` links the canon that states them.
 
 For any organization action, layer `manifold` + `manifold-organizer` on top.
-Manifold activation is an owner action, not a property of this repo: while inactive
-there are no teams, assignments or independent reviewers, and while active a verdict
-is still `independence: self` unless a separate session produced it.
+Manifold **is in use**: the lead staffs seats through herdr/Manifold agents, and a
+Manifold assignment is how a seat is really staffed. An assignment grants no
+independence — a verdict is `independence: independent` only when a separate
+session that did not author the subject produced it.
 
 ## Gates
 
@@ -33,6 +34,20 @@ G0 contract → G1 research → G2 spec → G3 plan → G4 implement → G5 revi
 No gate before its predecessor's PASS; no code before G3 PASS. Pass conditions,
 the spec waiver and the verdict format live in `docs/WORKFLOW.md` §2–4 — read
 them there and do not restate them here.
+
+The order work actually moves in (`docs/WORKFLOW.md` §2.1):
+
+```
+align → design + plan → lead-verify → implement → live-probe → owner accepts
+```
+
+Design and plan move **together**, and a spec may be frozen *provisional* — unpassed,
+its open contradictions left for the plan and the code to find. Reviews are
+**incremental**: changed lines, the previous verdict and the subject digest; the
+reviewer judges the delta and what cites it, never the whole document again. The
+heavy full-document review loop was tried and stopped by the owner — do not bring it
+back. Implementation lands in ordered slices, each behind the same checks, one commit
+per slice, never a red commit.
 
 ## Task identity
 
@@ -49,7 +64,11 @@ canonical "<goal>" "<paths>" "<checks>" | sha256sum | cut -c1-8
 
 - The author never writes `review.md`; a verdict needs a `sha256` of every file it
   reviewed.
-- `independence: self` until Manifold is active. Never claim independent.
+- `independence: self` unless a separate session produced the verdict. Record what
+  you actually verified (`executed` commands, greps, diffs); never claim an
+  independence you cannot point at.
+- A green build, a passing suite or a lead PASS is evidence, not acceptance: only the
+  owner's statement completes a task.
 - Every declaration is in the plan; an unplanned one returns to G3.
 - ≤600 lines per file; types separated from runtime; `index.ts` is the only barrel.
 - Start from the data model, not from operations.

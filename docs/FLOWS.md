@@ -1,9 +1,13 @@
 # Flows in Praxis
 
-> **Status: design brief (design-only). Not authorized to build.** This document is the
-> **lead's requirements brief** for the flow-controls work. It describes the flow engine that exists
-> today (`praxis.flow/v2`, source-cited) and specifies, precisely, the controls proposed to _complete_
-> it. Proposed controls are marked **△ proposed** and are **not authorized to build**.
+> **Status: living design — updated 2026-11-01 to match the shipped code.** This document describes the
+> flow engine and the controls that complete it. **branch** and **wait + trigger** are now **BUILT and
+> committed** (branch `b04a04e`; wait+trigger Slice A `a61a279`), and the **human node** ships as a wait
+> variant. What remains **△ proposed / not built** is **nesting** (§5.5/§7, gated #4/#8) and wait's gated
+> operational parts (retention #6, an off-process scheduler #7, a Pi-tool `op=resume`, the `sweep` verb).
+> A built item is marked **✅ built** with its commit; an unbuilt one stays **△ proposed**. As-built
+> contracts live in `docs/tasks/branch-d0472c5f/` and `docs/tasks/wait-trigger-f330a0aa/` — where this
+> document and those specs differ, **the spec is the source of truth**.
 >
 > **Handoff path:** lead writes this brief → **architect** produces architecture + spec + plan per
 > [docs/WORKFLOW.md](WORKFLOW.md) → submitted to the **lead for approval** → each buildable primitive
@@ -80,9 +84,9 @@ and wires them (`praxis.flow/v2`):
 | 1   | **sequence** (`data` edge)               | do A, then B with A’s output                                     | ✅ built    |
 | 2   | **join** (`join` edges)                  | B waits for A₁…Aₙ, consumes all (fan-in)                         | ✅ built    |
 | 3   | **loop** (`refuse` edge + gate, bounded) | a higher node sends work _back_; repeat until the gate passes    | ✅ built    |
-| 4   | **branch**                               | a typed decision picks _one_ of N successors                     | △ proposed |
-| 5   | **wait**                                 | park until an external event (email, timer, reply, another flow) | △ proposed |
-| 6   | **human node**                           | an interactive turn that emits a gated artifact                  | △ proposed |
+| 4   | **branch**                               | a typed decision picks _one_ of N successors                     | ✅ built `b04a04e` |
+| 5   | **wait**                                 | park until an external event (email, timer, reply, another flow) | ✅ built (Slice A) `a61a279` |
+| 6   | **human node**                           | an interactive turn that emits a gated artifact                  | ✅ built (wait variant) |
 
 ### What exists today (`praxis.flow/v2`) — source-cited
 
@@ -160,9 +164,9 @@ injected port (`AlignJudge`, fakeable in tests) and a typed three-outcome verdic
 | 2 | **quality gate** at each gated node     | jev `score/noul/choice` battery | ✅ built           | `task.quality` probes (JSON)      |
 | 3 | **loop** (refuse edge)                  | the gate verdict, no new call   | ✅ built           | deterministic                     |
 | 4 | **sequence / join** (data/join)         | none — fan-in waits for all     | ✅ built           | deterministic                     |
-| 5 | **branch** — which of N successors      | jev `choice` **router**         | △ **TO BUILD**    | flow node `decide` block (JSON)   |
-| 6 | **wait** — resume vs stay parked        | event-match / timeout           | △ TO BUILD        | deterministic (the _classifier_ of an event is a jev task downstream, not the primitive) |
-| 7 | **trigger** — fire the flow             | external kick                   | △ TO BUILD (seam) | no jev                            |
+| 5 | **branch** — which of N successors      | jev `choice` **router**         | ✅ built `b04a04e` | flow node `decide` block (JSON)   |
+| 6 | **wait** — resume vs stay parked        | event-match / timeout           | ✅ built (Slice A) `a61a279` | deterministic; timeout LAZY (no scheduler — gate #7) |
+| 7 | **trigger** — fire the flow             | external kick                   | ✅ built (host seam) | no jev                            |
 | 8 | **nesting** — expand to a sub-flow      | declared, gated                 | △ TO BUILD        | static data; no jev in v1         |
 | 9 | **completion**                          | final gate + bounded result     | ✅ built           | no separate jev                   |
 
@@ -181,10 +185,13 @@ reuses the existing builder. Everything else is schema, routing, durable state, 
 ## 5. The controls that complete the engine — precise design
 
 Each sub-section states: what it is, the schema delta, the runtime delta, the decider (if any), the
-fail-closed codes, the open questions the architect must settle, and an acceptance sketch. All **△
-proposed / not authorized**.
+fail-closed codes, the open questions, and an acceptance sketch. **Build status (2026-11-01):** §5.1
+Branch, §5.2 Wait and §5.3 Trigger are **✅ BUILT** (commits `b04a04e`, `a61a279`); §5.4 Human node ships
+as a wait variant; **§5.5 Nesting stays △ proposed** (gated #4/#8), as do wait's gated parts. The as-built
+contracts in `docs/tasks/branch-d0472c5f/` and `docs/tasks/wait-trigger-f330a0aa/` are authoritative where
+they differ from the sketches below.
 
-### 5.1 △ Branch — choose one successor by a typed decision (smallest, self-contained)
+### 5.1 Branch — ✅ BUILT (`b04a04e`) — choose one successor by a typed decision
 
 **What.** After node A completes and its artifact is accepted, a decider selects **exactly one** of
 `{B, C, D}` and the instance advances down that one edge. The unchosen paths never run.
@@ -231,7 +238,7 @@ artifact (classify) or is a pure router over a predecessor's artifact.
 router yields a typed blocker with no write and no advance; a non-branch flow is byte-identical;
 `tsc` clean; suite green.
 
-### 5.2 △ Wait — park until an external event (durable, higher cost)
+### 5.2 Wait — ✅ BUILT, Slice A (`a61a279`) — park until an external event
 
 **What.** The instance suspends until something outside happens (an email arrives, a timer fires, a human
 replies, another flow signals), then resumes at the waiting node.
@@ -256,7 +263,7 @@ open **durability gate (#6)** and touches the **off-process trigger gate (#7)**.
 (resume-with-timeout-branch vs fail); (c) how many instances may be parked and for how long
 (retention — gate #6); (d) interaction of a parked instance with the note-closure gate.
 
-### 5.3 △ Trigger — fire or resume a flow (a seam, not a flow primitive)
+### 5.3 Trigger — ✅ BUILT (host seam, Slice A) — fire or resume a flow
 
 **What.** The thing that _starts_ a flow instance on a schedule or an event — the hourly cron, the inbound
 webhook, another flow's completion.
@@ -272,7 +279,7 @@ is the minimal form until that gate is opened.
 **Open questions.** (a) cron ownership (host OS cron vs a Praxis-side scheduler — the latter is gate #7);
 (b) actor binding for a triggered run; (c) idempotency of a repeated trigger (no exactly-once claim).
 
-### 5.4 △ Human node — folds into wait
+### 5.4 Human node — ✅ BUILT (folds into wait)
 
 A human turn that emits a gated artifact is a **wait for a human event** plus a normal gated node. It is
 **not a separate mechanism**: model it as a wait whose event is “the human submitted an artifact,” then
@@ -304,7 +311,7 @@ in v1 — expansion is declared, not decided.
 ### Delivery — what we run now (sequence + loop)
 
 ```text
-[△define] --data--> spec <--refuse(gate)--> review
+[define] --data--> spec <--refuse(gate)--> review
                      |
                    data
                      v
@@ -315,15 +322,15 @@ in v1 — expansion is declared, not decided.
                     code  <--refuse(gate)--> review --data--> close
 ```
 
-Everything but `△define` exists today: `data` sequence + `refuse` loops, each loop gated by the
-per-dimension quantile bar. `define` is the △ human node (a wait variant).
+Everything here is built today: `data` sequence + `refuse` loops (each gated by the per-dimension
+quantile bar), and `define` is a human node — a wait variant (§5.4, built).
 
 ### Inbox — a different shape (trigger + wait + branch), and the external-effect edge
 
 ```text
-(cron hourly — §5.3 trigger) --start--> [△wait: new email event]
+(cron hourly — §5.3 trigger) --start--> [wait: new email event]
       --data--> classify (a TASK: jev choice — pertinent? spam? action?)
-      --△branch--> { answer | archive | escalate }
+      --branch--> { answer | archive | escalate }
             answer --data--> draft-reply (TASK, gated)
                    --data--> send-reply (external effect, §9) --> close
 ```
@@ -349,7 +356,7 @@ there is never a “super-flow” that coordinates independent flows.**
 
 | shape                   | what it is                                            | whose job                              |
 | ----------------------- | ----------------------------------------------------- | -------------------------------------- |
-| inside one flow         | a bounded **DAG** (`data` + `join` + `refuse` + branch) | **Praxis** ✅ (+ △ branch)             |
+| inside one flow         | a bounded **DAG** (`data` + `join` + `refuse` + branch) | **Praxis** ✅             |
 | a flow of sub-flows     | a **tree**, bottoming in task atoms                   | **Praxis** △ gated (#4/#8)             |
 | many independent flows  | **not a flow** — an assignment graph + shared facts   | **Manifold** (assign) + **Jung** (synthesize) |
 

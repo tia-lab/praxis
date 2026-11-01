@@ -2,14 +2,16 @@
 
 This document is the authoritative technical state of Praxis. It MUST be updated whenever the architecture changes.
 
-Verified against HEAD a008e39 (2026-11-01) plus the uncommitted working tree of that date. Evidence labels
+Verified against HEAD a61a279 (2026-11-01), the commit that ships flow Unit 2 Slice A, plus the working
+tree of that date (only AGENTS.md and docs/FLOWS.md were dirty, both by the lead). Evidence labels
 throughout: **[code]** = read in the source at the cited path; **[doc]** = read in a document at the cited
 path; **[executed]** = observed by running a command in this session. Nothing here is inferred from a
 conversation or a summary.
 
-[executed] At the time of writing: npx tsc --noEmit exits 0, and node --test over tests/**/*.test.ts reports
-422 tests, 422 pass, 0 fail (87 test files, 4.6 s). src/ is 61 TypeScript files, 12,037 lines; the largest is
-src/types/schema.ts at 594 lines, i.e. no file is at or over the 600-line cap (AGENTS.md §3).
+[executed] At the time of writing: npm run check (tsc --noEmit) exits 0, and node --test over
+tests/**/*.test.ts reports 450 tests, 450 pass, 0 fail (92 test files). src/ is 64 TypeScript files, 12,864
+lines; the largest is src/pi/operations.ts at 589 lines, so no file is at or over the 600-line cap (AGENTS.md
+§3) and the tightest headroom left is 11 lines.
 
 What this document does NOT claim: no isolation, no sandbox, no trusted identity, no exactly-once external
 execution. Those are open gates (§9.5) and the code says so at every seam cited here.
@@ -28,21 +30,22 @@ role-to-actor source, so a Manifold-backed build swaps one function body and not
 
 ## 2. Module map
 
-src/ (61 files, 12,037 lines). Every module below was opened; the responsibility line summarises its own
+src/ (64 files, 12,864 lines). Every module below was opened; the responsibility line summarises its own
 header and its exported surface.
 
 ### src/types/ — declared contracts, no runtime behaviour
 
 | File | Lines | Responsibility |
 | --- | --- | --- |
-| src/types/schema.ts | 594 | The closed flow/task/instance/artifact/result/event contracts: CapabilitySchema:32, GateSchema:36, TaskConfigSchema:246, NodeSchema:306, EdgeSchema:318 (kinds data/join/refuse), FlowConfigSchema:341, InstanceStatusSchema:477 (running/completed/failed), ResultSchema:534 (six keys). Re-exports the rubric and rule shapes. |
+| src/types/schema.ts | 358 | The closed task/instance/artifact/result/event contracts, after flow Unit 1 moved the flow-document block into flow.ts: CapabilitySchema:32, GateSchema:36, TaskConfigSchema:246, InstanceStatusSchema:283 (running/completed/failed/**waiting**), InstanceSchema:290, EventTypeSchema:51, ResultSchema:339 (six keys). Re-exports the rubric, rule and flow shapes. |
+| src/types/flow.ts | 389 | The flow document, moved out of schema.ts by Unit 1 to hold the 600-line cap and extended by both flow units: DecideSchema:68 (2-8 branch options), WaitSchema:90 (on.type, on.match of at most WAIT_MATCH_MAX 8 fields, timeoutMs 1000-2592000000), NodeSchema:106 (id, task, optional domains/decide/wait), EdgeKindSchema:119 (**data/join/branch/refuse**), EdgeSchema:130 (a label present iff the kind is branch), FlowConfigSchema:161 with its one superRefine:174 (ordering, the branch fan-out exemption, the merge-slot count, and the refusal of a refuse edge into a wait node at :217-223), ResolvedNode:342, NODE_KEYS:363 (id/task/domains/decide/wait), parseFlowConfig:376. |
 | src/types/quality.ts | 172 | The rubric: QualitySchema, QualityDimensionSchema:98 (id, statement, probes, quantileGate, deprecated floor:118), ProbeSchema:31 (choice/noul/score, sections, rule citation), PROBES_PER_DIMENSION 6 / PROBES_TOTAL 48. threshold:127 and paretoThreshold are parsed and IGNORED. |
-| src/types/pi.ts | 467 | The tool contract: PraxisToolOpSchema:21 (start, submit, read, note, check, recall), PraxisToolArgsSchema:31, and one strict envelope per op (Start:305, Step:312, Read:318, Note:324, Check:343, Recall:398). |
+| src/types/pi.ts | 471 | The tool contract: PraxisToolOpSchema:21 (start, submit, read, note, check, recall), PraxisToolArgsSchema:31, and one strict envelope per op (Start, Step, Read, Note, Check, Recall). **The op set did not change for Units 1-2**: branch and wait add no tool op — wait's host surface is the CLI (§8), because operations.ts is at the cap. |
 | src/types/learning.ts | 287 | Append-only learning payloads: LearningNoteSchema:51, BarRaisedSchema:97, RubricSampledSchema:167, BarContestedSchema:187, RecallNote/RecallSet, RecallRanked. |
 | src/types/profile.ts | 89 | The locked profile schema and PROFILE_LAYERS (conduct/role/domain), PinnedProfile, ComposedDomains. |
 | src/types/rules.ts | 99 | Rule-set documents and RuleRef (file ref or id subset). |
 | src/types/hooks.ts | 147 | The eight hook names (before_/after_ x start/check/submit/note) and their payload types. |
-| src/types/errors.ts | 90 | The ONE closed Code union (:21-57, 34 codes) plus AppError, fail, isAppError, asAppError. |
+| src/types/errors.ts | 98 | The ONE closed Code union (:21-62, **38 codes**) plus AppError, fail, isAppError, asAppError. The four flow-control codes ROUTE_UNAVAILABLE:56, ROUTE_INVALID:58, WAIT_TIMEOUT:60 and WAIT_EVENT_INVALID:62 were added by Units 1-2; the pi.ts mirror is compile-checked and TAXONOMY_SIZE (tests/types/errors.test.ts:48) is 38. |
 | src/types/project.ts | 38 | praxis.project/v1: defaults.maxAttempts, defaults.storeDir, defaults.role. |
 | src/types/active.ts | 36 | The active-step snapshot shape the host reads (ACTIVE_FILE, ActiveSnapshotSchema). |
 | src/types/paths.ts | 21 | The shared reference grammar: KEBAB:14, pathUnder():17 for tasks/flows/rules. |
@@ -53,7 +56,7 @@ header and its exported surface.
 | File | Lines | Responsibility |
 | --- | --- | --- |
 | src/store/db.ts | 171 | STORE_SCHEMA = praxis.store/v2 (:17); the five tables and two append-only triggers (:19-76); WAL, synchronous=FULL, busy_timeout 5000 (:150-153); openStore:124; transact:103. |
-| src/store/instance.ts | 199 | insertInstance, createInstance, loadInstance, setStatus with revision expectations. The instance row is current state; failedReason is DERIVED on read. |
+| src/store/instance.ts | 204 | insertInstance, createInstance, loadInstance, setStatus with revision expectations, and TRANSITIONS:46-51 — the closed move table: running -> completed/failed/waiting, waiting -> running/failed, both terminal states terminal. The instance row is current state; failedReason and the park in force are DERIVED on read. |
 | src/store/events.ts | 93 | appendEvent:39 (monotone seq per instance) and listEvents:65. The log is the fact store. |
 | src/store/artifacts.ts | 236 | recordArtifact:148 (digest-verified bytes, pending only), readArtifact:196, acceptArtifact:215. |
 | src/store/definitions.ts | 167 | The per-instance pins: DefinitionKindSchema:32 (flow/task/assignment/ruleset/profile), insertDefinition:85, readDefinition:106, publicationOf/publication rows keyed (task, version). |
@@ -62,22 +65,23 @@ header and its exported surface.
 
 | File | Lines | Responsibility |
 | --- | --- | --- |
-| src/runner/engine/index.ts | 27 | Export-only surface; every importer uses this one path. |
-| src/runner/engine/start.ts | 132 | start(): create or re-open the instance a request id names, pin flow + task versions + rules + profiles + role map in one transaction (:54 re-open, :129 create). |
-| src/runner/engine/advance.ts | 306 | advance(): exactly one node per call — observe, note-closure gate, run step, deterministic gate, quality decision, accept/refuse/onFailure, successor, snapshot. |
-| src/runner/engine/flow.ts | 290 | openFlow:115 (read + validate + resolve tasks/rules/profiles), loadPinnedFlow:224 (read the pins back), instanceIdFor:185, acceptedRefs:191, currentHandoffs:207. |
+| src/runner/engine/index.ts | 31 | Export-only surface; every importer uses this one path. Unit 2 added `export { arriveAt, deadlineOf, matchEvent, resume, waitTypeOf } from "./wait.ts"` (:29). |
+| src/runner/engine/start.ts | 136 | start(): create or re-open the instance a request id names, pin flow + task versions + rules + profiles + role map in one transaction (:54 re-open, :129 create). A first node that declares `wait` parks the new instance through arriveAt (:132), so a triggered flow can begin already parked. |
+| src/runner/engine/advance.ts | 397 | advance(): exactly one node per call — observe, note-closure gate, run step, deterministic gate, quality decision, accept/refuse/onFailure, successor, snapshot. The successor move goes through arriveAt (:389), so arriving at a `wait` node parks instead of running it; a parked instance is refused at the status guard, not advanced. |
+| src/runner/engine/wait.ts | 214 | **Flow Unit 2's park/resume.** deadlineOf:56 (an ISO deadline from the injected clock), matchEvent:68 (deterministic equality over the declared fields only), arriveAt:99 (park or move, idempotent on a crash between the two), waitTypeOf:129, resume:138 (authority -> status -> park in force -> lazy deadline -> match -> receipt dedupe -> one `wait.resumed` receipt -> running at the same step). No table, no timer, no ambient clock. |
+| src/runner/engine/flow.ts | 295 | openFlow:115 (read + validate + resolve tasks/rules/profiles), instanceIdFor:188, currentHandoffs:210 (now includes branch edges), loadPinnedFlow:229 (read the pins back). |
 | src/runner/engine/rules.ts | 203 | authoredQuality, judgeQuality and resolveRules: the AUTHORED rubric keys the bars, the COMPOSED rubric feeds the judge and the brief. |
 | src/runner/engine/quality-loop.ts | 331 | failureOutcome:177 (attempt budget, no-progress, escalate vs continue), recordAcceptance:282, qualityHistory:33, withFailedReason:87. |
 | src/runner/engine/profile.ts | 122 | loadProfileLayer:37 (any layer), loadProfile:68 (domain), resolveDomains:90, composeDomains:103. |
 | src/runner/engine/prompt.ts | 131 | The PURE composer composeSystemPrompt:97 and isComposedPrompt:129; PROMPT_MARKER_PREFIX:17, PROMPT_ADVISORY:20. No I/O. |
 | src/runner/engine/active.ts | 91 | The derived hint the host reads: writeActiveStep:30, readActiveStep:44, snapshotActive:58, activePath:22. |
 | src/runner/engine/authority.ts | 77 | assertObserver:36 and assertStepActor:48 — the ownership and role checks on every op. |
-| src/runner/engine/inspect.ts | 48 | inspect:17 (instance + result + pinned flow + handoffs + quality history) and readStepArtifact:35. |
-| src/runner/engine/types.ts | 216 | EVENT (16 names, :9-30) and every engine constant (§6, §8), plus EngineOptions/StartOptions/AdvanceOptions and the OpenedFlow shape. |
-| src/runner/engine/support.ts | 145 | Path resolution (storeDirOf:24, tasksDirOf, rulesDirOf, profileDirOf), projectConfig, withStore, nonceFor, stamp, orderOf/orderFor, pinnedJson. |
-| src/runner/step.ts | 385 | runStep:154 (the artifact body under its grant), gate:298 (the deterministic gate), buildHandoffs:103, successorOf:83. |
+| src/runner/engine/inspect.ts | 49 | inspect:17 (instance + result + pinned flow + handoffs + quality history; it now also passes the parked event type so a waiting instance's result can say `wait: <type>`) and readStepArtifact. |
+| src/runner/engine/types.ts | 265 | EVENT (**19 names**, :9-35 — incl. branchDecided:31, instanceParked:33, waitResumed:35) and every engine constant (§6, §8), plus EngineOptions/StartOptions/AdvanceOptions/ResumeOptions and the OpenedFlow shape. |
+| src/runner/engine/support.ts | 166 | Path resolution (storeDirOf, tasksDirOf, rulesDirOf, profileDirOf), projectConfig, withStore, nonceFor, stamp, orderOf/orderFor, branchDecisionFor (the recorded-route read the branch seam uses), pinnedJson. |
+| src/runner/step.ts | 407 | runStep:154 (the artifact body under its grant), gate:298 (the deterministic gate), buildHandoffs:103, successorOf:85 — now `(config, nodeId, label?)`, so a `decide` node routes on its recorded label and refuses ROUTE_INVALID without one. |
 | src/runner/note-gate.ts | 373 | The learning note: noteObjective:56 (derived), noteGate:102 (adequacy), recordNote:293, writeStubNote:249, finishInstance:268. |
-| src/runner/result.ts | 52 | buildResult:52 — exactly six keys (RESULT_FIELDS:16), validated by ResultSchema before it leaves. |
+| src/runner/result.ts | 73 | buildResult:58 — exactly six keys (RESULT_FIELDS:16), validated by ResultSchema before it leaves. nextActionFor:36 gained the `waiting` arm (:40, `wait: <event type>`), so a parked instance tells its parent to WAIT rather than resume. |
 | src/runner/canonical.ts | 139 | Canonical JSON and digest (canonicalBytes:117, digest:122, digestOf:128); refusals are typed, never coercions. |
 | src/runner/requirements.ts | 173 | missingFor:17 — the deterministic section validator behind gate "section-requirements". |
 | src/runner/capabilities.ts | 84 | The closed capability registry and the per-step Grant; a denial is thrown before the body runs. |
@@ -91,7 +95,8 @@ header and its exported surface.
 | File | Lines | Responsibility |
 | --- | --- | --- |
 | src/quality/evaluate.ts | 376 | The Scorer port, evaluateArtifact, and advanceEvaluated:326 — the score is computed OUTSIDE any transaction, then handed to advance(). |
-| src/quality/jev-scorer.ts | 342 | The live pi-jev adapter: one noul per dimension (JUDGE:31), the explain-only probe battery, RATIONALE_MAX 240, DIVERGENCE_MIN 0.2. |
+| src/quality/jev-scorer.ts | 351 | The live pi-jev adapter: one noul per dimension (JUDGE:31), the explain-only probe battery, RATIONALE_MAX 240, DIVERGENCE_MIN 0.2. Unit 1 extracted the one `choice` question literal into choiceQuestion:122 so the branch router reuses it instead of owning a second copy. |
+| src/quality/jev-branch.ts | 141 | **Flow Unit 1's route router.** The RouteRouter port (:51), RouteInput/RouteAnswer, jevRouteRouter:87 (ONE `choice` question over the node's authored criteria, built by choiceQuestion) and a strict label read. Fail-CLOSED: an unavailable judge is ROUTE_UNAVAILABLE and an undeclared label is ROUTE_INVALID — the opposite of the alignment gate's proceed-with-a-flag. |
 | src/quality/bar.ts | 453 | The ratchet: raiseTarget:179, supported:166, recomputeBar:333, perDimensionDecision:347, carriedObservations, plus the quantile math. |
 | src/quality/scope.ts | 207 | The read layer: scanEvents, dimensionKey/compositionKey, raisesFor, barAt/flooredBar, quantileBars, sampleFor. A MOVE out of bar.ts; bar.ts re-exports it. |
 | src/quality/sample.ts | 183 | The S3 rubric sampler: repeat-N agreement before a first raise (sampleIfDue:133, recordRubricSample:116). |
@@ -101,14 +106,14 @@ header and its exported surface.
 | src/quality/screen.ts | 89 | The code-owned screen on lesson text before it reaches a parent (SCREEN_FAIL 0.5, WITHHELD_NOTE). |
 | src/quality/jev-align.ts | 229 | The order-alignment judge used by op=start. |
 | src/quality/metrics.ts | 412 | A READ-ONLY projection over the log (no table, no view). Imported by src/cli.ts and its test only — never by the gate (§9.4). |
-| src/quality/index.ts | 90 | The barrel; the one import surface for the tool and the CLI. |
+| src/quality/index.ts | 102 | The barrel; the one import surface for the tool and the CLI. It now also re-exports the branch router. |
 
 ### src/pi/ — the Pi host surface
 
 | File | Lines | Responsibility |
 | --- | --- | --- |
 | src/pi/tool.ts | 115 | The tool identity (PRAXIS_TOOL_NAME:33), the JSON argument schema, the args parse and the dispatcher executePraxisTool:75. Op handlers live elsewhere; imports are re-exported so no path moved. |
-| src/pi/operations.ts | 544 | The eight handlers: startOperation:176, submitOperation:331, noteOperation:421, checkOperation:457, recallOperation:475, readOperation:491, issueOperation:516, plus engineOptions/actorFor/ok/failure and the test seams. |
+| src/pi/operations.ts | 589 | The eight handlers: startOperation:177, submitOperation:372, noteOperation:466, checkOperation:502, recallOperation:520, readOperation:536, issueOperation:561, plus engineOptions:71/actorFor:110, ok/failure and the test seams. Unit 1's route seam lives here; Unit 2 added nothing, because the file is at the cap (§9.4) and wait's host surface is the CLI. |
 | src/pi/descriptor.ts | 307 | The derived step view: currentStepOf:23, learningView:118, stepDescriptor:203 (the brief), artifactSummary:292. Nothing here is stored. |
 | src/pi/extension.ts | 26 | The Pi entry point: registerTool(withFooter(...)):23 and pi.on("before_agent_start", hook):25. |
 | src/pi/prompt-hook.ts | 145 | createPromptHook:103 — reads the role, the two fixed profiles and the active snapshot, composes, and returns { systemPrompt }. Fail-closed and marker-guarded. |
@@ -137,14 +142,17 @@ Tables [code src/store/db.ts:19-70]:
 - publication(task, version, digest, at) — the durable publication record per task version; a digest, never
   bytes [code src/store/definitions.ts:55-65,148].
 
-### 3.1 Event kinds (16) [code src/runner/engine/types.ts:9-30]
+### 3.1 Event kinds (19) [code src/runner/engine/types.ts:9-35]
 
 instance.created, gate.verdict, quality.verdict, quality.continued, instance.failed, needs.guidance,
 artifact.accepted, step.trace, instance.completed, learning.note, bar.raised, bar.contested, recall.selected,
-recall.ranked, rubric.sampled, bar.held.
+recall.ranked, rubric.sampled, bar.held, **branch.decided, instance.parked, wait.resumed**.
 
-The five base events carry the engine's transitions; the next seven carry the execution-learning loop; the
-last four are derived evidence (bars, recall, samples) that may always be rebuilt by replay.
+The first nine carry the engine's transitions; the next seven carry the execution-learning loop; the last
+three are the flow-control records — ONE `branch.decided` per routed deciding step (Unit 1) and the
+`instance.parked` / `wait.resumed` pair per park (Unit 2). All three are event-fold like the learning
+evidence: no table, no column, no DDL was added for any of them [code src/store/db.ts unchanged across
+b04a04e..a61a279].
 
 ### 3.2 What is STORED and what is COMPUTED
 
@@ -155,7 +163,9 @@ STORED (a row or an event is the owner):
 - the pins: flow/task/ruleset/profile/assignment BYTES plus their digests, per instance;
 - every gate verdict and every quality verdict, with the full per-dimension judgment;
 - every bar.raised / bar.contested / bar.held / rubric.sampled, every learning.note (real or stub:true),
-  every recall.selected and every recall.ranked cache entry.
+  every recall.selected and every recall.ranked cache entry;
+- the flow decisions: one branch.decided per (instance, step, artifact digest) and the instance.parked /
+  wait.resumed pair, where the park event's own seq is the id its receipt names [code src/runner/engine/wait.ts:99-137].
 
 COMPUTED ON DEMAND — no column, no table, no second copy:
 
@@ -175,6 +185,8 @@ COMPUTED ON DEMAND — no column, no table, no second copy:
   those facts; only the agent's subjective half is stored [code src/runner/note-gate.ts:3-13,35-101].
 - The recall ranking: computed by a port and CACHED as a derived recall.ranked event keyed by the evidence
   state; a stale or missing entry recomputes, so the cache is never authoritative.
+- The park in force, and a parked instance's nextAction: derived from the status plus the park/receipt pair,
+  never a column [code src/runner/engine/wait.ts:129-137; src/runner/result.ts:36-41].
 
 ## 4. Execution path
 
@@ -189,6 +201,11 @@ the args, dispatches, and returns { content, details, isError } where details is
     note   -> record the learning note a terminal step owes (or the engine's bounded stub)
     read   -> the accepted artifact of one step (grant-checked)
     recall -> bounded, ranked, provenance-carrying experience from THIS store
+
+The CLI is a seventh surface that is deliberately NOT a tool op: `resume <instance> --event <file>` is the
+host seam that delivers the outside event a parked instance waits for (Unit 2, §7). A parked instance refuses
+advance and every op that would advance it (INSTANCE_STATE_INVALID at src/runner/engine/advance.ts:60-66);
+only resume moves it back to running, at the same step.
 
 ### 4.1 Gates, in the order they fire
 
@@ -216,22 +233,28 @@ the args, dispatches, and returns { content, details, isError } where details is
 8. **The refusal / onFailure policy.** A refusal is evidence, not death: a refuse edge re-points the work, no
    edge retries the node. On the attempt budget or on no progress, the task's onFailure decides — escalate
    sets status failed, records needs.guidance and throws QUALITY_BLOCKED; continue accepts the best-scoring
-   version marked FAILED and moves on [code src/runner/engine/quality-loop.ts:177-281; advance.ts:235-270].
+   version marked FAILED and moves on [code src/runner/engine/quality-loop.ts:177-281; advance.ts:300-360].
 9. **Closure — the note gate.** A step that reached its terminal outcome owes a learning note; the next
    advance refuses to move until it is recorded, with a bounded budget after which the engine writes
    stub:true itself, so an agent can delay the flow but never deadlock it [code src/runner/note-gate.ts:1-13,
-   src/runner/engine/advance.ts:105-140].
+   src/runner/engine/advance.ts:166-190].
+10. **Arrival — park or move.** The successor move goes through arriveAt (src/runner/engine/advance.ts:389).
+   If the target node declares `wait`, the engine appends one instance.parked and sets the status to waiting
+   instead of running; otherwise it sets running at the target exactly as before. `start` applies the same
+   rule to the first node (src/runner/engine/start.ts:132), so a triggered flow can begin already parked.
 
 The score itself never runs inside a store transaction: advanceEvaluated inspects (opens and closes the
 store), computes the verdict with the injected Scorer, and only then calls advance()
-[code src/quality/evaluate.ts:326-376; src/runner/engine/advance.ts:48]. This is the durable-intent ->
+[code src/quality/evaluate.ts:326-376; src/runner/engine/advance.ts:50]. This is the durable-intent ->
 external-call -> durable-receipt rule applied to the judge.
 
 ### 4.2 The six-key result
 
 Exactly six keys leave the runtime, validated against ResultSchema before return: instanceId, flow, status,
 artifacts[] (step, version, digest, schema — no bytes, no path), summary, nextAction
-[code src/runner/result.ts:16-66; src/types/schema.ts:534-542]. The parent never receives the event log, a
+[code src/runner/result.ts:16-66; src/types/schema.ts:339-346]. A **parked** instance reports status `waiting`
+and nextAction `wait: <event type>`; every other status keeps the values described above
+[code src/runner/result.ts:36-41]. The parent never receives the event log, a
 transcript, artifact bytes or a store path.
 
 ## 5. Composed system prompt
@@ -358,13 +381,18 @@ a divergence clause fires when the score is below the bar while the probes read 
 ## 7. Flow and task model
 
 - **Flows are molecules.** A flow document is praxis.flow/v2: an id (flows/<path>), nodes, edges, optional
-  default domains and optional quality default [code src/types/schema.ts:341-458]. A node carries exactly an
-  id, a task reference and optional domains — never a capability, gate or schema [code
-  src/types/schema.ts:300-312].
-- **Edges are the logic.** Three kinds only: data (one artifact in), join (several sources in declared
-  order), refuse (the rework target when a gate refuses) [code src/types/schema.ts:315-319]. nodes[] is
-  declared in execution order: data/join edges run low-to-high, refuse edges high-to-low, which is what makes
-  acyclicity checkable without a graph library [code src/types/schema.ts:341-360,440-456].
+  default domains and optional quality default [code src/types/flow.ts:161-341]. A node carries an id, a task
+  reference and the three OPTIONAL attributes the flow layer owns — `domains`, a `decide` block (Unit 1) and a
+  `wait` predicate (Unit 2) — and never a capability, gate or schema [code src/types/flow.ts:106-115;
+  NODE_KEYS:363].
+- **Edges are the logic.** FOUR kinds now: data (one artifact in), join (several sources in declared order),
+  branch (one of N successors, chosen by the node's `decide` block; the edge carries the `label` that names
+  the option) and refuse (the rework target when a gate refuses) [code src/types/flow.ts:118-140]. A branch edge
+  is exempt from the data/join fan-out counts and is counted only as a MERGE SLOT by its distinct source, so
+  N mutually exclusive arms from one node consume exactly one slot at a reconvergence node [code
+  src/types/flow.ts:174-260]. A refuse edge may not target a `wait` node (:217-223). nodes[] is declared in
+  execution order: data/join/branch edges run low-to-high, refuse edges high-to-low, which is what makes
+  acyclicity checkable without a graph library [code src/types/flow.ts:174-341].
 - **Tasks are atoms.** A task document under .pi/praxis/tasks/<path>.json declares id (== last path segment),
   version, state draft|published, gate, goal, capabilities, produces.schema, requires (the typed section
   contract), optional quality (dimensions, probes, quantileGate, maxAttempts, onFailure), bindsSubject,
@@ -382,7 +410,14 @@ a divergence clause fires when the score is below the bar while the probes read 
 - **The instance pins what it ran.** start writes a definition row for the flow and for every task version,
   rule-set and profile it resolved, plus the role map; loadPinnedFlow reads those bytes back and re-verifies
   their digests, so a library edit cannot change work already in flight [code src/runner/engine/start.ts:60-130;
-  src/runner/engine/flow.ts:224-290].
+  src/runner/engine/flow.ts:229-290].
+- **Primitive status (matches docs/FLOWS.md §3 and §5).** sequence, join and loop (`data`/`join`/`refuse`)
+  were already built; **branch is built** (commit b04a04e), **wait is built** (a61a279, Slice A: park/resume
+  with a lazily evaluated timeout and no daemon), the **human node is built as a wait variant** (a park whose
+  event is a submission, then the ordinary gate), and the **trigger is a host seam, not a primitive** — `start`
+  fires and `praxis resume --event` continues (§8). **Nesting remains △ proposed and disabled** (gates #4/#8),
+  and wait's operational extras stay gated: retention (#6), an off-process scheduler (#7) and a Pi-tool
+  `op=resume` [code src/types/flow.ts:106-115; src/runner/engine/wait.ts:1-30; src/cli.ts:137-146].
 
 ## 8. Configuration and environment
 
@@ -414,8 +449,10 @@ QUANTILE_WINDOW 40 / HALF_WINDOW 20, RAISE_STEP 0.02, DEFAULT_QUANTILE 25, FIRST
 FIRST_RAISE_MIN 28, QUANTILE_FORMULA_ID praxis.bar.quantile/v1, TORN_SPREAD 0.35, TORN_NOUL_BAND
 [0.45,0.55], SAMPLE_REPEATS 3, SAMPLE_RANGE_MAX 0.3, SAMPLE_AGREEMENT_MIN 2/3, TORN_CLEAN_BAND [0.4,0.6].
 
-The CLI (src/cli.ts) exposes run, resume, status, artifact read, metrics [code src/cli.ts:89-172] and reads the
-same env precedence through the engine options.
+The CLI (src/cli.ts) exposes run, resume [--artifact <file> | --event <file>], status, artifact read and
+metrics [code src/cli.ts:117-205], and reads the same env precedence through the engine options. `resume
+--event` is the only host surface for a parked instance (Unit 2): the flag selects the wait resume, while a
+plain resume keeps its original meaning and a parked instance refuses it with INSTANCE_STATE_INVALID.
 
 ## 9. Legacy and tech debt to fix before adding new work
 
@@ -443,9 +480,9 @@ STILL PRESENT:
 - **.gitignore, the manifold block** — .pi/manifold/state/, .pi/manifold/sessions/, .pi/manifold/cache/,
   .pi/manifold/experiments/, .pi/manifold/journal.json, .pi/manifold/operator.lock, .pi/manifold/operator.lock.stale.*,
   plus the tests/live/** rules. Praxis does not write any of those paths; the live-test rules are inherited too.
-- **scripts/release.ts and scripts/release-lib.ts** — inherited manifold release tooling. No npm script
-  references them and nothing in src/ imports them, so they are orphan files in the tree (scripts/ is
-  currently untracked).
+- **scripts/release.ts and scripts/release-lib.ts** — inherited manifold release tooling, now tracked (commit
+  d99775e added them). No npm script references them and nothing in src/ imports them, so they remain orphan
+  files in the tree.
 - The .pi/manifold/ directory itself (.pi/manifold/config.json, profiles/research.json, profiles/tester.json)
   and its state — Manifold's own declaration, referenced by the ledger, not Praxis code.
 
@@ -487,9 +524,9 @@ The LIVE model is §6. These survivors still say the old model and should be del
 
 - **docs/vision.md §13a, the P7 experience bullet (around line 322)** still says "a per-dimension + global
   quality ratchet". There is no global bar and no mean in the code (§6); STATUS.md and README already say so.
-- **README.md** — as of the working tree at the time of writing, the "Quality bars and learning" section HAS
-  been rewritten to the quantile model (uncommitted; a008e39 is the last committed state). Re-check it against
-  §6 before relying on it; the earlier mean/Pareto/EMA text is gone from the current file.
+- **README.md** — the "Quality bars and learning" section carries the quantile model and is committed as of
+  a008e39; re-check it against §6 whenever §6 moves. It predates flow Units 1-2 and does not yet describe the
+  branch or wait primitives.
 - **src/pi/extension.ts:2** — "exactly one tool, no hook (R1, R11)" while the same function registers the
   before_agent_start hook at :25.
 - **src/runner/engine/profile.ts:7-10** — "ONLY THE DOMAIN LAYER IS COMPOSED HERE. conduct and role ... stay
@@ -507,9 +544,10 @@ The LIVE model is §6. These survivors still say the old model and should be del
 
 ### 9.4 Structural facts worth knowing before adding code
 
-- **No file is at or over the 600-line cap.** Largest: src/types/schema.ts 594, src/pi/operations.ts 544,
-  src/quality/ranker.ts 488, src/quality/ranker-jev.ts 481, src/types/pi.ts 467, src/quality/bar.ts 453. There
-  is almost no headroom left in schema.ts (6 lines).
+- **No file is at or over the 600-line cap.** Largest: src/pi/operations.ts 589, src/quality/ranker.ts 488,
+  src/quality/ranker-jev.ts 481, src/types/pi.ts 471, src/quality/bar.ts 453, src/types/flow.ts 389.
+  operations.ts is the tight one (11 lines of headroom), which is why wait's host surface is the CLI; schema.ts
+  fell from 594 to 358 when Unit 1 moved the flow document into flow.ts.
 - **src/quality/metrics.ts is imported only by src/cli.ts and its own test** — by design (it must never gate),
   but it means nothing in the tool path exercises it.
 - **.pi/praxis/state/ contains both praxis.sqlite (the live store, with -wal/-shm) and a stray praxis.db** —
@@ -535,10 +573,14 @@ From docs/vision.md §13 [doc], with the blocking consequence stated:
    beyond the canonical JSON + per-task section requirements that exist (§4.1, §6).
 6. **Durability** — store root policy, MIGRATION, RETENTION, crash consistency, backups. BLOCKS any new table,
    any DDL, any store-schema bump: this is why derived caches are events (recall.ranked) and not tables
-   [code src/quality/ranker-jev.ts:1-14].
+   [code src/quality/ranker-jev.ts:1-14]. Unit 2 stayed inside it the same way: the park is an instance.parked
+   event and the receipt a wait.resumed event, so parked instances introduce NO new storage and NO retention
+   policy of their own.
 7. **Maintenance** — what counts as a turn, and who triggers background work with no active process. BLOCKS
    any daemon, any scheduled job, any write-triggered maintenance. The recall cache is LAZY read-through
-   precisely to stay inside this gate.
+   precisely to stay inside this gate, and so is Unit 2's timeout: nothing sweeps parked instances and a
+   deadline is only evaluated when a host calls resume. A host cron calling start/resume is the pre-gate form;
+   a Praxis-side scheduler is gate #7 itself.
 8. **Nested execution** — depth, cycle rules, shared budgets, cancellation. BLOCKS any nested runtime, any
    sub-flow invocation, any budget that spans instances.
 

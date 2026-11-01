@@ -21,6 +21,12 @@ export const ProjectDefaultsSchema = z.strictObject({
    * checkout can be pointed at another store without editing the committed config.
    */
   storeDir: z.string().min(1).optional(),
+  /**
+   * The role seat this project claims when PRAXIS_ROLE is unset: an id under profile/role/<id>.json.
+   * Advisory text only - it grants nothing, and gate #3 (trusted identity) stays open: whoever can edit
+   * this file can claim a seat.
+   */
+  role: z.string().min(1).optional(),
 });
 export type ProjectDefaults = z.infer<typeof ProjectDefaultsSchema>;
 

@@ -70,11 +70,13 @@ test("one registerTool", () => {
   assert.equal(tool.parameters, PRAXIS_TOOL_PARAMETERS);
 });
 
-test("no tool_call registration", () => {
+test("one hook registration, and no tool_call or tool_result handler", () => {
   const { host, otherRegistrations } = fakeHost();
   praxisExtension(host);
-  assert.deepEqual([...otherRegistrations], []);
-  assert.equal(otherRegistrations.length, 0);
+  // The composed-prompt unit adds exactly ONE handler: before_agent_start. A Pi-wide tool lockdown still has
+  // no step-to-tool owner in the flow config, so no tool_call/tool_result handler may appear.
+  assert.deepEqual([...otherRegistrations], ["on:before_agent_start"]);
+  assert.equal(otherRegistrations.length, 1);
 });
 
 test("parameters accept start", () => {

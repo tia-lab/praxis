@@ -62,9 +62,34 @@ export interface PiToolDefinition {
   ): Promise<PiToolResult>;
 }
 
+/**
+ * `before_agent_start`: the prompt Pi rendered for this run (readonly systemPrompt, types.d.ts:720), the
+ * sections it was rendered from, and the message that started the run. Type-only mirror, like everything above.
+ */
+export interface BeforeAgentStartEvent {
+  readonly systemPrompt: string;
+  readonly systemPromptOptions?: unknown;
+  readonly messageType?: string;
+}
+
+/**
+ * Returning systemPrompt replaces the whole prompt for that run (types.d.ts:1125-1129) and later handlers
+ * observe the override; returning nothing leaves Pi's own prompt alone. We use the return value and never
+ * systemPromptOptions.forceSystemPrompt, because that object is shared and a value written there can be
+ * re-rendered on the next run - the way a prompt ends up nested inside itself.
+ */
+export interface BeforeAgentStartResult {
+  readonly systemPrompt?: string;
+}
+
 /** The registration surface the extension receives. */
 export interface PiHost {
   registerTool(tool: PiToolDefinition): void;
+  /**
+   * `on("before_agent_start", handler)` (types.d.ts:1207). Optional in the mirror so a host that exposes no
+   * hooks - every existing test fixture - still satisfies this interface; the extension never requires it.
+   */
+  on?(event: "before_agent_start", handler: (event: BeforeAgentStartEvent) => BeforeAgentStartResult | undefined): void;
 }
 
 /** One line producer for the status widget (the host's `Component`, minus what we never use). */

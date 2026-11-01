@@ -10,37 +10,13 @@
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { z } from "zod";
 import { resolveDomains } from "./profile.ts";
 import type { Instance } from "../../types/schema.ts";
 import type { OpenedFlow } from "./types.ts";
 
-/** The file's name inside the store directory (`.pi/praxis/state/active.json` by default). */
-export const ACTIVE_FILE = "active.json";
-
-/** One domain as the prompt needs it: what the brief carried, from the same pinned bytes. */
-const ActiveDomainSchema = z.strictObject({
-  id: z.string().min(1),
-  version: z.int().min(1),
-  digest: z.string().min(1),
-  overview: z.string().max(280),
-  invariants: z.array(z.string()).max(12),
-  prefer: z.array(z.string()).max(12),
-  avoid: z.array(z.string()).max(12),
-});
-
-/** The snapshot's shape. `running` is the only status that carries domains. */
-export const ActiveSnapshotSchema = z.strictObject({
-  v: z.literal(1),
-  instance: z.string().min(1),
-  flow: z.string().min(1),
-  step: z.string().min(1),
-  task: z.string().min(1),
-  status: z.enum(["running", "closed"]),
-  domains: z.array(ActiveDomainSchema).max(6),
-  at: z.string().min(1),
-});
-export type ActiveSnapshot = z.infer<typeof ActiveSnapshotSchema>;
+import { ACTIVE_FILE, ActiveSnapshotSchema, type ActiveSnapshot } from "../../types/active.ts";
+export { ACTIVE_FILE, ActiveSnapshotSchema };
+export type { ActiveSnapshot };
 
 /** Where the snapshot lives for one store root. */
 export function activePath(storeDir: string): string {

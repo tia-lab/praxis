@@ -110,6 +110,8 @@ export function writeFlow(
   nodes: readonly TaskFixture[],
   edges?: readonly EdgeFixture[],
   flowQuality?: unknown,
+  nodeDomains?: Readonly<Record<string, readonly string[]>>,
+  flowDomains?: readonly string[],
 ): void {
   for (const node of nodes) writeTask(ws, node);
   const wiring =
@@ -118,7 +120,14 @@ export function writeFlow(
   const document: Record<string, unknown> = {
     schema: "praxis.flow/v2",
     flow: flowRef(flow),
-    nodes: nodes.map((node) => ({ id: node.id, task: taskRef(node.id) })),
+    // A DOMAIN declaration lives on the flow NODE (or the flow), never on the task atom: the node is the
+    // composition point, the task stays reusable (domain injection).
+    ...(flowDomains === undefined ? {} : { domains: [...flowDomains] }),
+    nodes: nodes.map((node) => ({
+      id: node.id,
+      task: taskRef(node.id),
+      ...(nodeDomains?.[node.id] === undefined ? {} : { domains: [...nodeDomains[node.id]] }),
+    })),
     edges: wiring,
     result: "praxis.result/v1",
   };

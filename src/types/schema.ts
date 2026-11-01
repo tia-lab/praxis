@@ -572,7 +572,9 @@ export function parseWith<T>(schema: z.ZodType<T>, value: unknown, code: Code, w
 }
 
 /** The two keys a node may carry; a third is `NODE_INVALID`, not a config typo. */
-const NODE_KEYS: ReadonlySet<string> = new Set(["id", "task"]);
+/* The two keys a node has always had, plus the one dynamic conduct layer a STEP may declare (domain
+ * injection). Nothing else: a node still carries no capability, gate or schema of its own. */
+const NODE_KEYS: ReadonlySet<string> = new Set(["id", "task", "domains"]);
 
 /** The undeclared key of one raw node, if it carries one. */
 function nodeExtraKey(value: unknown): string | undefined {

@@ -5,12 +5,12 @@ Task: <slug> · Hash: <hash8> · Append-only. Nobody edits a verdict.
 Digests:
 
 ```sh
-sha256sum docs/<slug>-<hash8>/<file>
+sha256sum docs/tasks/<slug>-<hash8>/<file>
 ```
 
 ## G1 research — attempt 1 — PASS | FAIL — <ISO-8601 timestamp>
 
-subject: `docs/<slug>-<hash8>/research.md` sha256:<64 hex>
+subject: `docs/tasks/<slug>-<hash8>/research.md` sha256:<64 hex>
 reviewer: <identity>  independence: self | independent
 
 findings:

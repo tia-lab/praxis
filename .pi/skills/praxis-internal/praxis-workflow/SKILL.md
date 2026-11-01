@@ -51,7 +51,7 @@ per slice, never a red commit.
 
 ## Task identity
 
-`docs/<slug>-<hash8>/` holds `research.md` (the contract in §0), `spec.md` or a
+`docs/tasks/<slug>-<hash8>/` holds `research.md` (the contract in §0), `spec.md` or a
 recorded waiver, `plan.md`, `review.md`. Shapes: `docs/templates/`.
 
 ```sh

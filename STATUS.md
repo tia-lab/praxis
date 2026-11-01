@@ -39,7 +39,7 @@ reachable, monotone gate:
 
 Verified independently: `tsc` exit 0; **375 / 375** tests; dead-code grep 0; every file < 600 lines;
 the T1 (outlier immunity), T2 (hybrid floor), monotone and compat proofs green; replay on the real
-v6/v7 stores (`docs/quantile-bars-cbc26826/acceptance.md`). Eight commits `7d2fa08 → 20a49cb`.
+v6/v7 stores (`docs/tasks/quantile-bars-cbc26826/acceptance.md`). Eight commits `7d2fa08 → 20a49cb`.
 
 **Not claimed:** no quality improvement, no savings, no isolation, no exactly-once. The acceptance
 replay number is an upper bound (it uses a static p25, not the live windowed ratchet); the binding

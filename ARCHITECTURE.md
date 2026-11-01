@@ -247,7 +247,7 @@ document, in this order [code src/pi/extension.ts:23-26; src/pi/prompt-hook.ts:1
 - **The hook.** pi.on("before_agent_start") receives the prompt Pi rendered for this run; the handler reads
   event.systemPrompt and returns { systemPrompt } to replace it. It deliberately does NOT set
   event.systemPromptOptions.forceSystemPrompt (a shared mutable object would re-render on the next run and
-  nest a second environment) [code src/pi/prompt-hook.ts:1-16; docs/composed-prompt-c0c929ff/design.md §3].
+  nest a second environment) [code src/pi/prompt-hook.ts:1-16; docs/tasks/composed-prompt-c0c929ff/design.md §3].
 - **The guard.** A composed prompt starts with PROMPT_MARKER_PREFIX ("<!-- praxis:system-prompt v1"); if the
   incoming prompt already starts with it the hook returns undefined, so a second boundary nests nothing
   [code src/runner/engine/prompt.ts:17,129; src/pi/prompt-hook.ts:104-106].

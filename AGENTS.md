@@ -22,7 +22,9 @@ reconcile with the owner rather than proceed.
 **Authorization ledger.** Nothing was recorded before 2026-10-29: `src/` is empty,
 there is no `tests/` or `scripts/` directory, and `README.md` is a one-line
 placeholder. When a bounded unit is granted, record its scope, allowed paths and
-acceptance here before building.
+acceptance here before building. Paths inside a dated entry record the layout at that
+date and are not rewritten; task folders, wherever an entry names them, live under
+`docs/tasks/<slug>-<hash8>/` (§3).
 
 - **2026-10-29 — setup docs only.** Scope: `docs/WORKFLOW.md`,
   `docs/templates/{research,spec,plan,review}.md`, the `AGENTS.md` working-procedure
@@ -982,7 +984,7 @@ not a passing build — completes a task.
    explicit valid states and small complete changes over scaffolding.
 3. Dedicated Zod/types modules, types separate from runtime; at most 600 lines per
    file; measure critical paths. Task documents and acceptance coverage live under
-   `docs/<slug>-<hash>/` as `docs/WORKFLOW.md` defines.
+   `docs/tasks/<slug>-<hash8>/` as `docs/WORKFLOW.md` defines.
 4. Keep implementation write boundaries explicit; parallel agents do not gain
    permission to edit overlapping paths merely by having separate panes.
 5. Add the smallest meaningful regression check, including failure/recovery paths.

@@ -11,7 +11,7 @@ document shapes, roles and stop conditions.
 `.pi/praxis/rules/`. The conduct profile is the text the agent actually receives in
 its composed prompt, and the rule sets are versioned beside it: the canon cannot drift
 from what runs.
-`.pi/skills/praxis-minimality/` owns the canon statement and the citation rules; cite
+`.pi/skills/praxis-internal/praxis-minimality/` owns the canon statement and the citation rules; cite
 a rule id (`minimality/smallest-complete-system`) in every plan entry, finding and
 blocker so a minimality claim is checkable instead of rhetorical. `MIN-0xx` ids
 appear in earlier ledger, plan and review text: they are historical notation for the

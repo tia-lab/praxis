@@ -302,7 +302,7 @@ Blocked/failed/aborted results return a stable typed reason, current step, and p
 ## 13. Open design gates
 
 1. **Isolation:** broker-only tool confinement versus OS sandbox; specify what is actually enforceable.
-2. **Pi host seam:** supported out-of-context invocation, cancellation and restart behavior; do not depend on undocumented Fabric internals. *Exercised, not closed:* the extension now composes the whole system prompt at `before_agent_start` and reads the active-step snapshot (`docs/composed-prompt-c0c929ff/`) — the host is inside the prompt trust path, and nothing here is an isolation claim.
+2. **Pi host seam:** supported out-of-context invocation, cancellation and restart behavior; do not depend on undocumented Fabric internals. *Exercised, not closed:* the extension now composes the whole system prompt at `before_agent_start` and reads the active-step snapshot (`docs/tasks/composed-prompt-c0c929ff/`) — the host is inside the prompt trust path, and nothing here is an isolation claim.
 3. **Trusted identity:** source of actor binding with/without Manifold.
 4. **Flow expansion:** who may propose, approve, and activate new steps and capabilities; whether active instances can migrate.
 5. **Artifact contract:** JSON Schema dialect, canonical digest rules, rendering, acceptance ownership.

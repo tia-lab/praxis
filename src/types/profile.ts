@@ -3,7 +3,7 @@
  * conduct profile. Three layers exist - `conduct` (occam), `role`, `domain` - and only `domain` is dynamic in
  * this unit: it is declared on the FLOW NODE and injected into the step brief.
  *
- * The shape is locked (docs/profiles-286ce77d/design.md 2.0): nine required fields and two optional ones, a
+ * The shape is locked (docs/tasks/profiles-286ce77d/design.md 2.0): nine required fields and two optional ones, a
  * strict object, and a refine that requires content. `description` is metadata (the catalogue line) and is
  * never injected; `overview` is what the agent reads first. No `extends`, no `tools`, no `capabilities`, no
  * `priority`: a profile states obligations and must never be able to name a permission.

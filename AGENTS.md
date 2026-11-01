@@ -801,6 +801,80 @@ acceptance here before building.
   commits `7d2fa08 → 20a49cb`. Open follow-up (NOT a blocker): make `replay-bars.mjs` drive the real
   bar code for an exact from-history number; true steady-state behaviour needs a gated live run.
 
+- **2026-10-31 — metrics read-model authorized (owner GO: metrics first, validation DEFERRED).** Owner
+  authorized the metrics unit and explicitly deferred the task-validation framework (A/B checks + the
+  no-approval-without-evidence policy) until Praxis is further along. Scope: a READ-ONLY TypeScript
+  read-model over the EXISTING event store — no SQL view, no DDL (a schema object would touch open store
+  gate #6), no new table, no new storage, no new dependency. Likely `src/quality/metrics.ts` (or
+  `src/store/`), a thin print/CLI surface, and `tests/`. Acceptance: per-(task,dimension) health (n,
+  mean, median, fraction<0.5, current bar, contested count, Q50 rate, bottleneck share, headroom) +
+  per-task eventual/first-attempt pass rates + a timeseries bucketed by the verdict `at`, all DERIVED
+  from `quality.verdict` / `artifact.accepted` / `bar.*` events and verified against a fixture store.
+  Boundaries (unit fails if violated): NO new table/DDL/storage; metrics.ts NOT imported by the gate
+  decision path (describe, never gate); NO per-agent attribution (gate #3 deferred — instance-level
+  only); every row carries its n and flags n<20 provisional; no causation/learning claim. Not
+  authorized: SQL views or any store schema change, the A/B validation harness, the approval policy,
+  or any re-entry of a mean into the gate.
+
+- **2026-10-31 — metrics read-model (`c76ce85`) ACCEPTED by owner.** Verified independently: tsc clean,
+  378/378, NOT imported by the gate decision path (grep 0), no DDL / no `.actor`, 412 lines, and runs on
+  the real v6 store (first-attempt 28.1% → eventual 73.4%, bottleneck parsimony 60.7%). Shipped. Next
+  (owner GO 2026-10-31): a clean live 64-agent run under the new quantile gate, measured through this
+  read-model — the behavioral validation offline replay cannot give.
+
+- **2026-10-31 — live run (v8) caught a descriptor-mirror drift; fix authorized.** The clean 64-agent run
+  under the new gate surfaced within minutes a real bug the 378 unit tests missed: the scorer writes a
+  `sections` key into each diagnosis entry (`src/quality/jev-scorer.ts:308`) but the descriptor mirror
+  omits it (`src/types/pi.ts:235-247`, a `strictObject`), so a section-targeting rubric (research.json)
+  builds an INVALID descriptor when a note is owed. Bounded fix authorized: add the optional `sections`
+  field to the pi.ts diagnosis mirror + a regression test that reproduces the failure (red before, green
+  after). Then a fresh clean live run. The v8 store is discarded (it hit the bug on the note path).
+
+- **2026-10-31 — task-rules (`86c98dcd`) AUTHORIZED: lead-approved plan, owner GO to implement.** Owner delegated approval ('if you approve dispatch engineer'); lead reviewed `docs/task-rules-86c98dcd/plan.md` against the 9 frozen decisions and approved. A reusable 'rules' atom: `.pi/praxis/rules/[path/]name.json` ({id==last segment, version, rules:[{id, statement<=280}]}); task `rules: RuleRef[]` (file-ref or id-subset, 1-8, no globbing); resolve-time DERIVED expansion via one `effectiveQuality(flow,task)` accessor replacing 9 inline `task.quality ?? flow.config.quality` sites (brief + judge cannot disagree); opt-in Jev via a probe `rule:{set,id}` (jev-scorer UNCHANGED; no citation -> byte-identical request); rule-file bytes pinned per instance as a text definition-row kind 'ruleset' (NO DDL, NO STORE_SCHEMA bump); nothing enforced (no gate/bar/decision reads rules). Scope = plan §7; frozen = plan §8 (jev-scorer, bar, scope, metrics, step, gate, store schema + all SQL, package.json, ResultSchema, tasks/flows byte-identical). Acceptance = spec §12 oracles + both live stores re-parse with empty rules + unchanged envelopes + every file <600 + empty diffs on db.ts/package.json/ResultSchema. Lead-accepted open items (surfaced to owner): (1) one new code RULE_NOT_FOUND (taxonomy 31->32); (2) editing a CITED statement re-keys the dimension and re-warms its bar (the existing identity rule); (3) NO cross-instance publication — the instance pin is the guarantee, cross-instance byte-immutability is a later unit; (4) no shipped rule content. Not authorized: folder/glob refs, flow-level rules, severity/tags, enforcement, lifecycle, cross-instance publication, a rules listing op, rule text in recall/metrics, or any store-schema/scorer/gate/dependency change.
+
+- **2026-10-31 — task-rules amendments (owner).** (#1) `RULE_NOT_FOUND` kept, with rules optional (I1: a no-rules task stays byte-identical). (#2) **R9 REVERSED**: editing a cited rule's statement or bumping a set version must NOT change any dimensionKey and must NOT re-warm any bar — a shared-rule edit must never cascade bar-resets. Design: composition feeds judge+brief only; dimensionKey and the bar/rubricDigest path key on the AUTHORED probe instructions + the rule REFERENCE {set,id}, never the composed text/statement/version; the 9 sites split authored(identity/bar) vs composed(judge/brief); changing which rule id a probe cites may re-key. (#3) no cross-instance publication — instance pin is the guarantee (later unit). (#4) owner GO to add initial rule content: `.pi/praxis/rules/engineering/{minimality,conduct}.json` inherited from tia-mcp-rs INVARIANTS/CODE (kebab ids, statements <=280), inert until a task cites them.
+
+- **2026-10-31 — vision design note: conduct profiles (design-only).** Owner GO to record. Scope: `docs/vision.md` §13b and this entry. Acceptance: the note states the reasoning=provider reframing; the `main + role(assignment) + category(flow) + task-rules` composition appended at `before_agent_start` (never `forceSystemPrompt`); declared-not-inferred selection with the category owned by the flow and the role by the assignment; and the four jev-selector guards — all marked design-only. No code, dependency, schema, store, extension or gate change is authorized; gates #2 (Pi host seam) and #3 (trusted identity) stay open.
+
+- **2026-10-31 — profile set + profile-system design (owner-directed, content+design only).** Owner GO: read `.dev/test_profiles`, define the build approach, dispatch the architect to (1) author the first `conduct/role/domain` profile set and (2) design the advisory jev check; lead re-reads every authored profile for alignment. Scope: `.pi/praxis/profile/{conduct,role,domain}/*.json` (content), `docs/profiles-<hash>/` (design). Acceptance: role profiles adapted from `.dev/test_profiles/occam-*` with ALL Occam machinery stripped (no `occam_reason`/`occam_select_profile`/`reasoning_protocols`/`extends`, no “read the skill named occam”); every profile advisory-only (ends with the non-enforcing/non-granting line) and grants no permission; roles layer on `conduct/occam` without duplicating its text; two example `domain` profiles authored; the design states the schema, the `conduct(project)+role(assignment)+domain(flow)+task-rules(task)` fail-closed resolver, per-instance pinning, precedence `task-rules>domain>role>conduct`, and the advisory jev check under the four guards. Not authorized: any runtime code — the `before_agent_start` loader and the jev selector (Shape B) remain a separate authorized build; gates #2/#3 stay open; no schema/store/engine/tool change.
+
+- **2026-10-31 — profile schema LOCKED + jev advisory approved/gated (owner).** Owner locked the structured schema (lead's four defaults accepted): strictObject { id==filename, version>=1, layer in conduct|role|domain (==folder), name<=64, description<=240 META-only, overview<=280, invariants[]/prefer[]/avoid[] (<=12 x <=280), examples[]?<=6, body?<=4000 }; non-empty rule (>=1 of invariants/prefer/avoid or a body); advisory line appended ONCE by the resolver (not a per-profile field); field-wise UNION composition across conduct+role+domain; precedence task-rules>domain>role>conduct; invalid or unknown-key => typed PROFILE_INVALID (fail-closed). Architect re-dispatched to adapt occam + the 9 role/domain profiles to it, create the MISSING conduct/ folder (occam -> conduct/occam.json), delete the POC test.json, and update docs/profiles-286ce77d/design.md §2 + §10. The §8 advisory jev check is APPROVED (closed set; fail-closed to conduct+role indistinguishable from never-asked; conduct-only beneath the ceiling; pinned per instance). jev BUILD authorized by owner but GATED: build only AFTER all 10 profiles validate against the locked schema and the lead has read every one for alignment; it stays Shape B code (src/types/profile.ts, src/runner/profile.ts, src/quality jev adapter, before_agent_start loader, DefinitionKindSchema += 'profile'), a separate authorized build — gates #2 (Pi host seam) and #3 (trusted identity) remain open.
+
+- **2026-11-01 — domain injection unit authorized (owner GO, Path A).** Owner approved the schematic directly: `domain` becomes a dynamic, system-level conduct lens loaded per task, declared on the flow node, never on the reusable task atom. Scope: `src/types/profile.ts` (new), `src/runner/engine/profile.ts` (new), `src/types/schema.ts` (Node + FlowConfig optional `domains`), `src/store/definitions.ts` (`DefinitionKind += "profile"`), `src/runner/engine/flow.ts` (load + pin), `src/pi/descriptor.ts` + `src/types/pi.ts` (`brief.domain`), `src/types/errors.ts` (`PROFILE_NOT_FOUND` / `PROFILE_INVALID`), `tests/pi/brief-domain.test.ts` (new), `tests/runner/domain-pin.test.ts` (new), `docs/FLOWS.md`. Pattern: a 1:1 mirror of the shipped task-rules path. Acceptance: (1) a node `domains:[…]` injects a composed, pinned domain block into the step brief while the task atom stays byte-identical; (2) node domains override a flow-level default; (3) multiple domains union-compose; (4) an unknown/invalid ref fails closed with a typed `PROFILE_*` before any write; (5) a later edit to a domain profile does not change a pinned step; (6) conduct+role untouched, flows with no domains byte-identical, existing tests green, `tsc` clean. Verification obligation: a fresh Pi agent spun in the test-5 tab answers precise questions about its injected profile WITHOUT reading `.pi/praxis/profile/**` — any such read voids the test. Not authorized (held): Praxis composing conduct+role per step (needs a per-step role source = gate #2), agent self-selection of domain (jev shelved), any store-schema change beyond the one `DefinitionKind` value, and task-atom edits.
+
+- **2026-11-01 — system-prompt profile injector (design+plan authorized).** Owner GO: Praxis composes and REPLACES the agent's whole system prompt at each run boundary (`before_agent_start` → `forceSystemPrompt`), ordered `conduct`(occam, fixed) → `role`(fixed) → `domain?`(dynamic, from the task's flow-node invocation, NEVER in task.json) → `environment`(Pi's own current prompt, nested, NOT first), all read from `.pi/praxis/profile/`. Architect designs + plans ONLY; the lead reads the full plan and verifies before any engineer dispatch. Legacy to REMOVE: the static conduct addendum (not sourced from the profiles; wording already drifted from occam.json) and the misplaced `brief.domain` tool-brief field (`src/pi/descriptor.ts` + `resolveDomains` + brief-domain tests) if the system-prompt path supersedes it. This crosses gate #2 (Pi host seam: `before_agent_start` + mapping the active instance/step → its declared domain) and gate #3 (trusted identity: role from config/env = config-trust, NOT a security claim) — both surfaced explicitly, not settled silently. Scope (design+plan): `docs/<slug>-<hash>/`. No implementation is authorized by this entry; the engineer build is a separate step after the lead verifies the plan.
+
+- **2026-11-01 — composed-prompt plan verified; engineer dispatched.** Lead read `docs/composed-prompt-c0c929ff/{design,plan}.md` in full and verified: hook via `before_agent_start` returning `{systemPrompt}` (NOT the shared `forceSystemPrompt` option — avoids double-nesting), Pi's own prompt nested verbatim as `environment` LAST, all three layers via `loadProfileLayer`, role from `PRAXIS_ROLE` (config-trust, gate #3 open), domain from an engine-written `active.json` snapshot the host reads (gate #2, flagged), slices S1→S6 with removal (S5) AFTER the hook (S4). Lead rulings: Q2 — advisory line once at the end of the composed layers, BEFORE `environment`; Q3 — keep `PRAXIS_ROLE` primary plus optional `defaults.role`; the hook REUSES `loadProfileLayer`/`ProfileSchema`, not a reimplemented parser. Owner actions (NOT the engineer's): the `AGENTS.md` §Engineering-conduct pointer edit, and removing the live launch-time conduct addendum (source not definitively located — it is NOT `AGENTS.md`; the live text `# Occam conduct profile` is an `"addendum"` field, likely a `--append-system-prompt` at launch; Q1 open to owner). Scope = the plan's manifest; frozen = `src/quality/**`, store schema/SQL, six-key `ResultSchema`, `tasks/**`, `flows/**`, `package.json`.
+
+- **2026-11-01 — docs/skills cleanup + onboarding (lead-authorized, verify-on-return).** Scope:
+  `.pi/skills/praxis-onboarding/SKILL.md` (new), `docs/WORKFLOW.md`, `docs/vision.md`,
+  `.pi/skills/praxis-workflow/SKILL.md`, `.pi/skills/praxis-minimality/SKILL.md`, and this entry.
+  Acceptance: (1) a `praxis-onboarding` skill exists stating Praxis as-built — profiles
+  `conduct/role/domain` composed into the system prompt at `before_agent_start`, flows of task
+  atoms with gates, rules, the quality gate — plus what is built vs the open gates #1/#2/#3, the
+  AGENTS.md ledger discipline, how to verify, the LIVE-TEST procedure and the never-guess rule;
+  (2) WORKFLOW.md has no stray review-verdict residue and its gates match actual practice;
+  (3) vision.md body reflects `praxis.flow/v2` + task atoms + profiles, not the old
+  inspect/reason/draft/review slice; (4) praxis-workflow no longer claims Manifold-inactive and
+  matches the real loop; (5) praxis-minimality's canon source is decided and stated;
+  (6) praxis-alignment unchanged. Not authorized: any `src/` file, `.pi/praxis/{tasks,flows,
+  profile,rules}/**`, `package.json`, store or schema, or any code. Docs/skills only; the lead
+  verifies on return.
+
+- **2026-11-01 — README.md added to the docs/skills unit (accuracy fix).** Scope += `README.md`.
+  Acceptance: the "Quality bars and learning" section matches the LIVE quantile-bar code — no
+  mean-gate, no `paretoThreshold`, no `DIMENSION_TOLERANCE`, no 9-period EMA, no `compoundDecision`
+  (all removed in `cbc26826`); the composed system-prompt / profiles layer is documented;
+  `recall` is listed as the sixth tool op; `PRAXIS_ROLE` appears in Configuration. Verified against
+  `src/` by the lead on return. Fence otherwise unchanged; no code, schema or `src/` edit.
+- **2026-11-01 — ARCHITECTURE.md (architect, living technical state).** Scope: `docs/ARCHITECTURE.md`
+  (new). Acceptance: a precise, source-cited technical state of Praxis as built now — module map,
+  data model, execution path, composed prompt, quality engine, flow/task model, config/env — plus a
+  "legacy / tech-debt to fix before adding new work" section citing the inherited pi-manifold
+  bootstrap residue and any dead code or over-cap file, the open gates stated as blocking, no
+  isolation/identity/exactly-once claim, and a standing instruction that the file is updated on every
+  architecture change. Docs only; no code or schema; the lead verifies on return.
+
 Repository root is `/home/tia/_DEV/AI/praxis` (currently resolving to
 `/media/Development/AI/praxis`). Resolve the actual target before commands; if a
 tool denies it, stop and correct host rooting rather than bypass the denial.

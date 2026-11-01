@@ -46,6 +46,21 @@ replay number is an upper bound (it uses a static p25, not the live windowed rat
 evidence is the proof tests, which run the real code. True steady-state behavior requires a live run —
 a separate, gated step.
 
+## Metrics read-model (`c76ce85`) — ACCEPTED 2026-10-31
+
+A READ-ONLY TypeScript projection over the existing event log (`src/quality/metrics.ts`, 412 lines) —
+no table, no DDL, no new storage, and **not imported by the gate decision path**. `praxis metrics [task]`
+prints, all DERIVED from `quality.verdict` / `artifact.accepted` / `bar.*`:
+
+- **per task** — n, instances, eventual + first-attempt pass rate, Q50 rate, bottleneck dimension;
+- **per (task, dimension)** — n, mean, median, fraction<0.5, current bar, headroom, Q50 rate, bottleneck
+  share of refusals, contested count;
+- **timeseries** (day buckets) with a monotone check; **flow** (attempts-to-accept, escalation rate, stalls).
+
+Every row carries its n; n<20 is flagged provisional. **No per-agent attribution** (gate #3 deferred); no
+causation/learning claim. Verified independently (tsc, 378/378, boundary greps 0, 412 lines) and run on the
+real v6 store (first-attempt 28.1% → eventual 73.4%; bottleneck parsimony, 60.7% of refusals).
+
 ## P5 — artifact templates (unit E, hash8 99d43024)
 
 Two things, no new store/gate/dependency:

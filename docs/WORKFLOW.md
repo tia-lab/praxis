@@ -24,7 +24,7 @@ here and its instrumentation gates are inapplicable.
 Every authorized unit of work owns exactly one folder:
 
 ```
-docs/<slug>-<hash8>/
+docs/tasks/<slug>-<hash8>/
   research.md   §0 holds the contract verbatim; it is the hash input
   spec.md       requirements + model            (waivable, §4)
   plan.md       declarations, steps, checks     (always)
@@ -34,7 +34,7 @@ docs/<slug>-<hash8>/
 - `slug` — lowercase-hyphen, ≤40 chars, from the task name.
 - `hash8` — first 8 hex of `sha256` over the canonical block below.
 - The three canonical lines are **one physical line each**. Wrapping them breaks
-the hash; never reflow §0.
+  the hash; never reflow §0.
 
 ```sh
 canonical() { printf 'task: %s\nscope: %s\nacceptance: %s\n' "$1" "$2" "$3" \
@@ -66,15 +66,15 @@ G0 CONTRACT → G1 RESEARCH → G2 SPEC → G3 PLAN → G4 IMPLEMENT → G5 REVI
                                 ↑FAIL       ↑FAIL      ↑FAIL
 ```
 
-| Gate | Artifact | Pass condition | On FAIL |
-| --- | --- | --- | --- |
-| G0 | ledger entry + folder | owner goal, scope and acceptance recorded; `hash8` reproducible | stop |
-| G1 | `research.md` | sources at `path:line`; competing explanations; labelled findings; affected owners/callers; uncertainty; review PASS | amend, new attempt |
-| G2 | `spec.md` or §4 waiver | requirement ids with failure behaviour and oracle; model with one owner per fact; exclusions; alternatives; review PASS | amend, new attempt |
-| G3 | `plan.md` | affected-declaration table; steps ordered by dependency; checks table; recovery; out of scope; LOC budget; review PASS | amend, new attempt |
-| G4 | code | each step's narrow check executed and inspected; plan coverage current; no unplanned declaration | return to G3 |
-| G5 | `review.md` | findings against requirement ids; minimality challenged (`minimality/no-speculative-surface`, `minimality/measure-real-complexity`, `minimality/prefer-dominating-alternative`); verdict PASS | return to G3/G4 |
-| G6 | — | the **owner** accepts the artifact against the statement | reopen |
+| Gate | Artifact               | Pass condition                                                                                                                                                                                | On FAIL            |
+| ---- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| G0   | ledger entry + folder  | owner goal, scope and acceptance recorded; `hash8` reproducible                                                                                                                               | stop               |
+| G1   | `research.md`          | sources at `path:line`; competing explanations; labelled findings; affected owners/callers; uncertainty; review PASS                                                                          | amend, new attempt |
+| G2   | `spec.md` or §4 waiver | requirement ids with failure behaviour and oracle; model with one owner per fact; exclusions; alternatives; review PASS                                                                       | amend, new attempt |
+| G3   | `plan.md`              | affected-declaration table; steps ordered by dependency; checks table; recovery; out of scope; LOC budget; review PASS                                                                        | amend, new attempt |
+| G4   | code                   | each step's narrow check executed and inspected; plan coverage current; no unplanned declaration                                                                                              | return to G3       |
+| G5   | `review.md`            | findings against requirement ids; minimality challenged (`minimality/no-speculative-surface`, `minimality/measure-real-complexity`, `minimality/prefer-dominating-alternative`); verdict PASS | return to G3/G4    |
+| G6   | —                      | the **owner** accepts the artifact against the statement                                                                                                                                      | reopen             |
 
 Hard rules:
 
@@ -118,7 +118,7 @@ One section per gate attempt in `review.md`:
 
 ```
 ## <gate> <artifact> — attempt <n> — <PASS|FAIL> — <ISO-8601 UTC>
-subject: docs/<slug>-<hash8>/spec.md sha256:<64 hex>
+subject: docs/tasks/<slug>-<hash8>/spec.md sha256:<64 hex>
 reviewer: <identity>  independence: self|independent
 findings:
 - F1 [blocking] <path:line|section> — <consequence> — cure: <smallest fix> — evidence: <read|run>
@@ -167,12 +167,12 @@ finding.
 
 Default is one author. Compose more only against a named gap.
 
-| Seat | When | Boundary |
-| --- | --- | --- |
-| author | always | only writer for the task folder and its claimed paths |
-| reviewer | every gate from G1 | read-only; gets artifact paths, digests and requirement ids, never the author's narration |
-| researcher | ≥2 independent source areas | read-only, disjoint claims, reports findings not code |
-| coordinator | >3 seats | carries assignments; owns no task content |
+| Seat        | When                        | Boundary                                                                                  |
+| ----------- | --------------------------- | ----------------------------------------------------------------------------------------- |
+| author      | always                      | only writer for the task folder and its claimed paths                                     |
+| reviewer    | every gate from G1          | read-only; gets artifact paths, digests and requirement ids, never the author's narration |
+| researcher  | ≥2 independent source areas | read-only, disjoint claims, reports findings not code                                     |
+| coordinator | >3 seats                    | carries assignments; owns no task content                                                 |
 
 - One writer per task folder. Parallel writers need disjoint claimed paths and an
   explicit split recorded in the plan.

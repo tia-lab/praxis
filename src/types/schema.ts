@@ -302,11 +302,7 @@ export type TaskRef = z.infer<typeof TaskRefSchema>;
  * One node of the flow: an id and the task unit it runs. The flow owns the wiring, so
  * a node carries no capability, gate or schema and a third key is refused (spec R2).
  */
-/**
- * One node of the flow: an id and the task unit it runs. The flow owns the wiring, so a node carries no
- * capability, gate or schema and a third key is refused (spec R2) - except the OPTIONAL `domains`, the one
- * dynamic conduct layer (domain injection): the DOMAIN profiles this step runs under, which the brief injects.
- */
+/** One node: an id, the task unit it runs, and the OPTIONAL `domains` (domain injection) this step runs under. */
 export const NodeSchema = z.strictObject({
   id: StepIdSchema,
   task: TaskRefSchema,
@@ -344,11 +340,7 @@ export function parseTaskRef(value: unknown): string {
  */
 export const FlowConfigSchema = z
   .strictObject({
-  /**
-   * The DOMAIN profiles every step of this flow runs under, when a node declares none (domain injection).
-   * Absent means the flow declares no default, and a flow with no domains anywhere behaves exactly as it did
-   * before this field existed.
-   */
+  /** The DOMAIN default for every step (domain injection); absent means the flow declares none. */
   domains: z.array(DomainRefSchema).max(DOMAINS_PER_NODE_MAX).optional(),
     schema: z.literal("praxis.flow/v2"),
     flow: FlowNameSchema,
@@ -572,8 +564,7 @@ export function parseWith<T>(schema: z.ZodType<T>, value: unknown, code: Code, w
 }
 
 /** The two keys a node may carry; a third is `NODE_INVALID`, not a config typo. */
-/* The two keys a node has always had, plus the one dynamic conduct layer a STEP may declare (domain
- * injection). Nothing else: a node still carries no capability, gate or schema of its own. */
+/* id, task, and the one dynamic conduct layer a STEP may declare (domain injection). Nothing else. */
 const NODE_KEYS: ReadonlySet<string> = new Set(["id", "task", "domains"]);
 
 /** The undeclared key of one raw node, if it carries one. */

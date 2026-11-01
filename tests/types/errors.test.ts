@@ -40,10 +40,12 @@ const ADDED: readonly Code[] = [
   "QUALITY_BLOCKED",
   "ROUTE_UNAVAILABLE",
   "ROUTE_INVALID",
+  "WAIT_TIMEOUT",
+  "WAIT_EVENT_INVALID",
 ];
 
 /** The taxonomy size the mirror must report: 17 existing + 12 added + RULE_NOT_FOUND + the two PROFILE codes, the two ROUTE codes included. */
-const TAXONOMY_SIZE = 36;
+const TAXONOMY_SIZE = 38;
 
 /** The runtime mirror, reached through the schema the tool actually validates with. */
 const MIRROR = FailureDetailsSchema.shape.code.options;

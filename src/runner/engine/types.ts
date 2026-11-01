@@ -29,6 +29,10 @@ export const EVENT = {
   barHeld: "bar.held",
   /** Flow Unit 1 (branch): the ONE durable record of which labelled arm an accepted artifact took. */
   branchDecided: "branch.decided",
+  /** Flow Unit 2 (wait): the park intent an arrival writes — the sole record that a step is waiting. */
+  instanceParked: "instance.parked",
+  /** Flow Unit 2 (wait): the receipt a resume writes, naming the park it releases and the event digest. */
+  waitResumed: "wait.resumed",
 } as const;
 
 /**
@@ -169,6 +173,30 @@ export interface AdvanceOptions extends EngineOptions {
   qualityVerdict?: QualityVerdict;
   /** A route pre-computed outside any transaction (branch R8); required by a deciding step. */
   route?: RouteDecision;
+}
+
+/**
+ * The outside event a host delivers to a parked instance (flow Unit 2 D5, R9). It is never a flow
+ * construct: start fires work and resume continues it, and the event is matched deterministically.
+ */
+export interface WaitEvent {
+  /** The event type, in the log's own grammar; must equal the park's declared type exactly. */
+  type: string;
+  /** The fields the event carries; only the ones the park DECLARED are compared (R9). */
+  fields?: Record<string, string | number | boolean>;
+}
+
+export interface ResumeOptions extends EngineOptions {
+  instance: string;
+  event: WaitEvent;
+}
+
+/** What a resume returns: the same bounded shape an advance returns, read at the same step. */
+export interface Resumed {
+  instance: Instance;
+  result: Result;
+  flow: OpenedFlow;
+  handoffs: HandoffRef[];
 }
 
 export interface InspectOptions extends EngineOptions {

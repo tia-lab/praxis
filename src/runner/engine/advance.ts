@@ -13,6 +13,7 @@ import { buildHandoffs, gate, runStep, successorOf } from "../step.ts";
 import { authoredQuality } from "./rules.ts";
 import { assertObserver, assertStepActor } from "./authority.ts";
 import { acceptedRefs, currentHandoffs, loadPinnedFlow } from "./flow.ts";
+import { arriveAt, waitTypeOf } from "./wait.ts";
 import { snapshotActive } from "./active.ts";
 import { qualityRefusal, failureOutcome, recordAcceptance } from "./quality-loop.ts";
 import { ABSOLUTE_MIN } from "./types.ts";
@@ -55,7 +56,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
       const accepted = acceptedRefs(store, instance.id);
       const flow = loadPinnedFlow(store, instance);
       snapshotActive(instance, flow, storeDir);
-      return { instance, result: buildResult(instance, accepted), flow, handoffs: currentHandoffs(flow, instance, accepted) };
+      return { instance, result: buildResult(instance, accepted, waitTypeOf(flow, instance)), flow, handoffs: currentHandoffs(flow, instance, accepted) };
     }
     if (instance.status !== "running") {
       throw fail("INSTANCE_STATE_INVALID", "instance " + instance.id + " is " + instance.status, {
@@ -187,7 +188,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
         const acceptedNow = acceptedRefs(store, instance.id);
         return {
           instance: closed,
-          result: buildResult(closed, acceptedNow),
+          result: buildResult(closed, acceptedNow, waitTypeOf(flow, closed)),
           flow,
           handoffs: currentHandoffs(flow, closed, acceptedNow),
         };
@@ -381,14 +382,16 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
     const successor = successorOf(flow.config, node.id, decision?.label);
     // Acceptance is the artifact; closure is the lesson (O3). `finishInstance` is the one writer of
     // the completed transition, so the advance path and the note path cannot disagree about it.
+    // Arrival, not a bare move (flow Unit 2 R3): a successor that declares a `wait` parks here, and
+    // every other successor keeps exactly today's transition.
     const updated =
       successor !== undefined
-        ? setStatus(store, instance.id, { status: "running", currentStep: successor }, instance.revision)
+        ? arriveAt(store, instance, flow, successor, at)
         : (finishInstance(store, instance, flow, at) ??
           setStatus(store, instance.id, { status: "running", currentStep: node.id }, instance.revision));
     const acceptedNow = acceptedRefs(store, instance.id);
     snapshotActive(updated, flow, storeDir, at);
-    return { instance: updated, result: buildResult(updated, acceptedNow), flow, handoffs: currentHandoffs(flow, updated, acceptedNow) };
+    return { instance: updated, result: buildResult(updated, acceptedNow, waitTypeOf(flow, updated)), flow, handoffs: currentHandoffs(flow, updated, acceptedNow) };
   });
 }
 

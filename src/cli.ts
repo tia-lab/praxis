@@ -13,7 +13,7 @@
  */
 import { readFileSync } from "node:fs";
 import { asAppError, fail } from "./types/errors.ts";
-import { advance, inspect, readStepArtifact, start, type EngineOptions } from "./runner/engine/index.ts";
+import { advance, inspect, readStepArtifact, resume, start, type EngineOptions, type WaitEvent } from "./runner/engine/index.ts";
 import { projectMaxAttempts } from "./runner/engine/support.ts";
 import { formatMetrics, metricsFor } from "./quality/metrics.ts";
 
@@ -74,6 +74,31 @@ function artifactPayload(flags: Record<string, string>): unknown {
   }
 }
 
+/**
+ * The outside event a resume delivers (flow Unit 2 R5, R9): a JSON file with a `type` and optional
+ * `fields`. It is transport only — the engine decides whether it satisfies the park.
+ */
+function eventPayload(flags: Record<string, string>): WaitEvent | undefined {
+  const path = flags.event;
+  if (path === undefined) return undefined;
+  let value: unknown;
+  try {
+    value = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  } catch (error) {
+    throw fail("CONFIG_INVALID", "event file is not JSON", { path, reason: asAppError(error).message });
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw fail("CONFIG_INVALID", "event file must be a JSON object", { path });
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.type !== "string") throw fail("CONFIG_INVALID", "event file needs a string type", { path });
+  const fields = record.fields;
+  if (fields !== undefined && (typeof fields !== "object" || fields === null || Array.isArray(fields))) {
+    throw fail("CONFIG_INVALID", "event fields must be an object", { path });
+  }
+  return { type: record.type, ...(fields === undefined ? {} : { fields: fields as Record<string, string | number | boolean> }) };
+}
+
 function emit(value: unknown): void {
   process.stdout.write(JSON.stringify(value) + "\n");
 }
@@ -111,19 +136,27 @@ function main(argv: readonly string[]): number {
 
   if (command === "resume") {
     const instance = positionals[1];
-    if (instance === undefined) throw fail("CONFIG_INVALID", "usage: resume <instance> [--artifact <file>]");
+    if (instance === undefined) throw fail("CONFIG_INVALID", "usage: resume <instance> [--artifact <file> | --event <file>]");
+    const event = eventPayload(flags);
+    if (event !== undefined) {
+      emit(resume({ ...options, instance, event }).result);
+      return 0;
+    }
     const current = inspect({ ...options, instance }).instance;
     if (current.status === "completed") {
       emit(inspect({ ...options, instance }).result);
       return 0;
     }
     if (current.status !== "running") {
-      // A failed or blocked instance is not silently resumable: the caller must see it.
-      throw fail("INSTANCE_STATE_INVALID", "instance " + instance + " is " + current.status, {
-        instance,
-        status: current.status,
-        step: current.currentStep,
-      });
+      // A failed instance is not silently resumable, and a PARKED one waits for an event, not for an
+      // artifact: the refusal names the flag that would release it (flow Unit 2 R5, R11).
+      throw fail(
+        "INSTANCE_STATE_INVALID",
+        current.status === "waiting"
+          ? "instance " + instance + " is waiting at " + current.currentStep + "; resume it with --event <file>"
+          : "instance " + instance + " is " + current.status,
+        { instance, status: current.status, step: current.currentStep },
+      );
     }
     if (flags.artifact === undefined) {
       throw fail("CONFIG_INVALID", "resume needs --artifact <file> for step " + current.currentStep, {

@@ -21,6 +21,13 @@ import type { TaskConfig } from "./schema.ts";
 export const StepIdSchema = z.string().regex(KEBAB, "expected a lower-case kebab name");
 export type StepId = z.infer<typeof StepIdSchema>;
 
+/**
+ * The event-type grammar: one dotted lower-case name (`human.submitted`). Owned here because the
+ * `wait` predicate names an event type and the flow document is what declares it; the event log
+ * re-exports it rather than restating the rule (one owner per grammar).
+ */
+export const EventTypeSchema = z.string().regex(/^[a-z][a-z0-9]*(\.[a-z][a-z0-9-]*)+$/);
+
 const TASKS_ROOT = "tasks/";
 
 /**
@@ -69,6 +76,32 @@ export const DecideSchema = z.strictObject({
 });
 export type Decide = z.infer<typeof DecideSchema>;
 
+/** How many fields one wait predicate may compare: a small deterministic surface, not a query language. */
+export const WAIT_MATCH_MAX = 8;
+/** The declared timeout bounds: at least one second, at most thirty days. */
+export const WAIT_TIMEOUT_MIN_MS = 1_000;
+export const WAIT_TIMEOUT_MAX_MS = 2_592_000_000;
+
+/**
+ * The park predicate a NODE declares (flow Unit 2 D1, R2): which outside event may resume the instance
+ * and, optionally, which of its fields must equal what. Matching is exact equality over declared fields
+ * (D6) — no regex, no coercion, no subset match — so a resume is a decision, never a race.
+ */
+export const WaitSchema = z.strictObject({
+  on: z.strictObject({
+    /** The one event type that resumes this wait, in the log's own event-type grammar. */
+    type: EventTypeSchema,
+    /** Declared fields that must equal the event's values exactly; absent means the type alone decides. */
+    match: z
+      .record(z.string().min(1).max(64), z.union([z.string().max(256), z.number(), z.boolean()]))
+      .refine((match) => Object.keys(match).length <= WAIT_MATCH_MAX, `a wait matches at most ${WAIT_MATCH_MAX} fields`)
+      .optional(),
+  }),
+  /** How long the park may stand; evaluated LAZILY at resume, never by a sweep (D4). */
+  timeoutMs: z.int().min(WAIT_TIMEOUT_MIN_MS).max(WAIT_TIMEOUT_MAX_MS).optional(),
+});
+export type Wait = z.infer<typeof WaitSchema>;
+
 /** One node: an id, the task unit it runs, and the OPTIONAL `domains` (domain injection) this step runs under. */
 export const NodeSchema = z.strictObject({
   id: StepIdSchema,
@@ -77,6 +110,8 @@ export const NodeSchema = z.strictObject({
   domains: z.array(DomainRefSchema).max(DOMAINS_PER_NODE_MAX).optional(),
   /** The one-of-N router this node runs (D1, R2); absent means ordinary single-successor work. */
   decide: DecideSchema.optional(),
+  /** The park predicate (flow Unit 2 D1, R2): arriving here waits instead of running (then none). */
+  wait: WaitSchema.optional(),
 });
 export type Node = z.infer<typeof NodeSchema>;
 
@@ -176,6 +211,15 @@ export const FlowConfigSchema = z
           ctx.addIssue({
             code: "custom",
             message: `a refuse edge must go back to an earlier node: ${edge.from}>${edge.to}`,
+            path: ["edges", index],
+          });
+        }
+        // A rework edge may not land on a wait node (D3, R2): a re-arrival would park the work again
+        // and the refusal would hang behind an event nobody is waiting for. Two arrival sites, not three.
+        if (config.nodes[to]?.wait !== undefined) {
+          ctx.addIssue({
+            code: "custom",
+            message: `a refuse edge may not target the wait node ${edge.to}`,
             path: ["edges", index],
           });
         }
@@ -314,9 +358,9 @@ export function parseWith<T>(schema: z.ZodType<T>, value: unknown, code: Code, w
   return parsed.data;
 }
 
-/** The three keys a node may carry; a fourth is `NODE_INVALID`, not a config typo. */
-/* id, task, the one dynamic conduct layer a STEP may declare, and the one router it may run. */
-const NODE_KEYS: ReadonlySet<string> = new Set(["id", "task", "domains", "decide"]);
+/** The five keys a node may carry; a sixth is `NODE_INVALID`, not a config typo. */
+/* id, task, the dynamic conduct layer, the one router, and the one park predicate. */
+const NODE_KEYS: ReadonlySet<string> = new Set(["id", "task", "domains", "decide", "wait"]);
 
 /** The undeclared key of one raw node, if it carries one. */
 function nodeExtraKey(value: unknown): string | undefined {

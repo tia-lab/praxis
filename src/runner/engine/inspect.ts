@@ -9,6 +9,7 @@ import { readArtifact } from "../../store/artifacts.ts";
 import { buildResult } from "../result.ts";
 import { assertObserver } from "./authority.ts";
 import { acceptedRefs, currentHandoffs, loadPinnedFlow } from "./flow.ts";
+import { waitTypeOf } from "./wait.ts";
 import { qualityHistory, withFailedReason } from "./quality-loop.ts";
 import { messageOf, withStore } from "./support.ts";
 import type { Inspection, InspectOptions, ReadOptions } from "./types.ts";
@@ -23,7 +24,7 @@ export function inspect(options: InspectOptions): Inspection {
     const flow = loadPinnedFlow(store, instance);
     return {
       instance,
-      result: buildResult(instance, accepted),
+      result: buildResult(instance, accepted, waitTypeOf(flow, instance)),
       flow,
       handoffs: currentHandoffs(flow, instance, accepted),
       qualityHistory: qualityHistory(store, instance.id, instance.currentStep),

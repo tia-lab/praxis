@@ -13,7 +13,7 @@ import { TaskRulesSchema } from "./rules.ts";
 export { KEBAB, pathUnder } from "./paths.ts";
 
 // The flow document moved to flow.ts (the file cap); re-exported so no importer moves.
-import { FlowNameSchema, SchemaNameSchema, StepIdSchema } from "./flow.ts";
+import { EventTypeSchema, FlowNameSchema, SchemaNameSchema, StepIdSchema } from "./flow.ts";
 export * from "./flow.ts";
 
 /** The closed capability registry (spec R7). An unknown name cannot be declared. */
@@ -48,7 +48,6 @@ export type RoleAssignment = z.infer<typeof RoleAssignmentSchema>;
 export const TimestampSchema = z.iso.datetime({ offset: true });
 
 /** Event type, dotted lower-case, e.g. `instance.created`. */
-export const EventTypeSchema = z.string().regex(/^[a-z][a-z0-9]*(\.[a-z][a-z0-9-]*)+$/);
 
 /**
  * One step of the flow. `consumes` names the step whose accepted artifact this
@@ -278,8 +277,10 @@ export type TaskConfig = z.infer<typeof TaskConfigSchema>;
  * Declared states (spec R8). `failed` has two writers: an unreadable pin (terminal corruption)
  * and the quality escalation, which additionally records a failedReason, an `instance.failed`
  * event and a needs-guidance signal. Nothing is silently resumed from a failed instance.
+ * `waiting` (flow Unit 2) is the parked state: it is reachable only through an arrival at a `wait`
+ * node and leaves only through a resume or a lazy timeout (spec R1).
  */
-export const InstanceStatusSchema = z.enum(["running", "completed", "failed"]);
+export const InstanceStatusSchema = z.enum(["running", "completed", "failed", "waiting"]);
 export type InstanceStatus = z.infer<typeof InstanceStatusSchema>;
 
 /**

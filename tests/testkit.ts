@@ -38,6 +38,8 @@ export interface TaskFixture {
   schema: string;
   /** The NODE's one-of-N router (branch R2); never written into the task document. */
   decide?: unknown;
+  /** The NODE's park predicate (flow Unit 2 R2); never written into the task document. */
+  wait?: unknown;
   goal?: string;
   requires?: unknown;
   bindsSubject?: boolean;
@@ -132,6 +134,8 @@ export function writeFlow(
       task: taskRef(node.id),
       // The router is a NODE attribute: the task atom stays reusable and unaware of the wiring.
       ...(node.decide === undefined ? {} : { decide: node.decide }),
+      // So is the park predicate: a task never declares a wait (flow Unit 2 D1).
+      ...(node.wait === undefined ? {} : { wait: node.wait }),
       ...(nodeDomains?.[node.id] === undefined ? {} : { domains: [...nodeDomains[node.id]] }),
     })),
     edges: wiring,

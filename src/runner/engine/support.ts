@@ -10,7 +10,7 @@ import { loadInstance } from "../../store/instance.ts";
 import { listEvents } from "../../store/events.ts";
 import { ProjectConfigSchema, type ProjectConfig } from "../../types/project.ts";
 import type { Instance } from "../../types/schema.ts";
-import { EVENT, type EngineOptions } from "./types.ts";
+import { EVENT, type EngineOptions, type RouteDecision } from "./types.ts";
 
 export function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -119,6 +119,27 @@ export function orderOf(store: Store, instance: string): string | undefined {
   if (event === undefined) return undefined;
   const order = payloadOf(event.payload).order;
   return typeof order === "string" ? order : undefined;
+}
+
+/**
+ * The route a deciding step already recorded for ONE artifact digest (R11): a pure read of the
+ * instance's `branch.decided` events. Absent means no decision was made about these bytes, and the
+ * caller must obtain one before it writes anything; a recorded decision always beats caller input.
+ */
+export function branchDecisionFor(store: Store, instance: string, step: string, artifactDigest: string): RouteDecision | undefined {
+  for (const event of listEvents(store, instance)) {
+    if (event.type !== EVENT.branchDecided) continue;
+    const payload = payloadOf(event.payload);
+    if (payload.step !== step || payload.artifactDigest !== artifactDigest) continue;
+    return {
+      label: String(payload.label),
+      router: String(payload.router),
+      ...(typeof payload.model === "string" ? { model: payload.model } : {}),
+      ...(typeof payload.reason === "string" ? { reason: payload.reason } : {}),
+      digest: String(payload.artifactDigest),
+    };
+  }
+  return undefined;
 }
 
 /** `orderOf` for a caller holding options: opens and CLOSES the store before any jev call runs. */

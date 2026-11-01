@@ -1,0 +1,36 @@
+{
+  "schema": "praxis.flow/v2",
+  "flow": "flows/examples/change-loop",
+  "nodes": [
+    {
+      "id": "brief",
+      "task": "tasks/examples/brief"
+    },
+    {
+      "id": "implement",
+      "task": "tasks/examples/implement"
+    },
+    {
+      "id": "review",
+      "task": "tasks/examples/review"
+    }
+  ],
+  "edges": [
+    {
+      "kind": "data",
+      "from": "brief",
+      "to": "implement"
+    },
+    {
+      "kind": "data",
+      "from": "implement",
+      "to": "review"
+    },
+    {
+      "kind": "refuse",
+      "from": "review",
+      "to": "implement"
+    }
+  ],
+  "result": "praxis.result/v1"
+}

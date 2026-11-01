@@ -38,9 +38,14 @@ const InstanceRowSchema = z.strictObject({
   updated_at: TimestampSchema,
 });
 
-/** Declared transitions (spec R8). `blocked` is not a state; `completed` and `failed` are terminal. */
+/**
+ * Declared transitions (spec R8). `blocked` is not a state; `completed` and `failed` are terminal.
+ * `waiting` (flow Unit 2) is entered only by an arrival at a `wait` node and left only by a resume or a
+ * lazy timeout: no hop straight to `completed`, so a parked step can never be skipped silently.
+ */
 const TRANSITIONS: Record<InstanceStatus, readonly InstanceStatus[]> = {
-  running: ["completed", "failed"],
+  running: ["completed", "failed", "waiting"],
+  waiting: ["running", "failed"],
   completed: [],
   failed: [],
 };

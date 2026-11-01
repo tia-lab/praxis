@@ -1,0 +1,96 @@
+{
+  "id": "implement",
+  "version": 1,
+  "state": "published",
+  "gate": "section-requirements",
+  "goal": "record the change that was made, file by file, with the check that was run and what it printed",
+  "rationale": "A change record that omits the check's outcome leaves the reviewer to guess whether the work was verified.",
+  "scope": "The change against the brief. Not a redesign, and no claim about a check that was not run.",
+  "capabilities": [
+    "artifact.read",
+    "artifact.write",
+    "emit",
+    "evaluate"
+  ],
+  "produces": {
+    "schema": "praxis.artifact.change/v1"
+  },
+  "role": "support-analyst",
+  "requires": [
+    {
+      "section": "changes",
+      "minItems": 1,
+      "each": [
+        "file",
+        "what",
+        "check"
+      ],
+      "goal": "For each file changed, state what changed and the check that covers it.",
+      "rationale": "One line per file keeps the record reviewable against the brief."
+    },
+    {
+      "section": "checks",
+      "minItems": 1,
+      "each": [
+        "command",
+        "outcome"
+      ],
+      "goal": "Record each check run, with the command and the outcome it printed.",
+      "rationale": "The command and its outcome are the evidence; a summary of them is not."
+    }
+  ],
+  "quality": {
+    "dimensions": [
+      {
+        "id": "change-recorded",
+        "statement": "Each changed file records what changed in it and which check covers that change.",
+        "probes": [
+          {
+            "id": "per-file-what",
+            "type": "noul",
+            "instructions": "Each entry in the changes section states what changed in that file.",
+            "sections": [
+              "changes"
+            ]
+          },
+          {
+            "id": "per-file-check",
+            "type": "noul",
+            "instructions": "Each entry in the changes section names the check that covers that change.",
+            "sections": [
+              "changes"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "checks-evidenced",
+        "statement": "Each check records the command that was run and the outcome it printed.",
+        "probes": [
+          {
+            "id": "outcome-stated",
+            "type": "noul",
+            "instructions": "Each check records the outcome it printed.",
+            "sections": [
+              "checks"
+            ]
+          },
+          {
+            "id": "evidence-completeness",
+            "type": "score",
+            "instructions": "How complete is the check evidence?",
+            "criteria": [
+              "a check is named with no command and no outcome",
+              "the command is recorded with a summary of the outcome",
+              "the command is recorded with the outcome it actually printed"
+            ],
+            "sections": [
+              "checks"
+            ]
+          }
+        ]
+      }
+    ],
+    "policy": "required"
+  }
+}

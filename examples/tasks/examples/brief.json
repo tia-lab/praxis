@@ -1,0 +1,92 @@
+{
+  "id": "brief",
+  "version": 1,
+  "state": "published",
+  "gate": "section-requirements",
+  "goal": "state the change to be made, the files it touches, how acceptance is checked, and how it is rolled back",
+  "rationale": "Work that starts without a checkable acceptance cannot be reviewed, only admired.",
+  "scope": "The plan for one small change. Not the code, not alternatives beyond the one line naming why this change was chosen.",
+  "capabilities": [
+    "artifact.write",
+    "emit",
+    "evaluate"
+  ],
+  "produces": {
+    "schema": "praxis.artifact.brief/v1"
+  },
+  "role": "support-lead",
+  "requires": [
+    {
+      "section": "change",
+      "required": [
+        "summary",
+        "files",
+        "acceptance"
+      ],
+      "goal": "State the change in one paragraph, the files it touches, and the check that shows it worked.",
+      "rationale": "Summary, files and acceptance are what the implementer needs and what the reviewer will test."
+    },
+    {
+      "section": "risk",
+      "required": [
+        "rollback"
+      ],
+      "goal": "State how the change is undone if it goes wrong.",
+      "rationale": "A change with no stated rollback is a change nobody can safely start."
+    }
+  ],
+  "quality": {
+    "dimensions": [
+      {
+        "id": "change-bounded",
+        "statement": "The change section names the files the change touches and states the behaviour it changes.",
+        "probes": [
+          {
+            "id": "files-named",
+            "type": "noul",
+            "instructions": "The change section names each file the change touches.",
+            "sections": [
+              "change"
+            ]
+          },
+          {
+            "id": "behaviour-stated",
+            "type": "noul",
+            "instructions": "The change section states the behaviour that changes.",
+            "sections": [
+              "change"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "acceptance-checkable",
+        "statement": "The acceptance is a check a reviewer can run and judge pass or fail.",
+        "probes": [
+          {
+            "id": "check-runnable",
+            "type": "noul",
+            "instructions": "The acceptance names a check that can be run.",
+            "sections": [
+              "change"
+            ]
+          },
+          {
+            "id": "specificity",
+            "type": "score",
+            "instructions": "How checkable is the acceptance?",
+            "criteria": [
+              "the acceptance states a wish such as working well",
+              "the acceptance names a check without the outcome it expects",
+              "the acceptance names the check and the outcome that proves the change"
+            ],
+            "sections": [
+              "change"
+            ]
+          }
+        ]
+      }
+    ],
+    "policy": "required"
+  }
+}

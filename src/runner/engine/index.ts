@@ -14,8 +14,11 @@ export type {
   OpenedFlow,
   QualityAttempt,
   ReadOptions,
+  ResumeOptions,
+  Resumed,
   StartOptions,
   Started,
+  WaitEvent,
 } from "./types.ts";
 export { orderFor, orderOf, storeDirOf, tasksDirOf } from "./support.ts";
 export { acceptedRefs, currentHandoffs, instanceIdFor, loadPinnedFlow, openFlow, validateFlow } from "./flow.ts";
@@ -23,5 +26,6 @@ export { qualityHistory } from "./quality-loop.ts";
 export { start } from "./start.ts";
 export { advance } from "./advance.ts";
 export { inspect, readStepArtifact } from "./inspect.ts";
+export { arriveAt, deadlineOf, matchEvent, resume, waitTypeOf } from "./wait.ts";
 export { gate } from "../step.ts";
 export type { Verdict } from "../step.ts";

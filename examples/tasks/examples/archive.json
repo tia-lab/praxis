@@ -1,0 +1,76 @@
+{
+  "id": "archive",
+  "version": 1,
+  "state": "published",
+  "gate": "section-requirements",
+  "goal": "close the message without a reply, and record the reason it needs none",
+  "rationale": "A message closed without a recorded reason cannot be reopened by a colleague; the reason is the whole artifact.",
+  "scope": "The decision to archive and its reason. Not a reply, not a summary of the thread beyond the reason.",
+  "capabilities": [
+    "artifact.read",
+    "artifact.write",
+    "emit",
+    "evaluate"
+  ],
+  "produces": {
+    "schema": "praxis.artifact.archive/v1"
+  },
+  "role": "support-analyst",
+  "requires": [
+    {
+      "section": "summary",
+      "required": [
+        "reason",
+        "topics"
+      ],
+      "goal": "State why the message needs no reply, and the topics it touched.",
+      "rationale": "A reason plus topics is what makes an archived message findable and defensible."
+    }
+  ],
+  "quality": {
+    "dimensions": [
+      {
+        "id": "reason-stated",
+        "statement": "The summary states the reason the message can be archived rather than answered and points at the message text that shows it.",
+        "probes": [
+          {
+            "id": "reason-named",
+            "type": "noul",
+            "instructions": "The summary states the reason the message can be archived rather than answered.",
+            "sections": [
+              "summary"
+            ]
+          },
+          {
+            "id": "reason-grounded",
+            "type": "noul",
+            "instructions": "The summary names the message text that shows the stated reason.",
+            "sections": [
+              "summary"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "topics-recorded",
+        "statement": "The summary records the topics the message touched, so a later search finds it.",
+        "probes": [
+          {
+            "id": "topics-count",
+            "type": "score",
+            "instructions": "How completely does the summary record the topics the message touched?",
+            "criteria": [
+              "the summary records no topic",
+              "the summary records one topic the message touched",
+              "the summary records each topic the message touched"
+            ],
+            "sections": [
+              "summary"
+            ]
+          }
+        ]
+      }
+    ],
+    "policy": "required"
+  }
+}

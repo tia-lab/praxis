@@ -1,0 +1,70 @@
+{
+  "schema": "praxis.flow/v2",
+  "flow": "flows/examples/inbox-triage-human",
+  "nodes": [
+    {
+      "id": "triage",
+      "task": "tasks/examples/triage",
+      "domains": [
+        "email-ops",
+        "billing-ops"
+      ],
+      "wait": {
+        "on": {
+          "type": "email.received"
+        },
+        "timeoutMs": 604800000
+      },
+      "decide": {
+        "instructions": "Read the accepted triage artifact and choose the one route this message takes. Choose reply when the customer asks a question this team can answer now; archive when the message needs no reply; escalate when answering needs a decision this team is not authorized to make.",
+        "criteria": {
+          "reply": "the message asks a question this team can answer now",
+          "archive": "the message needs no reply",
+          "escalate": "answering needs a decision this team is not authorized to make"
+        }
+      }
+    },
+    {
+      "id": "reply",
+      "task": "tasks/examples/reply",
+      "wait": {
+        "on": {
+          "type": "human.submitted",
+          "match": {
+            "step": "reply"
+          }
+        },
+        "timeoutMs": 2592000000
+      }
+    },
+    {
+      "id": "archive",
+      "task": "tasks/examples/archive"
+    },
+    {
+      "id": "escalate",
+      "task": "tasks/examples/escalate"
+    }
+  ],
+  "edges": [
+    {
+      "kind": "branch",
+      "from": "triage",
+      "to": "reply",
+      "label": "reply"
+    },
+    {
+      "kind": "branch",
+      "from": "triage",
+      "to": "archive",
+      "label": "archive"
+    },
+    {
+      "kind": "branch",
+      "from": "triage",
+      "to": "escalate",
+      "label": "escalate"
+    }
+  ],
+  "result": "praxis.result/v1"
+}

@@ -52,6 +52,14 @@ export type Code =
   | "ALIGNMENT_REJECTED"
   /** A `before_` hook refused the op (composition seam inside the ceiling; write-free). */
   | "HOOK_VETOED"
+  /** A deciding node has no route — neither supplied nor recorded: fail closed, write nothing. */
+  | "ROUTE_UNAVAILABLE"
+  /** A route names a label the node does not declare, contradicts the record, or belongs to another step. */
+  | "ROUTE_INVALID"
+  /** A parked instance was resumed after its declared deadline: fail closed, no receipt (flow Unit 2 R8). */
+  | "WAIT_TIMEOUT"
+  /** An event does not satisfy the park's declared predicate: refused before any write (flow Unit 2 R9). */
+  | "WAIT_EVENT_INVALID"
   | "RESULT_INVALID"
   | "STORE_INVALID"
   | "INTERNAL";

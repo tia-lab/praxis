@@ -38,10 +38,14 @@ const ADDED: readonly Code[] = [
   "QUALITY_REQUIRED",
   "QUALITY_BELOW_THRESHOLD",
   "QUALITY_BLOCKED",
+  "ROUTE_UNAVAILABLE",
+  "ROUTE_INVALID",
+  "WAIT_TIMEOUT",
+  "WAIT_EVENT_INVALID",
 ];
 
-/** The taxonomy size the mirror must report: 17 existing + 12 added + RULE_NOT_FOUND + the two PROFILE codes. */
-const TAXONOMY_SIZE = 34;
+/** The taxonomy size the mirror must report: 17 existing + 12 added + RULE_NOT_FOUND + the two PROFILE codes, the two ROUTE codes included. */
+const TAXONOMY_SIZE = 38;
 
 /** The runtime mirror, reached through the schema the tool actually validates with. */
 const MIRROR = FailureDetailsSchema.shape.code.options;
@@ -53,7 +57,7 @@ const UNION_AND_MIRROR_AGREE: Same<Code, MirrorCode> = true;
 
 test("the closed union and the runtime mirror name exactly the same codes", () => {
   assert.equal(UNION_AND_MIRROR_AGREE, true);
-  assert.equal(MIRROR.length, TAXONOMY_SIZE, "the mirror must carry 17 existing + 12 added + RULE_NOT_FOUND + the two PROFILE codes");
+  assert.equal(MIRROR.length, TAXONOMY_SIZE, "the mirror must carry every declared code, the two ROUTE codes included");
   assert.equal(new Set(MIRROR).size, MIRROR.length, "no duplicate in the mirror");
   for (const code of ADDED) {
     assert.ok((MIRROR as readonly string[]).includes(code), code + " is missing from the mirror");

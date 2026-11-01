@@ -33,9 +33,11 @@ function clip(text: string, limit: number): string {
  * halted it, so the reason travels with the action and the parent is asked for guidance instead of
  * guessing. A failure without a reason is the older terminal case (an unreadable pin).
  */
-function nextActionFor(status: string, reason: string | undefined): string {
+function nextActionFor(status: string, reason: string | undefined, waitType: string | undefined): string {
   if (status === "completed") return "none";
   if (status === "failed") return reason === undefined ? "inspect-store" : "needs-guidance: " + clip(reason, 900);
+  // A parked instance cannot be advanced: the parent is told WHICH outside event releases it (flow Unit 2 R10).
+  if (status === "waiting") return "wait: " + clip(waitType ?? "event", 900);
   return "resume";
 }
 
@@ -48,8 +50,12 @@ function summaryFor(instance: Instance, accepted: number): string {
   return `${instance.status} at ${instance.currentStep}: ${accepted} artifact(s) accepted`;
 }
 
-/** Build the six-key result from durable state plus accepted artifact references. */
-export function buildResult(instance: Instance, artifacts: readonly ArtifactRef[] = []): Result {
+/**
+ * Build the six-key result from durable state plus accepted artifact references. `waitType` is the
+ * event type a parked node declared; it is read only by the `waiting` arm, so every other status'
+ * result is byte-identical to before this unit.
+ */
+export function buildResult(instance: Instance, artifacts: readonly ArtifactRef[] = [], waitType?: string): Result {
   const candidate = {
     instanceId: instance.id,
     flow: instance.flow,
@@ -61,7 +67,7 @@ export function buildResult(instance: Instance, artifacts: readonly ArtifactRef[
       schema: artifact.schema,
     })),
     summary: summaryFor(instance, artifacts.length),
-    nextAction: nextActionFor(instance.status, instance.failedReason),
+    nextAction: nextActionFor(instance.status, instance.failedReason, waitType),
   };
   return parseWith(ResultSchema, candidate, "RESULT_INVALID", "result");
 }

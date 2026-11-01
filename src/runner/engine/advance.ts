@@ -13,6 +13,7 @@ import { buildHandoffs, gate, runStep, successorOf } from "../step.ts";
 import { authoredQuality } from "./rules.ts";
 import { assertObserver, assertStepActor } from "./authority.ts";
 import { acceptedRefs, currentHandoffs, loadPinnedFlow } from "./flow.ts";
+import { arriveAt, waitTypeOf } from "./wait.ts";
 import { snapshotActive } from "./active.ts";
 import { qualityRefusal, failureOutcome, recordAcceptance } from "./quality-loop.ts";
 import { ABSOLUTE_MIN } from "./types.ts";
@@ -25,8 +26,9 @@ import {
   recordNoteRefusal,
   writeStubNote,
 } from "../note-gate.ts";
-import { stamp, withStore } from "./support.ts";
-import { EVENT, type AdvanceOptions, type HandoffRef, type OpenedFlow } from "./types.ts";
+import { branchDecisionFor, stamp, withStore } from "./support.ts";
+import { EVENT, type AdvanceOptions, type HandoffRef, type OpenedFlow, type RouteDecision } from "./types.ts";
+import { canonicalBytes, digest } from "../canonical.ts";
 
 /**
  * The engine never trusts a pass the floor in force does not support (O2). A verdict is computed
@@ -54,7 +56,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
       const accepted = acceptedRefs(store, instance.id);
       const flow = loadPinnedFlow(store, instance);
       snapshotActive(instance, flow, storeDir);
-      return { instance, result: buildResult(instance, accepted), flow, handoffs: currentHandoffs(flow, instance, accepted) };
+      return { instance, result: buildResult(instance, accepted, waitTypeOf(flow, instance)), flow, handoffs: currentHandoffs(flow, instance, accepted) };
     }
     if (instance.status !== "running") {
       throw fail("INSTANCE_STATE_INVALID", "instance " + instance.id + " is " + instance.status, {
@@ -84,13 +86,83 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
     }
     const node = flow.config.nodes[index];
     const task = flow.tasks.get(node.task) as TaskConfig;
-    const sources = flow.config.edges
-      .filter((edge) => (edge.kind === "data" || edge.kind === "join") && edge.to === node.id)
-      .map((edge) => edge.from);
+    // ONE read of the accepted refs, hoisted above `runStep` (R6): the active-source filter and the
+    // replay check below must see the same set, and `runStep` appends no acceptance of its own.
+    const acceptedBefore = acceptedRefs(store, instance.id);
+    const arms = flow.config.edges.filter((edge) => edge.kind === "branch" && edge.to === node.id);
+    let sources: string[];
+    if (arms.length === 0) {
+      // No branch arm consumes this node: today's static expression, unchanged, so a missing
+      // accepted source still raises ARTIFACT_UNAVAILABLE inside the handoff (R6).
+      sources = flow.config.edges
+        .filter((edge) => (edge.kind === "data" || edge.kind === "join") && edge.to === node.id)
+        .map((edge) => edge.from);
+    } else {
+      // Only an arm that actually FIRED is a source; the other arms never ran and are never read.
+      const fired = [
+        ...new Set(arms.map((edge) => edge.from).filter((from) => acceptedBefore.some((ref) => ref.step === from))),
+      ];
+      if (fired.length !== 1) {
+        throw fail("ROUTE_INVALID", "node " + JSON.stringify(node.id) + " consumes branch arms but " + fired.length + " of them fired", {
+          instance: instance.id,
+          step: node.id,
+          arms: arms.map((edge) => edge.from),
+          fired,
+        });
+      }
+      sources = fired;
+    }
     const refuse = flow.config.edges.find((edge) => edge.kind === "refuse" && edge.from === node.id)?.to;
     const resolved: ResolvedNode =
       refuse === undefined ? { node, task, sources } : { node, task, sources, refuse };
     assertStepActor(store, instance, task, sources, options.actor);
+    // The route is validated BEFORE any write (R8): a deciding step with no supplied and no recorded
+    // decision, a label the node does not declare, a digest for other bytes, and a route handed to a
+    // step without `decide` are all refused here, with event, artifact and revision counts unchanged.
+    const offeredDigest = digest(canonicalBytes(options.artifact === undefined ? {} : options.artifact));
+    const recorded = node.decide === undefined ? undefined : branchDecisionFor(store, instance.id, node.id, offeredDigest);
+    let decision: RouteDecision | undefined = recorded;
+    if (node.decide === undefined) {
+      if (options.route !== undefined) {
+        throw fail("ROUTE_INVALID", "step " + JSON.stringify(node.id) + " does not decide its successor, so it accepts no route", {
+          instance: instance.id,
+          step: node.id,
+          label: options.route.label,
+        });
+      }
+    } else if (recorded === undefined) {
+      if (options.route === undefined) {
+        throw fail("ROUTE_UNAVAILABLE", "step " + JSON.stringify(node.id) + " decides its successor and no route is supplied or recorded", {
+          instance: instance.id,
+          step: node.id,
+          labels: Object.keys(node.decide.criteria),
+        });
+      }
+      if (!Object.prototype.hasOwnProperty.call(node.decide.criteria, options.route.label)) {
+        throw fail("ROUTE_INVALID", "route label " + JSON.stringify(options.route.label) + " is not declared by step " + JSON.stringify(node.id), {
+          instance: instance.id,
+          step: node.id,
+          label: options.route.label,
+          labels: Object.keys(node.decide.criteria),
+        });
+      }
+      if (options.route.digest !== offeredDigest) {
+        throw fail("ROUTE_INVALID", "the route was decided for a different artifact than the one being recorded", {
+          instance: instance.id,
+          step: node.id,
+          route: options.route.digest,
+          artifact: offeredDigest,
+        });
+      }
+      decision = options.route;
+    } else if (options.route !== undefined && (options.route.label !== recorded.label || options.route.digest !== recorded.digest)) {
+      throw fail("ROUTE_INVALID", "a supplied route contradicts the decision already recorded for these bytes", {
+        instance: instance.id,
+        step: node.id,
+        recorded: recorded.label,
+        supplied: options.route.label,
+      });
+    }
     // Closure gate (O3): a step that reached its terminal outcome owes a learning note, and the
     // next advance waits for it. The budget is bounded and the engine writes the stub itself once
     // it is spent, so a silently-noting agent can delay the flow but can never deadlock it.
@@ -116,7 +188,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
         const acceptedNow = acceptedRefs(store, instance.id);
         return {
           instance: closed,
-          result: buildResult(closed, acceptedNow),
+          result: buildResult(closed, acceptedNow, waitTypeOf(flow, closed)),
           flow,
           handoffs: currentHandoffs(flow, closed, acceptedNow),
         };
@@ -130,8 +202,7 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
     const handoffs = buildHandoffs(store, instance, resolved, grant);
     const artifact = runStep({ store, storeDir, instance, node, task, grant, handoffs, payload: options.artifact, at });
 
-    const accepted = acceptedRefs(store, instance.id);
-    const alreadyAccepted = accepted.some((ref) => ref.step === node.id && ref.version === artifact.version);
+    const alreadyAccepted = acceptedBefore.some((ref) => ref.step === node.id && ref.version === artifact.version);
 
     // The gate runs even for a replay of an accepted artifact: acceptance was a judgement
     // about the work as it stood, and after the work moved on the replay is stale.
@@ -290,17 +361,37 @@ export function advance(options: AdvanceOptions): { instance: Instance; result: 
       }
     }
 
-    const successor = successorOf(flow.config, node.id);
+    // ONE durable record, after acceptance and before the step moves (R10). A replay reuses the
+    // recorded label and appends nothing, so the log stays append-only and the count stays one.
+    if (node.decide !== undefined && recorded === undefined && decision !== undefined) {
+      appendEvent(store, instance.id, {
+        type: EVENT.branchDecided,
+        payload: {
+          step: node.id,
+          version: artifact.version,
+          artifactDigest: decision.digest,
+          label: decision.label,
+          router: decision.router,
+          ...(decision.model === undefined ? {} : { model: decision.model }),
+          ...(decision.reason === undefined ? {} : { reason: decision.reason }),
+          at,
+        },
+        at,
+      });
+    }
+    const successor = successorOf(flow.config, node.id, decision?.label);
     // Acceptance is the artifact; closure is the lesson (O3). `finishInstance` is the one writer of
     // the completed transition, so the advance path and the note path cannot disagree about it.
+    // Arrival, not a bare move (flow Unit 2 R3): a successor that declares a `wait` parks here, and
+    // every other successor keeps exactly today's transition.
     const updated =
       successor !== undefined
-        ? setStatus(store, instance.id, { status: "running", currentStep: successor }, instance.revision)
+        ? arriveAt(store, instance, flow, successor, at)
         : (finishInstance(store, instance, flow, at) ??
           setStatus(store, instance.id, { status: "running", currentStep: node.id }, instance.revision));
     const acceptedNow = acceptedRefs(store, instance.id);
     snapshotActive(updated, flow, storeDir, at);
-    return { instance: updated, result: buildResult(updated, acceptedNow), flow, handoffs: currentHandoffs(flow, updated, acceptedNow) };
+    return { instance: updated, result: buildResult(updated, acceptedNow, waitTypeOf(flow, updated)), flow, handoffs: currentHandoffs(flow, updated, acceptedNow) };
   });
 }
 

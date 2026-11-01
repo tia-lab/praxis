@@ -14,7 +14,19 @@ export {
   SAMPLE_REPEATS,
 } from "../runner/engine/types.ts";
 export { advanceEvaluated, evaluateArtifact, type Scorer } from "./evaluate.ts";
-export { jevScorer, type JevScorerOptions } from "./jev-scorer.ts";
+export { choiceQuestion, jevScorer, type JevScorerOptions } from "./jev-scorer.ts";
+/** The branch decider (R9): the router port, the jev implementation and the fail-closed normalizer. */
+export {
+  ROUTER_ID,
+  ROUTE_TIMEOUT_MS,
+  jevRouteRouter,
+  routeOf,
+  type JevRouteOptions,
+  type RouteAnswer,
+  type RouteDecision,
+  type RouteInput,
+  type RouteRouter,
+} from "./jev-branch.ts";
 /** The rubric sampler (S3): repeat-N agreement before a bar may raise. */
 export { agreeOn, recordRubricSample, sampleIfDue, sampleRubric, type SampledRun } from "./sample.ts";
 /** Execution learning, task-level (O2): the per-scope adaptive bars and the compound acceptance. */

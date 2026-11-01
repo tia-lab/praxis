@@ -14,6 +14,7 @@ import { canonicalBytes, digest } from "../canonical.ts";
 import { instanceIdFor, openFlow } from "./flow.ts";
 import { loadExisting, nonceFor, stamp, withStore } from "./support.ts";
 import { EVENT, type StartOptions, type Started } from "./types.ts";
+import { arriveAt } from "./wait.ts";
 
 /** Create or re-open the instance a request id names; never fork (R2), never re-pin (R4). */
 /** Keep a recorded order inside its bound; the digest is always taken over the whole text. */
@@ -126,7 +127,10 @@ export function start(options: StartOptions): Started {
       },
       at,
     });
-    snapshotActive(instance, flow, storeDir, at);
-    return { instance, flow, created: true };
+    // Flow Unit 2 R3: arriving at the FIRST node parks when it declares a wait, exactly as a successor
+    // arrival does. A flow with no wait node leaves this instance untouched, so nothing changes for it.
+    const arrived = first.wait === undefined ? instance : arriveAt(store, instance, flow, first.id, at);
+    snapshotActive(arrived, flow, storeDir, at);
+    return { instance: arrived, flow, created: true };
   });
 }

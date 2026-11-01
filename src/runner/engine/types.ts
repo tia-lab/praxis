@@ -27,6 +27,12 @@ export const EVENT = {
   rubricSampled: "rubric.sampled",
   /** S3: a due raise was withheld because the identity has no stable sample. */
   barHeld: "bar.held",
+  /** Flow Unit 1 (branch): the ONE durable record of which labelled arm an accepted artifact took. */
+  branchDecided: "branch.decided",
+  /** Flow Unit 2 (wait): the park intent an arrival writes — the sole record that a step is waiting. */
+  instanceParked: "instance.parked",
+  /** Flow Unit 2 (wait): the receipt a resume writes, naming the park it releases and the event digest. */
+  waitResumed: "wait.resumed",
 } as const;
 
 /**
@@ -142,12 +148,55 @@ export interface StartOptions extends EngineOptions {
   roles?: Record<string, string>;
 }
 
+/**
+ * The route a deciding step takes, computed OUTSIDE the store and passed in as data (D4, R8). The
+ * engine validates it, records it and routes on it; it is never a tool argument the agent authors.
+ */
+export interface RouteDecision {
+  /** The branch label this accepted artifact chose. */
+  label: string;
+  /** Which router produced it, recorded so a decision names its own source. */
+  router: string;
+  /** The model that answered, when it said. */
+  model?: string;
+  /** A bounded explanation, when the router gave one. */
+  reason?: string;
+  /** The digest of the artifact judged: the decision is bound to these exact bytes. */
+  digest: string;
+}
+
 export interface AdvanceOptions extends EngineOptions {
   instance: string;
   /** Parsed artifact payload supplied by the caller for the node being run. */
   artifact?: unknown;
   /** A quality verdict pre-computed outside any transaction (quality eval); enforced by the gate. */
   qualityVerdict?: QualityVerdict;
+  /** A route pre-computed outside any transaction (branch R8); required by a deciding step. */
+  route?: RouteDecision;
+}
+
+/**
+ * The outside event a host delivers to a parked instance (flow Unit 2 D5, R9). It is never a flow
+ * construct: start fires work and resume continues it, and the event is matched deterministically.
+ */
+export interface WaitEvent {
+  /** The event type, in the log's own grammar; must equal the park's declared type exactly. */
+  type: string;
+  /** The fields the event carries; only the ones the park DECLARED are compared (R9). */
+  fields?: Record<string, string | number | boolean>;
+}
+
+export interface ResumeOptions extends EngineOptions {
+  instance: string;
+  event: WaitEvent;
+}
+
+/** What a resume returns: the same bounded shape an advance returns, read at the same step. */
+export interface Resumed {
+  instance: Instance;
+  result: Result;
+  flow: OpenedFlow;
+  handoffs: HandoffRef[];
 }
 
 export interface InspectOptions extends EngineOptions {

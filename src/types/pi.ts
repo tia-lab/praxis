@@ -123,28 +123,6 @@ export const StepDescriptorSchema = z.strictObject({
     /** When the step binds a subject, the digest to carry as `subject`. */
     subject: DigestSchema.optional(),
     /**
-     * The DOMAIN profiles this step runs under (domain injection), in node order: the node's own
-     * `domains`, or the flow-level default, composed and pinned at start. This is the ONE dynamic
-     * conduct layer - the agent's conduct and role are fixed system identity and are never composed
-     * here. Absent when the node declares none, so a domain-free envelope is byte-identical.
-     */
-    domain: z
-      .array(
-        z.strictObject({
-          /** The bare domain id, e.g. `code`. */
-          id: z.string().min(1).max(64),
-          version: z.int().min(1),
-          /** The profile file's own digest, so the brief names the bytes it came from. */
-          digest: DigestSchema,
-          overview: z.string().min(1).max(280),
-          invariants: z.array(z.string().min(1).max(280)).max(12),
-          prefer: z.array(z.string().min(1).max(280)).max(12),
-          avoid: z.array(z.string().min(1).max(280)).max(12),
-        }),
-      )
-      .max(6)
-      .optional(),
-    /**
      * The rules this TASK follows (task-rules), in the order the task declares them and, inside one set,
      * in the set document's own order. Absent when the task references none: the envelope is then
      * byte-identical to the one before this field existed. Guidance for the agent - never a gate input.

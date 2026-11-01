@@ -11,6 +11,7 @@ import { test } from "node:test";
 import { executePraxisTool, setAlignJudgeForTest, setScorerForTest } from "../../src/pi/tool.ts";
 import type { PiToolResult } from "../../src/pi/host.ts";
 import { loadPinnedFlow } from "../../src/runner/engine/flow.ts";
+import { readActiveStep } from "../../src/runner/engine/active.ts";
 import { loadProfile, resolveDomains } from "../../src/runner/engine/profile.ts";
 import { openStore } from "../../src/store/db.ts";
 import { loadInstance } from "../../src/store/instance.ts";
@@ -95,8 +96,11 @@ test("a domain profile edited after start does not change the pinned step", asyn
     writeFlow(ws, "learn", [task], undefined, undefined, { make: ["code"] });
     const started = await start(ws);
     const instance = started.result.instanceId as string;
-    assert.equal(started.step.brief.domain[0].overview, "THE PINNED OVERVIEW.");
-    const pinnedDigest = started.step.brief.domain[0].digest as string;
+    // The domain reaches the agent through the composed prompt now, so the snapshot is where it is read.
+    const active = readActiveStep(ws.store);
+    assert.ok(active !== undefined, "the snapshot must exist after start");
+    assert.equal(active.domains[0].overview, "THE PINNED OVERVIEW.");
+    const pinnedDigest = active.domains[0].digest;
 
     writeProfile(ws, EDITED);
 
@@ -120,7 +124,7 @@ test("a flow-level default domain is pinned and replayed too", async () => {
     writeProfile(ws, PINNED);
     writeFlow(ws, "learn", [task], undefined, undefined, undefined, ["code"]);
     const started = await start(ws);
-    assert.deepEqual(started.step.brief.domain.map((entry: any) => entry.id), ["code"]);
+    assert.deepEqual(readActiveStep(ws.store)?.domains.map((domain) => domain.id), ["code"]);
     writeProfile(ws, EDITED);
     assert.equal(replayed(ws, started.result.instanceId as string), "THE PINNED OVERVIEW.");
   } finally {

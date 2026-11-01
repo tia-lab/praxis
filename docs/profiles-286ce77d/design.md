@@ -51,6 +51,19 @@ Every body ends with the same advisory sentence:
 
 > This profile guides behavior. It does not enforce gates, prove truth, install hooks, or grant any permission.
 
+### 2.1 Source discipline
+
+Occam is primary: the conduct profile and the role obligations come from it. Four distilled patterns are
+borrowed from the superpowers skills as **secondary enrichment**, rewritten in our own words and in this
+project's calm, evidence-led register: the claim-to-proof mapping (reviewer, "evidence before claims"), the
+red-green essence (domain/code), multi-component boundary instrumentation (debugger), and "rulings, not stalls"
+plus unit right-sizing (lead).
+
+Deliberately not imported: the coercive register ("iron law", "no exceptions", all-caps mandates), the
+skill-invocation rules, git worktrees, the brainstorm server, and every hook, script or plugin. Those are harness
+behaviour rather than conduct, and no profile can enforce them anyway. The superpowers skills are MIT-licensed
+(© Jesse Vincent); the text here is adapted, not copied, and nothing is quoted at length.
+
 ## 3. Taxonomy and the four owners
 
 | Layer | What it answers | Owned by | Declared at |
@@ -183,7 +196,8 @@ Nothing in this unit depends on Shape B landing: the content is valid today and 
 2. `layer` equals the folder name; `version` is an integer ≥ 1; `description` ≤ 240 characters.
 3. Every body ends with the advisory sentence, verbatim.
 4. No body contains `occam_`, `reasoning_protocols`, `extends` or `select_profile`; no body names a tool that
-   this runtime does not have.
+   this runtime does not have; no body carries a coercive register (an "iron law", "no exceptions", an all-caps
+   mandate) — every profile states its obligations as guidance.
 5. No role body restates the conduct core: a role opens with its stance and the two inherited sections only.
 6. No domain body states a role obligation; a domain states subject specifics only.
 7. The resolver order, the mandatory conduct default, the failure matrix, the pin and the precedence are stated
